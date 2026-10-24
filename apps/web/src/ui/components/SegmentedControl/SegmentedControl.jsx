@@ -1,0 +1,12 @@
+import { cx } from '../../utils/cx';
+import './SegmentedControl.css';
+
+export function SegmentedControl({ options, value, onChange, label, className }) {
+  return <div className={cx('segmented', className)} role="group" aria-label={label}>
+    {options.map(option => {
+      const Icon = option.icon;
+      const selected = value === option.value;
+      return <button key={option.value} className={cx(selected && 'active')} aria-pressed={selected} onClick={() => onChange(option.value)}>{Icon && <Icon />}{option.label}</button>;
+    })}
+  </div>;
+}

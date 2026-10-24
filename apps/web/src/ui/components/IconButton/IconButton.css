@@ -1,0 +1,3 @@
+.icon-button{width:26px;height:26px;display:grid;place-items:center;border-radius:6px;color:var(--muted)}
+.icon-button:hover{background:var(--hover);color:var(--text)}
+.icon-button svg{width:15px}

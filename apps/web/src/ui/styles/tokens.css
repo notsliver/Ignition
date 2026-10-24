@@ -1,0 +1,12 @@
+:root{
+  --bg:#f7f6f4;--surface:#fff;--border:#e6e5e2;--line:#e2e1dd;--hover:#efeeeb;
+  --text:#1d1f22;--text-2:#4b4e53;--muted:#8d9095;--icon:#5d6066;
+  --accent:#3c55cf;--active-ring:#e8e7e3;--badge:#f1f0ee;--brand:#1f2a4d;
+  color-scheme:light
+}
+:root[data-theme="dark"]{
+  --bg:#141517;--surface:#1b1c1f;--border:#2a2b2f;--line:#2d2e32;--hover:#202124;
+  --text:#ececee;--text-2:#b4b6bb;--muted:#7d8086;--icon:#9a9ca2;
+  --accent:#8fa2ff;--active-ring:#303136;--badge:#26272b;--brand:#4b5fd1;
+  color-scheme:dark
+}
