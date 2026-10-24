@@ -1,0 +1,13 @@
+.notice{--notice-color:var(--accent);display:flex;align-items:flex-start;gap:10px;padding:11px 10px 11px 14px;border-radius:10px;border:1px solid color-mix(in srgb,var(--notice-color) 28%,var(--border));background:color-mix(in srgb,var(--notice-color) 6%,var(--surface))}
+.notice.success{--notice-color:var(--success)}
+.notice.warning{--notice-color:var(--warning)}
+.notice.danger{--notice-color:var(--danger)}
+.notice-icon{width:16px;margin-top:1px;color:var(--notice-color)}
+.notice-copy{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0}
+.notice-copy strong{font-size:13px;font-weight:600}
+.notice-copy span{font-size:12.5px;line-height:1.45;color:var(--text-2)}
+.notice-action{flex-shrink:0;height:26px;padding:0 9px;border-radius:6px;font-size:12px;font-weight:500;color:var(--text);background:var(--surface);box-shadow:0 0 0 1px var(--border)}
+.notice-action:hover{background:var(--hover)}
+.notice-dismiss{display:grid;place-items:center;width:26px;height:26px;flex-shrink:0;border-radius:6px;color:var(--muted)}
+.notice-dismiss:hover{background:var(--hover);color:var(--text)}
+.notice-dismiss svg{width:14px}

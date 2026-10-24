@@ -1,0 +1,8 @@
+/* Flat bordered list rows shared across pages */
+.list{list-style:none;margin:0;padding:0;border-top:1px solid var(--border)}
+.list>li{border-bottom:1px solid var(--border)}
+.list-row{display:grid;align-items:center;gap:14px;width:100%;min-height:42px;padding:0 8px;margin:0 -8px;width:calc(100% + 16px);border-radius:6px}
+button.list-row:hover{background:var(--hover)}
+.row-name{display:flex;align-items:baseline;gap:8px;min-width:0;font-size:13px;font-weight:500;white-space:nowrap}
+.row-name span{font-size:12px;font-weight:400;color:var(--muted);overflow:hidden;text-overflow:ellipsis}
+.row-meta{font-size:12px;color:var(--muted);white-space:nowrap;text-align:right;font-variant-numeric:tabular-nums}

@@ -3,8 +3,12 @@ import { Bars3Icon, ViewColumnsIcon } from '@heroicons/react/20/solid';
 import { Badge, IconButton, cx } from '../ui';
 import { ComingSoon } from '../pages/ComingSoon';
 import { Dashboard } from '../pages/Dashboard/Dashboard';
+import { Monitor } from '../pages/Monitor/Monitor';
+import { Updates } from '../pages/settings/Updates/Updates';
 import { AppSidebar } from './AppSidebar';
 import './App.css';
+
+const pages = { Dashboard: <Dashboard />, Monitor: <Monitor />, Updates: <Updates /> };
 
 export function App() {
   const [active, setActive] = useState('Dashboard');
@@ -20,7 +24,7 @@ export function App() {
         <IconButton className={cx('show-sidebar', hidden && 'visible')} icon={hidden ? ViewColumnsIcon : Bars3Icon} label="Show navigation" onClick={() => { setHidden(false); setMobileOpen(true); }} />
         <h1>{active}</h1><Badge>Preview</Badge>
       </header>
-      {active === 'Dashboard' ? <Dashboard /> : <ComingSoon title={active} />}
+      {pages[active] ?? <ComingSoon title={active} />}
     </main>
   </div>;
 }

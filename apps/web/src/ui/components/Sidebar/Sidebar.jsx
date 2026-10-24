@@ -19,6 +19,10 @@ export function SidebarFooter(props) {
   return <div className="sidebar-footer" {...props} />;
 }
 
+export function SidebarSeparator() {
+  return <div className="sidebar-separator" role="separator" />;
+}
+
 export function SidebarItem({ icon: Icon, active, children, ...props }) {
   return <button className={cx('sidebar-item', active && 'active')} aria-current={active ? 'page' : undefined} {...props}>{Icon && <Icon />}{children}</button>;
 }

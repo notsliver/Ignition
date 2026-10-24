@@ -2,6 +2,9 @@
 .workspace{display:flex;align-items:center;gap:9px;height:30px;font-size:15px;font-weight:600;letter-spacing:-.2px;color:var(--text)}
 .brand-mark{width:16px;height:16px;border-radius:4px;background:var(--brand);color:#fff;display:grid;place-items:center}
 .brand-mark svg{width:10px}
+.back-to-app{display:flex;align-items:center;gap:7px;height:28px;padding:0 8px 0 6px;margin-left:-8px;border-radius:6px;font-size:13px;font-weight:500;color:var(--text-2)}
+.back-to-app:hover{background:var(--hover);color:var(--text)}
+.back-to-app svg{width:15px;color:var(--icon)}
 .workspace-caret{width:14px;color:var(--text-2);margin-left:-2px}
 
 .container{flex:1;min-width:0;margin:12px 0 0 232px;min-height:calc(100svh - 12px);background:var(--surface);border:1px solid var(--border);border-right:0;border-bottom:0;border-top-left-radius:12px;display:flex;flex-direction:column;transition:margin .18s ease}
