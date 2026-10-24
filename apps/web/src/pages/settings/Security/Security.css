@@ -1,0 +1,20 @@
+.group-head{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:0 2px}
+.group-head h2{margin:0;font-size:13px;font-weight:600}
+.text-link{display:inline-flex;align-items:center;gap:3px;font-size:12px;font-weight:500;color:var(--accent)}
+.text-link:hover{text-decoration:underline}
+.text-link svg{width:12px}
+
+.field-notice{padding:0 16px 12px}
+
+.event-list{list-style:none;margin:0;padding:0}
+.event-list li{display:flex;align-items:center;gap:12px;min-height:50px;padding:8px 16px}
+.event-list li+li{border-top:1px solid var(--border)}
+.event-main{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0}
+.event-main strong{font-size:13px;font-weight:500}
+.event-main span{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.event-time{font-size:12px;color:var(--muted);white-space:nowrap}
+
+.switch:disabled{opacity:.55;cursor:default}
+.security .button.danger{color:var(--danger)}
+.security .button.danger-solid{color:#fff;background:var(--danger);box-shadow:none}
+.security .button.danger-solid:hover{background:color-mix(in srgb,var(--danger) 88%,#000)}

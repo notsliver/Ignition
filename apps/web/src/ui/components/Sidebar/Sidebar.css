@@ -1,4 +1,4 @@
-.sidebar{position:fixed;inset:0 auto 0 0;width:232px;padding:14px 10px 12px;display:flex;flex-direction:column;overflow-y:auto;scrollbar-width:none;background:var(--bg);z-index:20;transition:transform .18s ease}
+.sidebar{position:fixed;inset:0 auto 0 0;width:var(--sidebar-width,232px);padding:14px 10px 12px;display:flex;flex-direction:column;overflow-y:auto;scrollbar-width:none;background:var(--bg);z-index:20;transition:transform .18s ease}
 .sidebar-header{display:flex;align-items:center;justify-content:space-between;height:30px;padding:0 2px 0 8px;margin-bottom:12px}
 .sidebar-nav{flex:1;display:flex;flex-direction:column}
 .sidebar-footer{margin-top:16px}

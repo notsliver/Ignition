@@ -1,0 +1,27 @@
+.select-trigger{justify-content:space-between;gap:8px;padding:0 8px 0 9px;font-size:12.5px;text-align:left;cursor:pointer}
+.select-value{display:flex;align-items:center;gap:7px;min-width:0}
+.select-value>span:last-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.select-trigger>svg{width:14px;flex-shrink:0;color:var(--muted)}
+.select-trigger:hover{background:var(--hover)}
+.select-trigger.open{box-shadow:0 0 0 1px var(--accent),0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
+.select-dot{width:7px;height:7px;flex-shrink:0;border-radius:50%}
+
+.select-popover{position:fixed;z-index:50;display:flex;flex-direction:column;max-width:320px;padding:4px;border-radius:8px;background:var(--surface);box-shadow:0 0 0 1px var(--border),0 8px 24px #0000001f;animation:select-in .12s ease-out}
+.select-search{display:flex;align-items:center;gap:7px;height:30px;margin:-4px -4px 4px;padding:0 10px;border-bottom:1px solid var(--border);color:var(--muted)}
+.select-search svg{width:13px}
+.select-search input{flex:1;min-width:0;border:0;outline:0;background:none;font:inherit;font-size:12.5px;color:var(--text)}
+.select-list{max-height:260px;overflow-y:auto}
+.select-option{display:flex;align-items:center;gap:8px;width:100%;min-height:28px;padding:4px 8px;border-radius:5px;font-size:12.5px;font-weight:500;color:var(--text)}
+.select-option:hover,.select-option:focus-visible,.select-action:hover,.select-action:focus-visible{background:var(--hover);outline:0}
+.select-option[aria-selected="true"]{color:var(--accent)}
+.select-option>svg{width:14px;flex-shrink:0;margin-left:auto;color:var(--accent)}
+.select-option-copy{display:flex;flex-direction:column;gap:2px;min-width:0;text-align:left}
+.select-option-copy>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.select-option-copy small{font-size:11.5px;font-weight:400;color:var(--muted)}
+.select-empty{margin:0;padding:8px;font-size:12px;color:var(--muted)}
+.select-action{display:flex;align-items:center;gap:8px;width:100%;height:28px;margin-top:4px;padding:0 8px;border-radius:5px;font-size:12.5px;font-weight:500;color:var(--text-2);position:relative}
+.select-action::before{content:"";position:absolute;top:-3px;left:-4px;right:-4px;height:1px;background:var(--border)}
+.select-action svg{width:14px;color:var(--icon)}
+
+@keyframes select-in{from{opacity:0;transform:translateY(-3px)}}
+@media(prefers-reduced-motion:reduce){.select-popover{animation:none}}

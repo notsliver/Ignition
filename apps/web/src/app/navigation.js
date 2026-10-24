@@ -1,5 +1,5 @@
 import {
-  AdjustmentsHorizontalIcon, ArchiveBoxIcon, ArrowPathIcon, BellIcon, ChartBarIcon, ClipboardDocumentListIcon, Cog6ToothIcon,
+  AdjustmentsHorizontalIcon, CommandLineIcon, CubeIcon, GlobeAltIcon, RocketLaunchIcon, ArchiveBoxIcon, ArrowPathIcon, BellIcon, ChartBarIcon, ClipboardDocumentListIcon, Cog6ToothIcon,
   KeyIcon, RectangleStackIcon, ShieldCheckIcon, Squares2X2Icon, UserCircleIcon, UsersIcon, WrenchScrewdriverIcon,
 } from '@heroicons/react/20/solid';
 
@@ -37,3 +37,12 @@ export const settingsSections = [
 ];
 
 export const settingsPages = settingsSections.flat().map(item => item.title);
+
+export const projectItems = [
+  { title: 'Resources', icon: CubeIcon },
+  { title: 'Deployments', icon: RocketLaunchIcon },
+  { title: 'Domains', icon: GlobeAltIcon },
+  { title: 'Monitoring', icon: ChartBarIcon },
+  { title: 'Logs', icon: CommandLineIcon },
+  { title: 'Project Settings', icon: Cog6ToothIcon },
+];

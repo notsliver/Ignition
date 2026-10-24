@@ -1,0 +1,12 @@
+.input{position:relative;display:flex;align-items:center;height:30px;border-radius:7px;background:var(--surface);box-shadow:0 0 0 1px var(--border);color:var(--text)}
+.input:focus-within{box-shadow:0 0 0 1px var(--accent),0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
+.input input{flex:1;min-width:0;height:100%;padding:0 9px;border:0;outline:0;background:none;font:inherit;font-size:12.5px;color:inherit}
+.input input[readonly]{color:var(--text-2)}
+.input-affix{padding:0 9px;font-size:12px;color:var(--muted);white-space:nowrap}
+.input-affix:first-child{padding-right:0}
+.input-affix:last-child{padding-left:0}
+
+.switch{position:relative;width:30px;height:18px;flex-shrink:0;border-radius:9px;background:var(--line);transition:background .15s ease}
+.switch span{position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px #00000033;transition:transform .15s ease}
+.switch.on{background:var(--accent)}
+.switch.on span{transform:translateX(12px)}

@@ -1,0 +1,6 @@
+.checkbox{position:relative;display:grid;place-items:center;width:15px;height:15px;flex-shrink:0;border-radius:4px;background:var(--surface);box-shadow:inset 0 0 0 1px var(--muted);color:var(--on-accent);cursor:pointer}
+.checkbox:hover{box-shadow:inset 0 0 0 1px var(--text-2)}
+.checkbox.on{background:var(--accent);box-shadow:none}
+.checkbox input{position:absolute;inset:0;margin:0;opacity:0;cursor:pointer}
+.checkbox:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
+.checkbox svg{width:11px;pointer-events:none}

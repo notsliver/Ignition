@@ -1,0 +1,27 @@
+/* Shared layout for settings pages: a centred column of bordered groups of rows. */
+.settings-page{display:flex;flex-direction:column;gap:24px;width:100%;max-width:760px;margin:0 auto;padding:32px 32px 48px}
+.settings-group{display:flex;flex-direction:column;gap:8px}
+.settings-group>h2{margin:0;padding:0 2px;font-size:13px;font-weight:600}
+.settings-group>p{margin:-4px 0 2px;padding:0 2px;font-size:12px;color:var(--muted)}
+.settings-card{border:1px solid var(--border);border-radius:10px}
+.settings-field{display:flex;align-items:center;justify-content:space-between;gap:24px;min-height:56px;padding:10px 16px}
+.settings-field+.settings-field{border-top:1px solid var(--border)}
+.settings-field-label{display:flex;flex-direction:column;gap:3px;min-width:0}
+.settings-field-label strong{font-size:13px;font-weight:500}
+.settings-field-label span{font-size:12px;color:var(--muted)}
+.settings-field-control{display:flex;align-items:center;justify-content:flex-end;gap:8px;flex-shrink:0;width:300px}
+.settings-field-control>.input{flex:1}
+
+.readonly-value{font-size:13px;color:var(--text-2)}
+.input.mono input{font:12px ui-monospace,SFMono-Regular,Menlo,monospace}
+
+.save-bar{position:sticky;bottom:16px;display:flex;align-items:center;gap:8px;padding:8px 8px 8px 16px;border-radius:10px;background:var(--surface);box-shadow:0 0 0 1px var(--border),0 8px 24px #0000001f;opacity:0;transform:translateY(8px);pointer-events:none;transition:opacity .15s ease,transform .15s ease}
+.save-bar.visible{opacity:1;transform:none;pointer-events:auto}
+.save-bar span{flex:1;font-size:12.5px;color:var(--text-2)}
+@media(prefers-reduced-motion:reduce){.save-bar{transform:none}}
+
+@media(max-width:720px){
+  .settings-page{padding:20px 16px 32px}
+  .settings-field{flex-direction:column;align-items:stretch;gap:8px}
+  .settings-field-control{width:100%;justify-content:flex-start}
+}
