@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { ArchiveBoxIcon, EllipsisHorizontalIcon, ListBulletIcon, PencilSquareIcon, PlusIcon, Squares2X2Icon, StarIcon, TrashIcon, UserGroupIcon } from '@heroicons/react/16/solid';
 import { Badge, Button, Menu, SearchField, SegmentedControl, Status, cx } from '../../ui';
 import { projects } from './data';
+import { projectOptions } from '../../app/createMenus';
 import './Projects.css';
 
 const health = {
@@ -63,7 +64,7 @@ export function Projects({ onOpen }) {
     <div className="projects-toolbar">
       <SearchField value={query} onChange={setQuery} placeholder="Search projects" className="projects-search" />
       <SegmentedControl label="Layout" options={views} value={view} onChange={changeView} className="view-toggle" />
-      <Button variant="primary" icon={PlusIcon}>New project</Button>
+      <Menu className="button primary" label="New project" items={projectOptions}><PlusIcon />New project</Menu>
     </div>
 
     {rows.length === 0
