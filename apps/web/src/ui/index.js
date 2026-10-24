@@ -17,4 +17,5 @@ export { SegmentedControl } from './components/SegmentedControl/SegmentedControl
 export { Sidebar, SidebarHeader, SidebarNav, SidebarFooter, SidebarItem, SidebarGroup, SidebarSeparator, SidebarSubItem } from './components/Sidebar/Sidebar';
 export { Sparkline } from './components/Sparkline/Sparkline';
 export { Status } from './components/Status/Status';
+export { GitHubIcon, GitLabIcon } from './icons/brands';
 export { cx } from './utils/cx';

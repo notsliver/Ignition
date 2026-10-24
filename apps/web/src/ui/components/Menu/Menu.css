@@ -4,11 +4,15 @@
 
 .menu{position:fixed;z-index:50;min-width:180px;padding:4px;border-radius:8px;background:var(--surface);box-shadow:0 0 0 1px var(--border),0 8px 24px #0000001f;animation:menu-in .12s ease-out}
 .menu-item{display:flex;align-items:center;gap:8px;width:100%;height:28px;padding:0 8px;border-radius:5px;font-size:12.5px;font-weight:500;color:var(--text)}
-.menu-item svg{width:14px;color:var(--icon)}
+.menu-item svg{width:14px;flex-shrink:0;color:var(--icon)}
+.menu-item.expanded{background:var(--hover)}
+.menu-item .menu-chevron{width:12px;margin-left:auto;padding-left:12px;box-sizing:content-box;color:var(--muted)}
+.menu.submenu{animation-name:submenu-in}
 .menu-item:hover,.menu-item:focus-visible{background:var(--hover);outline:0}
 .menu-item.danger,.menu-item.danger svg{color:var(--danger)}
 .menu-item.danger:hover,.menu-item.danger:focus-visible{background:color-mix(in srgb,var(--danger) 10%,transparent)}
 .menu-separator{height:1px;margin:4px -4px;background:var(--border)}
 
 @keyframes menu-in{from{opacity:0;transform:translateY(-3px)}}
+@keyframes submenu-in{from{opacity:0;transform:translateX(-3px)}}
 @media(prefers-reduced-motion:reduce){.menu{animation:none}}

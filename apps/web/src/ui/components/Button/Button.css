@@ -2,5 +2,5 @@
 .button:hover{background:var(--hover)}
 .button svg{width:14px;color:var(--icon)}
 .button.primary{background:var(--accent);color:var(--on-accent);box-shadow:none}
-.button.primary:hover{background:color-mix(in srgb,var(--accent) 88%,var(--text))}
+.button.primary:hover,.button.primary.open{background:color-mix(in srgb,var(--accent) 88%,var(--text))}
 .button.primary svg{color:inherit}
