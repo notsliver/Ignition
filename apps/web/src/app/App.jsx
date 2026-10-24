@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Bars3Icon, ViewColumnsIcon } from '@heroicons/react/20/solid';
 import { Badge, IconButton, cx } from '../ui';
 import { ComingSoon } from '../pages/ComingSoon';
+import { Dashboard } from '../pages/Dashboard/Dashboard';
 import { AppSidebar } from './AppSidebar';
 import './App.css';
 
@@ -19,7 +20,7 @@ export function App() {
         <IconButton className={cx('show-sidebar', hidden && 'visible')} icon={hidden ? ViewColumnsIcon : Bars3Icon} label="Show navigation" onClick={() => { setHidden(false); setMobileOpen(true); }} />
         <h1>{active}</h1><Badge>Preview</Badge>
       </header>
-      <ComingSoon title={active} />
+      {active === 'Dashboard' ? <Dashboard /> : <ComingSoon title={active} />}
     </main>
   </div>;
 }

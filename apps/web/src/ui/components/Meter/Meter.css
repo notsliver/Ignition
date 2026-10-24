@@ -1,0 +1,11 @@
+.meter{display:grid;grid-template-columns:34px 1fr 32px;align-items:center;gap:8px;font-size:11px;color:var(--muted)}
+.meter-track{height:4px;border-radius:2px;background:var(--hover);overflow:hidden}
+.meter-fill{height:100%;border-radius:2px;background:var(--icon)}
+.meter.high .meter-fill{background:var(--warning)}
+.meter.critical .meter-fill{background:var(--danger)}
+.meter-value{text-align:right;font-variant-numeric:tabular-nums;color:var(--text-2)}
+.meter.compact{grid-template-columns:34px 1fr;gap:8px}
+.meter.compact .meter-track{grid-column:2;grid-row:1}
+.meter.compact .meter-value{grid-column:1;grid-row:1;text-align:left;font-size:12.5px;font-weight:500;color:var(--text)}
+.meter.compact.high .meter-value{color:var(--warning)}
+.meter.compact.critical .meter-value{color:var(--danger)}

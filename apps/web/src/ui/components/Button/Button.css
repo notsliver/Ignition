@@ -1,0 +1,6 @@
+.button{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:30px;padding:0 11px;border-radius:7px;font-size:12.5px;font-weight:500;white-space:nowrap;color:var(--text);background:var(--surface);box-shadow:0 0 0 1px var(--border),0 1px 2px #00000008}
+.button:hover{background:var(--hover)}
+.button svg{width:14px;color:var(--icon)}
+.button.primary{background:var(--accent);color:var(--on-accent);box-shadow:none}
+.button.primary:hover{background:color-mix(in srgb,var(--accent) 88%,var(--text))}
+.button.primary svg{color:inherit}

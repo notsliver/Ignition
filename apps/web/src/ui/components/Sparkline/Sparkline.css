@@ -1,0 +1,5 @@
+.sparkline{position:relative;height:44px;color:var(--accent);cursor:crosshair}
+.sparkline svg{display:block;width:100%;height:100%;overflow:visible}
+.sparkline-cursor{stroke:var(--muted);stroke-width:1;stroke-dasharray:2 2}
+.sparkline-tip{position:absolute;bottom:calc(100% + 4px);transform:translateX(-50%);display:flex;gap:6px;padding:3px 7px;border-radius:5px;font-size:11px;font-weight:500;white-space:nowrap;pointer-events:none;color:var(--text);background:var(--surface);box-shadow:0 0 0 1px var(--border),0 2px 6px #00000014;font-variant-numeric:tabular-nums}
+.sparkline-tip span{color:var(--muted);font-weight:400}

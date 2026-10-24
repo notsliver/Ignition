@@ -1,0 +1,10 @@
+.status{display:inline-flex;align-items:center;gap:6px;font-size:12px;font-weight:500;color:var(--text-2);white-space:nowrap}
+.status::before{content:"";width:6px;height:6px;border-radius:50%;background:var(--status-color,var(--muted))}
+.status.dot-only{gap:0;justify-content:center;width:6px}
+.status.success{--status-color:var(--success)}
+.status.warning{--status-color:var(--warning)}
+.status.danger{--status-color:var(--danger);color:var(--danger)}
+.status.progress{--status-color:var(--accent)}
+.status.progress::before{animation:status-pulse 1.4s ease-in-out infinite}
+@keyframes status-pulse{50%{opacity:.3}}
+@media(prefers-reduced-motion:reduce){.status.progress::before{animation:none;box-shadow:0 0 0 2px color-mix(in srgb,var(--accent) 25%,transparent)}}
