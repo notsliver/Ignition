@@ -1,8 +1,8 @@
-import { Squares2X2Icon, PuzzlePieceIcon, Cog6ToothIcon } from '@heroicons/react/20/solid';
+import { Squares2X2Icon, ChartBarIcon, Cog6ToothIcon } from '@heroicons/react/20/solid';
 
 export const topItems = [
   { title: 'Dashboard', icon: Squares2X2Icon },
-  { title: 'Integrations', icon: PuzzlePieceIcon },
+  { title: 'Monitor', icon: ChartBarIcon },
   { title: 'Settings', icon: Cog6ToothIcon },
 ];
 
