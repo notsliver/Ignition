@@ -294,7 +294,8 @@ type Resource struct {
 	CurrentDeploymentID *string    `json:"currentDeploymentId"`
 	RunningSince        *time.Time `json:"runningSince"`
 	SourceID            *string    `json:"sourceId"`
-	Domain              string     `json:"domain"` // primary working domain as a URL, "" when none
+	Domain              string     `json:"domain"`  // primary working domain as a URL, "" when none
+	Volumes             []string   `json:"volumes"` // mount paths of its volumes
 	ProjectName         string     `json:"projectName,omitempty"`
 	Usage               *Usage     `json:"usage,omitempty"`
 	LastDeployAt        *time.Time `json:"lastDeployAt"`
@@ -321,6 +322,7 @@ const resourceSelect = `
 	SELECT r.id, r.project_id, r.environment_id, e.name, r.name, r.type, r.source_type, r.image, r.repo_url, r.branch, r.dockerfile,
 	       r.port, r.command, r.data_path, r.memory_mb, r.cpus::float8, r.desired_state, r.status, r.container_id, r.host_port, r.current_deployment_id, r.running_since, r.source_id,
 	       (SELECT CASE WHEN d.https THEN 'https://' ELSE 'http://' END || d.hostname FROM domains d WHERE d.resource_id = r.id AND d.status = 'active' ORDER BY d.is_primary DESC, d.created_at LIMIT 1),
+	       COALESCE((SELECT array_agg(v.mount_path ORDER BY v.created_at, v.name) FROM resource_volumes v WHERE v.resource_id = r.id), '{}'),
 	       (SELECT max(d.created_at) FROM deployments d WHERE d.resource_id = r.id), r.created_at, r.updated_at
 	FROM resources r JOIN environments e ON e.id = r.environment_id`
 
@@ -328,7 +330,7 @@ func scanResource(row pgx.Row) (*Resource, error) {
 	var r Resource
 	var domain *string
 	err := row.Scan(&r.ID, &r.ProjectID, &r.EnvironmentID, &r.Environment, &r.Name, &r.Type, &r.SourceType, &r.Image, &r.RepoURL, &r.Branch, &r.Dockerfile,
-		&r.Port, &r.Command, &r.DataPath, &r.MemoryMB, &r.CPUs, &r.DesiredState, &r.Status, &r.ContainerID, &r.HostPort, &r.CurrentDeploymentID, &r.RunningSince, &r.SourceID, &domain, &r.LastDeployAt, &r.CreatedAt, &r.UpdatedAt)
+		&r.Port, &r.Command, &r.DataPath, &r.MemoryMB, &r.CPUs, &r.DesiredState, &r.Status, &r.ContainerID, &r.HostPort, &r.CurrentDeploymentID, &r.RunningSince, &r.SourceID, &domain, &r.Volumes, &r.LastDeployAt, &r.CreatedAt, &r.UpdatedAt)
 	r.Domain = withPort(domain)
 	return &r, noRows(err)
 }
@@ -362,6 +364,7 @@ type NewResource struct {
 	Port                                                                                                                         *int
 	MemoryMB                                                                                                                     int
 	CPUs                                                                                                                         float64
+	Defaults                                                                                                                     *ResourceDefaults // instance defaults for settings without their own input
 }
 
 func (s *Store) CreateResource(ctx context.Context, tx pgx.Tx, r NewResource) (string, error) {
@@ -370,6 +373,14 @@ func (s *Store) CreateResource(ctx context.Context, tx pgx.Tx, r NewResource) (s
 		INSERT INTO resources (project_id, environment_id, name, type, source_type, image, repo_url, branch, dockerfile, port, command, data_path, memory_mb, cpus, created_by, source_id)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
 		r.ProjectID, r.EnvironmentID, r.Name, r.Type, r.SourceType, r.Image, r.RepoURL, r.Branch, r.Dockerfile, r.Port, r.Command, r.DataPath, r.MemoryMB, r.CPUs, nullable(r.CreatedBy), nullable(r.SourceID)).Scan(&id)
+	if err == nil && r.Defaults != nil {
+		d := r.Defaults
+		_, err = tx.Exec(ctx, `UPDATE resources SET health_seconds = $2, stop_grace_seconds = $3, restart_policy = $4, build_mode = $5 WHERE id = $1`,
+			id, d.HealthSeconds, d.StopGrace, d.RestartPolicy, d.BuildMode)
+	}
+	if err == nil && r.DataPath != "" {
+		_, err = tx.Exec(ctx, `INSERT INTO resource_volumes (resource_id, name, mount_path) VALUES ($1, 'data', $2)`, id, r.DataPath)
+	}
 	if err == nil && r.Type == "application" && r.Port != nil {
 		// Private by default: applications get a random host port on this machine only; databases and workers get none.
 		_, err = tx.Exec(ctx, `INSERT INTO resource_ports (resource_id, container_port, bind_address) VALUES ($1, $2, '127.0.0.1')`, id, *r.Port)
@@ -454,7 +465,7 @@ func (s *Store) ListAllResources(ctx context.Context, query, typ string) ([]Reso
 		var at *time.Time
 		var domain *string
 		err := rows.Scan(&r.ID, &r.ProjectID, &r.EnvironmentID, &r.Environment, &r.Name, &r.Type, &r.SourceType, &r.Image, &r.RepoURL, &r.Branch, &r.Dockerfile,
-			&r.Port, &r.Command, &r.DataPath, &r.MemoryMB, &r.CPUs, &r.DesiredState, &r.Status, &r.ContainerID, &r.HostPort, &r.CurrentDeploymentID, &r.RunningSince, &r.SourceID, &domain, &r.LastDeployAt, &r.CreatedAt, &r.UpdatedAt,
+			&r.Port, &r.Command, &r.DataPath, &r.MemoryMB, &r.CPUs, &r.DesiredState, &r.Status, &r.ContainerID, &r.HostPort, &r.CurrentDeploymentID, &r.RunningSince, &r.SourceID, &domain, &r.Volumes, &r.LastDeployAt, &r.CreatedAt, &r.UpdatedAt,
 			&r.ProjectName, &cpu, &mem, &at)
 		if err != nil {
 			return nil, err
@@ -542,6 +553,10 @@ type Deployment struct {
 	Author     string     `json:"author"`
 	JobID      *string    `json:"jobId"`
 	Current    bool       `json:"current"`
+	ImageID    string     `json:"imageId"`
+	Previous   *int       `json:"previousNumber"` // the release that was live when this one was started
+	RestoreEnv bool       `json:"restoreEnv"`     // a rollback that also restored that release's variables
+	EnvKept    bool       `json:"envSnapshot"`    // the variables it ran with are kept
 	CreatedAt  time.Time  `json:"createdAt"`
 	StartedAt  *time.Time `json:"startedAt"`
 	FinishedAt *time.Time `json:"finishedAt"`
@@ -550,13 +565,15 @@ type Deployment struct {
 const deploymentSelect = `
 	SELECT d.id, d.resource_id, d.number, d.status, d.trigger, d.image_ref, d.commit_sha, d.branch, d.reason, d.error,
 	       COALESCE(u.email, 'system'), (SELECT j.id FROM jobs j WHERE j.deployment_id = d.id ORDER BY j.created_at DESC LIMIT 1),
-	       r.current_deployment_id IS NOT DISTINCT FROM d.id, d.created_at, d.started_at, d.finished_at
+	       r.current_deployment_id IS NOT DISTINCT FROM d.id, d.image_id,
+	       (SELECT p.number FROM deployments p WHERE p.id = d.previous_deployment_id), d.restore_env,
+	       EXISTS (SELECT 1 FROM deployment_env e WHERE e.deployment_id = d.id), d.created_at, d.started_at, d.finished_at
 	FROM deployments d JOIN resources r ON r.id = d.resource_id LEFT JOIN users u ON u.id = d.created_by`
 
 func scanDeployment(row pgx.Row) (*Deployment, error) {
 	var d Deployment
 	err := row.Scan(&d.ID, &d.ResourceID, &d.Number, &d.Status, &d.Trigger, &d.ImageRef, &d.CommitSHA, &d.Branch, &d.Reason, &d.Error,
-		&d.Author, &d.JobID, &d.Current, &d.CreatedAt, &d.StartedAt, &d.FinishedAt)
+		&d.Author, &d.JobID, &d.Current, &d.ImageID, &d.Previous, &d.RestoreEnv, &d.EnvKept, &d.CreatedAt, &d.StartedAt, &d.FinishedAt)
 	return &d, noRows(err)
 }
 
@@ -588,8 +605,9 @@ func (s *Store) CreateDeployment(ctx context.Context, tx pgx.Tx, resourceID, tri
 	}
 	var id string
 	err := tx.QueryRow(ctx, `
-		INSERT INTO deployments (resource_id, number, trigger, image_ref, branch, reason, created_by)
-		VALUES ($1, COALESCE((SELECT max(number) FROM deployments WHERE resource_id = $1), 0) + 1, $2, $3, $4, $5, $6)
+		INSERT INTO deployments (resource_id, number, trigger, image_ref, branch, reason, created_by, previous_deployment_id)
+		VALUES ($1, COALESCE((SELECT max(number) FROM deployments WHERE resource_id = $1), 0) + 1, $2, $3, $4, $5, $6,
+		        (SELECT current_deployment_id FROM resources WHERE id = $1))
 		RETURNING id`, resourceID, trigger, imageRef, branch, reason, nullable(userID)).Scan(&id)
 	return id, err
 }
@@ -663,7 +681,10 @@ func (s *Store) Audit(ctx context.Context, actor *User, action, targetType, targ
 	b, _ := json.Marshal(detail)
 	var id, email *string
 	if actor != nil {
-		id, email = &actor.ID, &actor.Email
+		email = &actor.Email
+		if actor.ID != "" {
+			id = &actor.ID
+		}
 	}
 	s.DB.Exec(ctx, `INSERT INTO audit_events (actor_id, actor_email, action, target_type, target_id, detail, ip) VALUES ($1, COALESCE($2, 'system'), $3, $4, $5, $6, $7)`,
 		id, email, action, targetType, targetID, b, ip)

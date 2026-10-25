@@ -25,6 +25,7 @@ import (
 type Docker struct {
 	client *http.Client
 	base   string
+	socket string
 
 	instanceOnce sync.Once
 	instance     string
@@ -39,7 +40,7 @@ func NewDocker(socket string) *Docker {
 			return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 		},
 	}
-	return &Docker{client: &http.Client{Transport: transport}, base: "http://docker/" + apiVersion}
+	return &Docker{client: &http.Client{Transport: transport}, base: "http://docker/" + apiVersion, socket: socket}
 }
 
 type apiError struct {
@@ -196,8 +197,23 @@ func (d *Docker) PullImage(ctx context.Context, ref, auth string, log Logf) erro
 	return readProgress(resp.Body, log)
 }
 
-func (d *Docker) BuildImage(ctx context.Context, contextTar io.Reader, dockerfile, tag string, log Logf) error {
-	q := url.Values{"t": {tag}, "dockerfile": {dockerfile}, "rm": {"1"}, "forcerm": {"1"}}
+func (d *Docker) BuildImage(ctx context.Context, contextTar io.Reader, o BuildOptions, log Logf) error {
+	q := url.Values{"t": {o.Tag}, "dockerfile": {o.Dockerfile}, "rm": {"1"}, "forcerm": {"1"}}
+	if o.Target != "" {
+		q.Set("target", o.Target)
+	}
+	if len(o.Args) > 0 {
+		args, _ := json.Marshal(o.Args)
+		q.Set("buildargs", string(args))
+	}
+	if o.NoCache {
+		q.Set("nocache", "1")
+		q.Set("pull", "1")
+	}
+	if len(o.Labels) > 0 {
+		labels, _ := json.Marshal(o.Labels)
+		q.Set("labels", string(labels))
+	}
 	resp, err := d.do(ctx, "POST", "/build", q, contextTar, "application/x-tar")
 	if err != nil {
 		return err
@@ -218,23 +234,50 @@ func (d *Docker) EnsureNetwork(ctx context.Context, name string) error {
 }
 
 func (d *Docker) CreateContainer(ctx context.Context, s ContainerSpec) (string, error) {
-	hostConfig := map[string]any{
-		"Memory":        int64(s.MemoryMB) * 1024 * 1024,
-		"NanoCpus":      int64(s.CPUs * 1e9),
-		"RestartPolicy": map[string]any{"Name": "unless-stopped"},
-		"NetworkMode":   s.Network,
+	l := s.Limits
+	l.MemoryMB, l.CPUs = s.MemoryMB, s.CPUs
+	hostConfig := limitConfig(l)
+	hostConfig["NetworkMode"] = s.Network
+	if len(s.Binds) > 0 {
+		hostConfig["Binds"] = s.Binds
+	}
+	if s.AutoRemove {
+		hostConfig["AutoRemove"] = true
 	}
 	if len(s.Volumes) > 0 {
 		var mounts []map[string]any
 		for name, target := range s.Volumes {
+			labels := map[string]string{"ignition.managed": "true"}
+			for k, v := range s.VolumeLabels {
+				labels[k] = v
+			}
 			mounts = append(mounts, map[string]any{"Type": "volume", "Source": name, "Target": target,
-				"VolumeOptions": map[string]any{"Labels": map[string]string{"ignition.managed": "true"}}})
+				"VolumeOptions": map[string]any{"Labels": labels}})
 		}
 		hostConfig["Mounts"] = mounts
 	}
 	body := map[string]any{"Image": s.Image, "Env": s.Env, "Labels": s.Labels, "HostConfig": hostConfig}
 	if len(s.Cmd) > 0 {
 		body["Cmd"] = s.Cmd
+	}
+	if len(s.Entrypoint) > 0 {
+		body["Entrypoint"] = s.Entrypoint
+	}
+	if s.WorkingDir != "" {
+		body["WorkingDir"] = s.WorkingDir
+	}
+	if s.User != "" {
+		body["User"] = s.User
+	}
+	if s.ReadOnlyRoot {
+		hostConfig["ReadonlyRootfs"] = true
+		hostConfig["Tmpfs"] = map[string]string{"/tmp": "rw,nosuid,size=256m", "/run": "rw,nosuid,size=64m"}
+	}
+	if s.Init {
+		hostConfig["Init"] = true
+	}
+	if s.Privileged {
+		hostConfig["Privileged"] = true
 	}
 	if s.Network != "" {
 		// API 1.44+ accepts every network at create time, each with the same aliases.
@@ -275,6 +318,60 @@ func (d *Docker) Restart(ctx context.Context, id string, timeout time.Duration) 
 	return d.doJSON(ctx, "POST", "/containers/"+url.PathEscape(id)+"/restart", url.Values{"t": {strconv.Itoa(int(timeout.Seconds()))}}, nil, nil)
 }
 
+func (d *Docker) Pause(ctx context.Context, id string) error {
+	return d.doJSON(ctx, "POST", "/containers/"+url.PathEscape(id)+"/pause", nil, nil, nil)
+}
+
+func (d *Docker) Unpause(ctx context.Context, id string) error {
+	return d.doJSON(ctx, "POST", "/containers/"+url.PathEscape(id)+"/unpause", nil, nil, nil)
+}
+
+func (d *Docker) ImageID(ctx context.Context, ref string) (string, error) {
+	var out struct{ Id string }
+	err := d.doJSON(ctx, "GET", "/images/"+ref+"/json", nil, nil, &out)
+	if IsNotFound(err) {
+		return "", nil
+	}
+	return out.Id, err
+}
+
+func (d *Docker) Images(ctx context.Context, repo, label string) ([]Image, error) {
+	seen := map[string]bool{}
+	var list []Image
+	for _, filter := range []map[string][]string{{"reference": {repo}}, {"label": {label}}} {
+		if filter["reference"] != nil && repo == "" || filter["label"] != nil && label == "" {
+			continue
+		}
+		f, _ := json.Marshal(filter)
+		var out []struct {
+			Id         string
+			RepoTags   []string
+			Size       int64
+			SharedSize int64
+			Created    int64
+		}
+		if err := d.doJSON(ctx, "GET", "/images/json", url.Values{"filters": {string(f)}, "shared-size": {"1"}}, nil, &out); err != nil {
+			return nil, err
+		}
+		for _, i := range out {
+			if !seen[i.Id] {
+				seen[i.Id] = true
+				own := i.Size
+				if i.SharedSize > 0 && i.SharedSize <= i.Size {
+					own = i.Size - i.SharedSize // layers other images use aren't freed by removing this one
+				}
+				list = append(list, Image{ID: i.Id, Tags: i.RepoTags, Size: own, Created: time.Unix(i.Created, 0).UTC()})
+			}
+		}
+	}
+	sort.Slice(list, func(a, b int) bool { return list[a].Created.After(list[b].Created) })
+	return list, nil
+}
+
+func (d *Docker) RemoveImage(ctx context.Context, id string) error {
+	return d.doJSON(ctx, "DELETE", "/images/"+url.PathEscape(id), url.Values{"force": {"1"}}, nil, nil)
+}
+
 func (d *Docker) Remove(ctx context.Context, id string, removeVolumes bool) error {
 	q := url.Values{"force": {"1"}}
 	if removeVolumes {
@@ -301,12 +398,34 @@ func (d *Docker) Inspect(ctx context.Context, id string) (State, error) {
 		State struct {
 			Status     string
 			Running    bool
+			Paused     bool
 			Restarting bool
 			OOMKilled  bool
 			ExitCode   int
 			StartedAt  time.Time
+			FinishedAt time.Time
 		}
-		Config          struct{ Image string }
+		RestartCount int
+		Mounts       []struct {
+			Type, Name, Destination string
+		}
+		Image  string
+		Config struct {
+			Image      string
+			Entrypoint []string
+			Cmd        []string
+			User       string
+			WorkingDir string
+			Labels     map[string]string
+		}
+		HostConfig struct {
+			ReadonlyRootfs bool
+			Init           *bool
+			Privileged     bool
+			Memory         int64
+			NanoCpus       int64
+			RestartPolicy  struct{ Name string }
+		}
 		NetworkSettings struct {
 			Ports    map[string][]struct{ HostIp, HostPort string }
 			Networks map[string]struct {
@@ -324,7 +443,16 @@ func (d *Docker) Inspect(ctx context.Context, id string) (State, error) {
 		return State{}, err
 	}
 	st := State{Exists: true, Running: out.State.Running, Status: out.State.Status, ExitCode: out.State.ExitCode, StartedAt: out.State.StartedAt,
-		Image: out.Config.Image, Restarting: out.State.Restarting, OOMKilled: out.State.OOMKilled}
+		Image: out.Config.Image, ImageID: out.Image, Restarting: out.State.Restarting, Paused: out.State.Paused, OOMKilled: out.State.OOMKilled,
+		RestartCount: out.RestartCount, FinishedAt: out.State.FinishedAt,
+		Config: ContainerConfig{Entrypoint: out.Config.Entrypoint, Cmd: out.Config.Cmd, User: out.Config.User, WorkingDir: out.Config.WorkingDir,
+			Labels: out.Config.Labels, ReadOnlyRoot: out.HostConfig.ReadonlyRootfs, Init: out.HostConfig.Init != nil && *out.HostConfig.Init,
+			Privileged: out.HostConfig.Privileged, MemoryBytes: out.HostConfig.Memory, NanoCPUs: out.HostConfig.NanoCpus, Restart: out.HostConfig.RestartPolicy.Name}}
+	for _, m := range out.Mounts {
+		if m.Type == "volume" {
+			st.Mounts = append(st.Mounts, Mount{Volume: m.Name, Destination: m.Destination})
+		}
+	}
 	for key, bindings := range out.NetworkSettings.Ports {
 		port, proto, _ := strings.Cut(key, "/")
 		cport, _ := strconv.Atoi(port)
@@ -628,4 +756,231 @@ func (d *Docker) Instance(ctx context.Context) string {
 		}
 	})
 	return d.instance
+}
+
+func (d *Docker) Exec(ctx context.Context, container string, cmd []string, env []string, log Logf) (int, error) {
+	var created struct{ Id string }
+	if err := d.doJSON(ctx, "POST", "/containers/"+url.PathEscape(container)+"/exec", nil,
+		map[string]any{"Cmd": cmd, "Env": env, "AttachStdout": true, "AttachStderr": true}, &created); err != nil {
+		return 0, err
+	}
+	body, _ := json.Marshal(map[string]any{"Detach": false, "Tty": false})
+	resp, err := d.do(ctx, "POST", "/exec/"+created.Id+"/start", nil, bytes.NewReader(body), "application/json")
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	header := make([]byte, 8)
+	for {
+		if _, err := io.ReadFull(resp.Body, header); err != nil {
+			break
+		}
+		frame := make([]byte, binary.BigEndian.Uint32(header[4:]))
+		if _, err := io.ReadFull(resp.Body, frame); err != nil {
+			break
+		}
+		level := "info"
+		if header[0] == 2 {
+			level = "warn"
+		}
+		for _, line := range strings.Split(strings.TrimRight(string(frame), "\n"), "\n") {
+			log(level, line)
+		}
+	}
+	if ctx.Err() != nil {
+		return 0, ctx.Err()
+	}
+	var inspect struct{ ExitCode int }
+	if err := d.doJSON(context.WithoutCancel(ctx), "GET", "/exec/"+created.Id+"/json", nil, nil, &inspect); err != nil {
+		return 0, err
+	}
+	return inspect.ExitCode, nil
+}
+
+func (d *Docker) ResourceContainers(ctx context.Context, resourceID string) ([]string, error) {
+	f, _ := json.Marshal(map[string][]string{"label": {"ignition.resource=" + resourceID}})
+	var out []struct{ Id string }
+	if err := d.doJSON(ctx, "GET", "/containers/json", url.Values{"all": {"1"}, "filters": {string(f)}}, nil, &out); err != nil {
+		return nil, err
+	}
+	ids := make([]string, 0, len(out))
+	for _, c := range out {
+		ids = append(ids, c.Id)
+	}
+	return ids, nil
+}
+
+// limitConfig is the HostConfig part shared by create and live update.
+func limitConfig(l Limits) map[string]any {
+	memory := int64(l.MemoryMB) << 20
+	c := map[string]any{"Memory": memory, "NanoCpus": int64(l.CPUs * 1e9), "MemoryReservation": int64(l.MemoryReservationMB) << 20, "PidsLimit": int64(l.PidsLimit)}
+	if l.NoSwap {
+		c["MemorySwap"] = memory
+	} else {
+		c["MemorySwap"] = memory * 2 // Docker's default: as much swap again as memory
+	}
+	switch l.Restart {
+	case "on-failure":
+		c["RestartPolicy"] = map[string]any{"Name": "on-failure", "MaximumRetryCount": l.MaxRestarts}
+	case "never":
+		c["RestartPolicy"] = map[string]any{"Name": "no"}
+	default:
+		c["RestartPolicy"] = map[string]any{"Name": "unless-stopped"}
+	}
+	return c
+}
+
+func (d *Docker) UpdateLimits(ctx context.Context, id string, l Limits) error {
+	return d.doJSON(ctx, "POST", "/containers/"+url.PathEscape(id)+"/update", nil, limitConfig(l), nil)
+}
+
+func (d *Docker) Volumes(ctx context.Context, prefix string) ([]VolumeInfo, error) {
+	var df struct {
+		Volumes []struct {
+			Name      string
+			Labels    map[string]string
+			UsageData struct {
+				Size     int64
+				RefCount int64
+			}
+		}
+	}
+	if err := d.doJSON(ctx, "GET", "/system/df", url.Values{"type": {"volume"}}, nil, &df); err != nil {
+		return nil, err
+	}
+	var out []VolumeInfo
+	for _, v := range df.Volumes {
+		if strings.HasPrefix(v.Name, prefix) {
+			out = append(out, VolumeInfo{Name: v.Name, SizeBytes: v.UsageData.Size, InUse: v.UsageData.RefCount > 0, Labels: v.Labels})
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// ExportVolume mounts the volume read-only in a stopped helper container and reads it with the archive API,
+// so nothing runs and the app can keep writing.
+func (d *Docker) ExportVolume(ctx context.Context, name string) (io.ReadCloser, error) {
+	if err := d.doJSON(ctx, "GET", "/images/"+url.PathEscape(ProbeImage)+"/json", nil, nil, nil); IsNotFound(err) {
+		if err := d.PullImage(ctx, ProbeImage, "", func(string, string) {}); err != nil {
+			return nil, err
+		}
+	}
+	var created struct{ Id string }
+	body := map[string]any{"Image": ProbeImage, "Labels": map[string]string{"ignition.managed": "true", "ignition.backup": name},
+		"HostConfig": map[string]any{"Mounts": []map[string]any{{"Type": "volume", "Source": name, "Target": "/backup", "ReadOnly": true}}}}
+	if err := d.doJSON(ctx, "POST", "/containers/create", nil, body, &created); err != nil {
+		return nil, err
+	}
+	resp, err := d.do(ctx, "GET", "/containers/"+created.Id+"/archive", url.Values{"path": {"/backup/."}}, nil, "")
+	if err != nil {
+		d.Remove(context.WithoutCancel(ctx), created.Id, false)
+		return nil, err
+	}
+	return &cleanupReader{ReadCloser: resp.Body, cleanup: func() { d.Remove(context.WithoutCancel(ctx), created.Id, false) }}, nil
+}
+
+type cleanupReader struct {
+	io.ReadCloser
+	cleanup func()
+}
+
+func (c *cleanupReader) Close() error {
+	err := c.ReadCloser.Close()
+	c.cleanup()
+	return err
+}
+
+func (d *Docker) Host(ctx context.Context) (HostInfo, error) {
+	var info struct {
+		NCPU     int
+		MemTotal int64
+	}
+	err := d.doJSON(ctx, "GET", "/info", nil, nil, &info)
+	return HostInfo{CPUs: info.NCPU, MemoryBytes: info.MemTotal}, err
+}
+
+func (d *Docker) ExecTTY(ctx context.Context, container string, o TTYOptions) (*TTYSession, error) {
+	body := map[string]any{"Cmd": o.Cmd, "Env": o.Env, "Tty": true, "AttachStdin": true, "AttachStdout": true, "AttachStderr": true}
+	if o.User != "" {
+		body["User"] = o.User
+	}
+	if o.Cols > 0 && o.Rows > 0 {
+		body["ConsoleSize"] = []int{o.Rows, o.Cols}
+	}
+	var created struct{ Id string }
+	if err := d.doJSON(ctx, "POST", "/containers/"+url.PathEscape(container)+"/exec", nil, body, &created); err != nil {
+		return nil, err
+	}
+	// Starting an attached exec upgrades the HTTP connection to a raw stream, so speak HTTP by hand.
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", d.socket)
+	if err != nil {
+		return nil, err
+	}
+	payload := `{"Detach":false,"Tty":true}`
+	req := fmt.Sprintf("POST /%s/exec/%s/start HTTP/1.1\r\nHost: docker\r\nContent-Type: application/json\r\nConnection: Upgrade\r\nUpgrade: tcp\r\nContent-Length: %d\r\n\r\n%s",
+		apiVersion, created.Id, len(payload), payload)
+	if _, err := io.WriteString(conn, req); err != nil {
+		conn.Close()
+		return nil, err
+	}
+	br := bufio.NewReader(conn)
+	resp, err := http.ReadResponse(br, nil)
+	if err != nil {
+		conn.Close()
+		return nil, err
+	}
+	if resp.StatusCode != http.StatusSwitchingProtocols && resp.StatusCode != http.StatusOK {
+		msg, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		conn.Close()
+		return nil, fmt.Errorf("docker: exec start failed (%d): %s", resp.StatusCode, strings.TrimSpace(string(msg)))
+	}
+	return &TTYSession{ID: created.Id, Reader: br, Writer: conn, Close: conn.Close}, nil
+}
+
+func (d *Docker) ResizeExec(ctx context.Context, execID string, cols, rows int) error {
+	return d.doJSON(ctx, "POST", "/exec/"+url.PathEscape(execID)+"/resize", url.Values{"h": {strconv.Itoa(rows)}, "w": {strconv.Itoa(cols)}}, nil, nil)
+}
+
+func (d *Docker) ExecExitCode(ctx context.Context, execID string) (int, bool, error) {
+	var out struct {
+		Running  bool
+		ExitCode int
+	}
+	err := d.doJSON(ctx, "GET", "/exec/"+url.PathEscape(execID)+"/json", nil, nil, &out)
+	return out.ExitCode, out.Running, err
+}
+
+func (d *Docker) StaleHelpers(ctx context.Context, before time.Time) ([]string, error) {
+	var ids []string
+	for _, label := range []string{"ignition.probe", "ignition.backup"} {
+		f, _ := json.Marshal(map[string][]string{"label": {label}})
+		var out []struct {
+			Id      string
+			Created int64
+		}
+		if err := d.doJSON(ctx, "GET", "/containers/json", url.Values{"all": {"1"}, "filters": {string(f)}}, nil, &out); err != nil {
+			return nil, err
+		}
+		for _, c := range out {
+			if time.Unix(c.Created, 0).Before(before) {
+				ids = append(ids, c.Id)
+			}
+		}
+	}
+	return ids, nil
+}
+
+func (d *Docker) Version(ctx context.Context) (EngineVersion, error) {
+	var v struct{ Version, Os, KernelVersion string }
+	var info struct{ OperatingSystem string }
+	if err := d.doJSON(ctx, "GET", "/version", nil, nil, &v); err != nil {
+		return EngineVersion{}, err
+	}
+	d.doJSON(ctx, "GET", "/info", nil, nil, &info)
+	os := info.OperatingSystem
+	if os == "" {
+		os = v.Os
+	}
+	return EngineVersion{Docker: v.Version, OS: os}, nil
 }

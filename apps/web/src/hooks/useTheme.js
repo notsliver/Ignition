@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 
-function initialTheme() {
+export function initialTheme() {
   try { const saved = localStorage.getItem('theme'); if (saved) return saved; } catch {}
   return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }

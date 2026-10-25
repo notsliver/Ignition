@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ignition/ignition/internal/httpx"
-	"github.com/ignition/ignition/internal/store"
+	"github.com/notsliver/Ignition/services/internal/httpx"
+	"github.com/notsliver/Ignition/services/internal/store"
 )
 
 var hostnameRE = regexp.MustCompile(`^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$`)

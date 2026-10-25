@@ -5,8 +5,9 @@ import (
 	"log/slog"
 	"slices"
 	"strings"
+	"time"
 
-	"github.com/ignition/ignition/internal/runtime"
+	"github.com/notsliver/Ignition/services/internal/runtime"
 )
 
 func envLabels(environmentID string) map[string]string {
@@ -39,6 +40,7 @@ func (w *Worker) ReconcileNetworks(ctx context.Context) {
 		return
 	}
 	proxy := w.proxyContainer(ctx)
+	self := w.selfContainer(ctx) // the worker joins too, for health checks
 	for _, env := range envs {
 		name := runtime.EnvNetwork(env)
 		if err := w.Runtime.EnsureManagedNetwork(ctx, name, envLabels(env)); err != nil {
@@ -47,6 +49,9 @@ func (w *Worker) ReconcileNetworks(ctx context.Context) {
 		}
 		if proxy != "" {
 			w.Runtime.ConnectNetwork(ctx, name, proxy, nil)
+		}
+		if self != "" {
+			w.Runtime.ConnectNetwork(ctx, name, self, nil)
 		}
 	}
 
@@ -92,6 +97,13 @@ func (w *Worker) ReconcileNetworks(ctx context.Context) {
 		}
 	}
 
+	// Probe (diagnostics) and backup helpers remove themselves; this catches any left by a Docker hiccup.
+	if stale, err := w.Runtime.StaleHelpers(ctx, time.Now().Add(-10*time.Minute)); err == nil {
+		for _, id := range stale {
+			w.Runtime.Remove(ctx, id, false)
+		}
+	}
+
 	// Clean up networks that no longer belong to anything.
 	nets, err := w.Runtime.Networks(ctx)
 	if err != nil {
@@ -108,6 +120,9 @@ func (w *Worker) ReconcileNetworks(ctx context.Context) {
 		}
 		if proxy != "" {
 			w.Runtime.DisconnectNetwork(ctx, n.Name, proxy)
+		}
+		if self != "" {
+			w.Runtime.DisconnectNetwork(ctx, n.Name, self)
 		}
 		if err := w.Runtime.RemoveNetwork(ctx, n.Name); err == nil {
 			slog.Info("removed unused network", "network", n.Name)

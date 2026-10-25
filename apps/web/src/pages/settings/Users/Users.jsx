@@ -1,218 +1,191 @@
 import { useMemo, useState } from 'react';
 import {
-  ArrowPathIcon, CheckIcon, EllipsisHorizontalIcon, EnvelopeIcon, KeyIcon, LinkIcon, MinusIcon, NoSymbolIcon, PlayIcon, ShieldCheckIcon,
-  TrashIcon, UserPlusIcon, XMarkIcon,
+  ArrowRightStartOnRectangleIcon, CheckIcon, ClipboardDocumentIcon, EllipsisHorizontalIcon, KeyIcon, LinkIcon, MinusIcon, NoSymbolIcon, PlayIcon, TrashIcon, UserPlusIcon, XMarkIcon,
 } from '@heroicons/react/16/solid';
-import { Avatar, Button, Checkbox, Dialog, FormField, Menu, Notice, SearchField, SegmentedControl, Select, Status, cx } from '../../../ui';
-import { projects } from '../../Projects/data';
+import { Avatar, Button, Dialog, FormField, Menu, Notice, SearchField, SegmentedControl, Select, Status, TextInput, cx } from '../../../ui';
+import { api } from '../../../api/client';
+import { timeAgo, useQuery } from '../../../api/hooks';
+import { useSession } from '../../../app/AuthGate';
 import '../settings.css';
 import './Users.css';
 
 /*
- * Instance-wide accounts and roles. Resource-specific access lives on each resource's Access & Secrets page.
- * Guardrails: there is always at least one Owner, and you can't lock yourself out.
+ * Instance-wide accounts and roles. There's no email delivery in a self-hosted install, so invitations and
+ * password resets are one-time links to share. Guardrails (enforced by the API too): you can't change or remove
+ * yourself, only owners manage owners, and there's always at least one active owner.
  */
 
-const ME = 'admin@devme.app';
 const ROLES = [
-  { value: 'owner', label: 'Owner', description: 'Everything, including transferring ownership' },
-  { value: 'admin', label: 'Admin', description: 'Manage users, settings and every project' },
-  { value: 'developer', label: 'Developer', description: 'Deploy and configure assigned projects' },
-  { value: 'viewer', label: 'Viewer', description: 'Read-only access to assigned projects' },
+  { value: 'owner', label: 'Owner', description: 'Everything, including managing owners' },
+  { value: 'admin', label: 'Admin', description: 'Users, settings, projects and secrets' },
+  { value: 'developer', label: 'Developer', description: 'Deploy and configure resources' },
+  { value: 'viewer', label: 'Viewer', description: 'Read-only' },
 ];
 const roleLabel = Object.fromEntries(ROLES.map(r => [r.value, r.label]));
-const rank = { owner: 3, admin: 2, developer: 1, viewer: 0 };
+// Mirrors the role each API route requires.
 const PERMISSIONS = [
-  ['View projects, logs and metrics', ['owner', 'admin', 'developer', 'viewer']],
-  ['Deploy, restart and roll back', ['owner', 'admin', 'developer']],
-  ['Edit resource settings and variables', ['owner', 'admin', 'developer']],
-  ['Reveal secret values', ['owner', 'admin']],
-  ['Open a terminal', ['owner', 'admin', 'developer']],
-  ['Create and delete projects', ['owner', 'admin']],
-  ['Manage servers and instance settings', ['owner', 'admin']],
-  ['Invite and manage users', ['owner', 'admin']],
-  ['Transfer ownership', ['owner']],
+  ['See projects, resources, logs and metrics', 'viewer'],
+  ['Deploy, start, stop and restart', 'developer'],
+  ['Create resources and change their settings and variables', 'developer'],
+  ['Open a terminal', 'developer'],
+  ['Reveal secret values, open a root terminal, download volume backups', 'admin'],
+  ['Create, rename and delete projects; delete resources', 'admin'],
+  ['Manage sources, instance settings and the audit log', 'admin'],
+  ['Invite and manage users', 'admin'],
+  ['Manage owners and make someone an owner', 'owner'],
 ];
-const allProjects = projects.map(p => p.name);
-const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-const seed = [
-  { email: ME, name: 'You', role: 'owner', status: 'active', mfa: true, lastActive: 'Now', projects: 'all' },
-  { email: 'maya@acme.dev', name: 'Maya Chen', role: 'admin', status: 'active', mfa: true, lastActive: '12 min ago', projects: 'all' },
-  { email: 'jonas@acme.dev', name: 'Jonas Weber', role: 'developer', status: 'active', mfa: false, lastActive: '2h ago', projects: ['Acme Platform', 'Backend'] },
-  { email: 'lena@acme.dev', name: 'Lena Fischer', role: 'developer', status: 'active', mfa: true, lastActive: 'Yesterday', projects: ['Commerce'] },
-  { email: 'tom@acme.dev', name: 'Tom Okafor', role: 'viewer', status: 'suspended', mfa: false, lastActive: 'Sep 30', projects: ['Commerce'] },
-  { email: 'sara@contractor.io', name: null, role: 'developer', status: 'invited', mfa: false, lastActive: null, invited: '2 days ago', expires: 'in 5 days', projects: ['Marketing site'] },
-];
-
-const statusTone = { active: ['success', 'Active'], invited: ['warning', 'Invited'], suspended: ['neutral', 'Suspended'] };
+const rank = { viewer: 0, developer: 1, admin: 2, owner: 3 };
+const statusTone = { active: ['success', 'Active'], suspended: ['neutral', 'Suspended'] };
 
 export function Users() {
-  const [users, setUsers] = useState(seed);
+  const { user: me } = useSession();
+  const { data, error, refetch } = useQuery(() => api.users(), [], { pollMs: 30000 });
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState('all');
-  const [roleFilter, setRoleFilter] = useState('all');
   const [inviting, setInviting] = useState(false);
   const [confirm, setConfirm] = useState(null);
-  const [editingAccess, setEditingAccess] = useState(null);
-  const [flash, setFlash] = useState('');
-
+  const [link, setLink] = useState(null); // { title, url, note }
+  const [feedback, setFeedback] = useState(null);
+  const users = data?.users ?? [];
+  const invites = data?.invites ?? [];
   const owners = users.filter(u => u.role === 'owner' && u.status === 'active').length;
-  const counts = { all: users.length, active: users.filter(u => u.status === 'active').length, invited: users.filter(u => u.status === 'invited').length, suspended: users.filter(u => u.status === 'suspended').length };
-  const noMfa = users.filter(u => u.status === 'active' && !u.mfa);
 
+  const counts = { all: users.length + invites.length, active: users.filter(u => u.status === 'active').length, invited: invites.length, suspended: users.filter(u => u.status === 'suspended').length };
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return users.filter(u => (tab === 'all' || u.status === tab) && (roleFilter === 'all' || u.role === roleFilter)
-      && (!q || u.email.includes(q) || u.name?.toLowerCase().includes(q)))
-      .sort((a, b) => rank[b.role] - rank[a.role] || a.email.localeCompare(b.email));
-  }, [users, query, tab, roleFilter]);
+    const match = (...v) => !q || v.some(x => x?.toLowerCase().includes(q));
+    return {
+      users: tab === 'invited' ? [] : users.filter(u => (tab === 'all' || u.status === tab) && match(u.name, u.email)),
+      invites: tab === 'all' || tab === 'invited' ? invites.filter(i => match(i.email)) : [],
+    };
+  }, [users, invites, query, tab]);
 
-  const update = (email, patch) => setUsers(list => list.map(u => u.email === email ? { ...u, ...patch } : u));
-  const notify = text => { setFlash(text); setTimeout(() => setFlash(''), 2200); };
-
-  // Why a user's role can't be changed right now, if it can't.
-  function roleLock(u) {
-    if (u.email === ME) return 'You can\'t change your own role.';
-    if (u.role === 'owner' && owners === 1) return 'Every instance needs at least one owner.';
-    return null;
+  async function run(fn, success) {
+    setFeedback(null);
+    try { const out = await fn(); if (success) setFeedback({ tone: 'success', title: typeof success === 'function' ? success(out) : success }); refetch(); return out; } catch (err) { setFeedback({ tone: 'danger', title: 'Couldn\'t do that', text: err.message }); }
   }
+  // Why this person's role can't be changed here (or null).
+  const lockReason = u => u.id === me.id ? 'You can\'t change your own role.'
+    : u.role === 'owner' && me.role !== 'owner' ? 'Only owners can manage owners.'
+      : u.role === 'owner' && owners <= 1 ? 'The only owner. Make someone else an owner first.' : null;
+  const roleOptions = ROLES.filter(r => r.value !== 'owner' || me.role === 'owner');
 
-  function changeRole(u, role) {
-    if (role === u.role) return;
-    if (role === 'owner') return setConfirm({ kind: 'owner', user: u });
-    update(u.email, { role, projects: rank[role] >= 2 ? 'all' : u.projects === 'all' ? [] : u.projects });
-    notify(`${u.name ?? u.email} is now ${roleLabel[role]}.`);
-  }
-
-  function actions(u) {
-    const self = u.email === ME;
-    const lastOwner = u.role === 'owner' && owners === 1;
-    if (u.status === 'invited') return [
-      { label: 'Resend invitation', icon: EnvelopeIcon, onSelect: () => { update(u.email, { invited: 'Just now', expires: 'in 7 days' }); notify(`Invitation resent to ${u.email}.`); } },
-      { label: 'Copy invitation link', icon: LinkIcon, onSelect: () => { navigator.clipboard?.writeText(`https://ignition.example.com/invite/${btoa(u.email).slice(0, 18)}`); notify('Invitation link copied.'); } },
-      'separator',
-      { label: 'Revoke invitation', icon: XMarkIcon, danger: true, onSelect: () => setConfirm({ kind: 'revoke', user: u }) },
-    ];
+  const actions = u => {
+    const self = u.id === me.id;
+    const manageable = !self && (me.role === 'owner' || u.role !== 'owner');
+    const lastOwner = u.role === 'owner' && u.status === 'active' && owners <= 1;
     return [
-      ...(rank[u.role] < 2 ? [{ label: 'Edit project access', icon: ShieldCheckIcon, onSelect: () => setEditingAccess({ email: u.email, projects: u.projects === 'all' ? [...allProjects] : [...u.projects] }) }] : []),
-      ...(u.mfa && !self ? [{ label: 'Reset MFA', icon: KeyIcon, onSelect: () => setConfirm({ kind: 'mfa', user: u }) }] : []),
-      ...(!self ? [{ label: 'Send password reset', icon: ArrowPathIcon, onSelect: () => notify(`Password reset email sent to ${u.email}.`) }] : []),
-      ...(self || lastOwner ? [] : ['separator',
-        u.status === 'suspended'
-          ? { label: 'Reactivate', icon: PlayIcon, onSelect: () => { update(u.email, { status: 'active' }); notify(`${u.name} can sign in again.`); } }
-          : { label: 'Suspend', icon: NoSymbolIcon, onSelect: () => setConfirm({ kind: 'suspend', user: u }) },
-        { label: 'Remove from instance', icon: TrashIcon, danger: true, onSelect: () => setConfirm({ kind: 'remove', user: u }) }]),
+      ...(manageable || self ? [{ label: 'Create password reset link', icon: KeyIcon, onSelect: () => run(() => api.resetLink(u.id)).then(out => out && setLink({ title: `Password reset link for ${u.name || u.email}`, url: out.url, note: `Works once, until ${new Date(out.expiresAt).toLocaleString()}. Setting a new password signs them out everywhere.` })) }] : []),
+      ...(u.sessions > 0 && (manageable || self) ? [{ label: `Sign out everywhere (${u.sessions})`, icon: ArrowRightStartOnRectangleIcon, onSelect: () => setConfirm({ kind: 'signout', user: u }) }] : []),
+      ...(manageable && !lastOwner ? ['separator',
+        u.status === 'active' ? { label: 'Suspend', icon: NoSymbolIcon, onSelect: () => setConfirm({ kind: 'suspend', user: u }) }
+          : { label: 'Reactivate', icon: PlayIcon, onSelect: () => run(() => api.updateUser(u.id, { status: 'active' }), `${u.name || u.email} can sign in again`) },
+        { label: 'Remove', icon: TrashIcon, danger: true, onSelect: () => setConfirm({ kind: 'remove', user: u }) },
+      ] : []),
     ];
-  }
+  };
 
   const confirmCopy = confirm && {
-    owner: { title: `Make ${confirm.user.name ?? confirm.user.email} an owner?`, body: 'Owners have full control, including removing other owners. You stay an owner too.', action: 'Make owner', run: () => update(confirm.user.email, { role: 'owner', projects: 'all' }) },
-    revoke: { title: `Revoke the invitation for ${confirm.user.email}?`, body: 'The invitation link stops working immediately.', action: 'Revoke', danger: true, run: () => setUsers(l => l.filter(u => u.email !== confirm.user.email)) },
-    mfa: { title: `Reset MFA for ${confirm.user.name}?`, body: 'Their authenticator and recovery codes stop working. They\'ll set up MFA again at their next sign-in.', action: 'Reset MFA', danger: true, run: () => update(confirm.user.email, { mfa: false }) },
-    suspend: { title: `Suspend ${confirm.user.name}?`, body: 'They\'re signed out everywhere and can\'t sign in. Their API tokens stop working. Nothing they own is deleted.', action: 'Suspend', danger: true, run: () => update(confirm.user.email, { status: 'suspended' }) },
-    remove: { title: `Remove ${confirm.user.name}?`, body: 'Their account, sessions and personal API tokens are deleted. Deployments they made stay in the history.', action: 'Remove', danger: true, run: () => setUsers(l => l.filter(u => u.email !== confirm.user.email)) },
+    signout: { title: `Sign ${confirm.user.name || confirm.user.email} out everywhere?`, body: confirm.user.id === me.id ? 'This includes this browser.' : `Ends all ${confirm.user.sessions} of their sessions. They can sign in again.`, action: 'Sign out everywhere', run: () => api.revokeSessions(confirm.user.id), done: 'Signed out everywhere' },
+    suspend: { title: `Suspend ${confirm.user.name || confirm.user.email}?`, body: 'They\'re signed out now and can\'t sign in until reactivated. Their name stays in the audit log.', action: 'Suspend', danger: true, run: () => api.updateUser(confirm.user.id, { status: 'suspended' }), done: 'Suspended' },
+    remove: { title: `Remove ${confirm.user.name || confirm.user.email}?`, body: 'Their account is deleted. Projects and resources they created stay; the audit log keeps their email.', action: 'Remove', danger: true, run: () => api.deleteUser(confirm.user.id), done: 'Removed' },
   }[confirm.kind];
 
-  return <div className="settings-page users-page">
-    {noMfa.length > 0 && <Notice tone="warning" title={`${noMfa.length} active ${noMfa.length === 1 ? 'user doesn\'t' : 'users don\'t'} use MFA`}>{noMfa.map(u => u.name).join(', ')}. You can require MFA for everyone in Authentication & Security.</Notice>}
+  if (error && !data) return <div className="settings-page"><Notice tone="danger" title="Couldn't load users">{error.message} <button type="button" className="inline-link" onClick={refetch}>Retry</button></Notice></div>;
 
+  return <div className="settings-page users-page">
     <div className="users-toolbar">
       <SegmentedControl label="Status" value={tab} onChange={setTab} className="users-tabs" options={[
         { value: 'all', label: `All ${counts.all}` }, { value: 'active', label: `Active ${counts.active}` },
         { value: 'invited', label: `Invited ${counts.invited}` }, { value: 'suspended', label: `Suspended ${counts.suspended}` },
       ]} />
-      <Select label="Role" value={roleFilter} onChange={setRoleFilter} className="users-role-filter" options={[{ value: 'all', label: 'All roles' }, ...ROLES.map(r => ({ value: r.value, label: r.label }))]} />
       <SearchField value={query} onChange={setQuery} placeholder="Search name or email" className="users-search" />
-      <Button variant="primary" icon={UserPlusIcon} onClick={() => setInviting(true)}>Invite users</Button>
+      <Button variant="primary" icon={UserPlusIcon} onClick={() => setInviting(true)}>Invite</Button>
     </div>
+    {feedback && <Notice tone={feedback.tone} title={feedback.title}>{feedback.text}</Notice>}
 
     <div className="settings-card users-list">
-      {rows.map(u => {
-        const [tone, label] = statusTone[u.status];
-        const lock = roleLock(u);
-        return <div key={u.email} className={cx('user-row', u.status !== 'active' && u.status)}>
-          <Avatar name={u.name ?? u.email} size={30} />
+      {rows.users.map(u => {
+        const [tone, label] = u.locked ? ['warning', 'Locked'] : statusTone[u.status];
+        const lock = lockReason(u);
+        return <div key={u.id} className={cx('user-row', u.status !== 'active' && u.status)}>
+          <Avatar name={u.name || u.email} size={30} />
           <span className="user-main">
-            <strong>{u.name ?? u.email}{u.email === ME && <span className="rp-chip">You</span>}</strong>
-            <span>{u.name ? u.email : `Invited ${u.invited} · expires ${u.expires}`}</span>
+            <strong>{u.name || u.email}{u.id === me.id && <span className="rp-chip">You</span>}</strong>
+            <span>{u.name ? u.email : 'No name yet'}</span>
           </span>
-          <span className="user-access">{u.projects === 'all' ? 'All projects' : u.projects.length ? u.projects.join(', ') : 'No projects'}</span>
-          <span className="user-mfa" title={u.mfa ? 'MFA enabled' : 'MFA not set up'}>{u.status === 'invited' ? '—' : u.mfa ? <><CheckIcon />MFA</> : <><MinusIcon />No MFA</>}</span>
-          <span className="user-status"><Status tone={tone}>{label}</Status><small>{u.lastActive ? `Active ${u.lastActive}` : ''}</small></span>
+          <span className="user-status"><Status tone={tone}>{label}</Status>
+            <small title={u.locked ? 'Too many failed sign-ins; unlocks automatically after 15 minutes' : undefined}>{u.lastSeenAt ? `Active ${timeAgo(u.lastSeenAt)}` : `Joined ${timeAgo(u.createdAt)}`}</small></span>
           <span className="user-role" title={lock ?? undefined}>
             {lock || u.status === 'suspended' ? <span className="user-role-static">{roleLabel[u.role]}</span>
-              : <Select label={`Role for ${u.name ?? u.email}`} value={u.role} onChange={role => changeRole(u, role)} options={ROLES} />}
+              : <Select label={`Role for ${u.name || u.email}`} value={u.role} options={roleOptions}
+                onChange={role => role !== u.role && run(() => api.updateUser(u.id, { role }), `${u.name || u.email} is now ${roleLabel[role].toLowerCase() === 'admin' ? 'an admin' : `a ${roleLabel[role].toLowerCase()}`}`)} />}
           </span>
-          <Menu trigger={EllipsisHorizontalIcon} label={`Actions for ${u.name ?? u.email}`} items={actions(u)} />
+          {actions(u).length ? <Menu trigger={EllipsisHorizontalIcon} label={`Actions for ${u.name || u.email}`} items={actions(u)} /> : <span className="user-menu-gap" />}
         </div>;
       })}
-      {!rows.length && <p className="users-empty">No users match. <button type="button" className="inline-link" onClick={() => { setQuery(''); setTab('all'); setRoleFilter('all'); }}>Clear filters</button></p>}
+      {rows.invites.map(i => <div key={i.id} className="user-row invited">
+        <Avatar name={i.email} size={30} />
+        <span className="user-main"><strong>{i.email}</strong><span>Invited by {i.createdBy || 'someone'} {timeAgo(i.createdAt)} · link expires {timeAgo(i.expiresAt).replace(' ago', '')}</span></span>
+        <span className="user-status"><Status tone="warning">Invited</Status></span>
+        <span className="user-role"><span className="user-role-static">{roleLabel[i.role]}</span></span>
+        <Menu trigger={EllipsisHorizontalIcon} label={`Actions for ${i.email}`} items={[
+          { label: 'Create a new link', icon: LinkIcon, onSelect: () => run(() => api.invite(i.email, i.role)).then(out => out && setLink({ title: `Invite link for ${i.email}`, url: out.url, note: 'The previous link stops working. This one works once, for 7 days.' })) },
+          { label: 'Revoke invite', icon: XMarkIcon, danger: true, onSelect: () => run(() => api.revokeInvite(i.id), `Invite for ${i.email} revoked`) },
+        ]} />
+      </div>)}
+      {!data && <p className="users-empty">Loading…</p>}
+      {data && !rows.users.length && !rows.invites.length && <p className="users-empty">No one matches. <button type="button" className="inline-link" onClick={() => { setQuery(''); setTab('all'); }}>Clear filters</button></p>}
     </div>
-    {flash && <p className="users-flash" role="status">{flash}</p>}
 
     <section className="settings-group">
       <h2>Roles and permissions</h2>
-      <p>Built-in roles. Owners and admins see every project; developers and viewers only see projects they're assigned to.</p>
+      <p>Roles apply to the whole instance. Every project is visible to everyone who can sign in.</p>
       <div className="settings-card perm-table-wrap">
         <table className="perm-table">
-          <thead><tr><th>Permission</th>{ROLES.map(r => <th key={r.value}>{r.label}<small>{users.filter(u => u.role === r.value).length} {users.filter(u => u.role === r.value).length === 1 ? 'user' : 'users'}</small></th>)}</tr></thead>
-          <tbody>{PERMISSIONS.map(([name, roles]) => <tr key={name}><th>{name}</th>{ROLES.map(r => <td key={r.value}>{roles.includes(r.value) ? <CheckIcon className="perm-yes" aria-label="Allowed" /> : <MinusIcon className="perm-no" aria-label="Not allowed" />}</td>)}</tr>)}</tbody>
+          <thead><tr><th>Permission</th>{ROLES.map(r => { const n = users.filter(u => u.role === r.value).length; return <th key={r.value}>{r.label}<small>{n} {n === 1 ? 'user' : 'users'}</small></th>; })}</tr></thead>
+          <tbody>{PERMISSIONS.map(([name, min]) => <tr key={name}><th>{name}</th>{ROLES.map(r => <td key={r.value}>{rank[r.value] >= rank[min] ? <CheckIcon className="perm-yes" aria-label="Allowed" /> : <MinusIcon className="perm-no" aria-label="Not allowed" />}</td>)}</tr>)}</tbody>
         </table>
       </div>
     </section>
 
-    {inviting && <InviteDialog existing={users.map(u => u.email)} onClose={() => setInviting(false)} onInvite={(emails, role, access) => {
-      setUsers(list => [...list, ...emails.map(email => ({ email, name: null, role, status: 'invited', mfa: false, lastActive: null, invited: 'Just now', expires: 'in 7 days', projects: rank[role] >= 2 ? 'all' : access }))]);
-      setInviting(false);
-      setTab('all');
-      notify(`${emails.length} ${emails.length === 1 ? 'invitation' : 'invitations'} sent.`);
-    }} />}
+    {inviting && <InviteDialog roles={roleOptions} onClose={() => setInviting(false)} onInvited={(email, url) => { setInviting(false); setLink({ title: `Invite link for ${email}`, url, note: 'Send it to them yourself (chat, email). It works once, for 7 days. They choose their name and password.' }); refetch(); }} />}
 
-    <Dialog open={!!editingAccess} onClose={() => setEditingAccess(null)} title="Project access" description={editingAccess && `Projects ${users.find(u => u.email === editingAccess.email)?.name ?? editingAccess.email} can see.`}
-      footer={<><Button onClick={() => setEditingAccess(null)}>Cancel</Button><Button variant="primary" onClick={() => { update(editingAccess.email, { projects: editingAccess.projects }); notify('Project access updated.'); setEditingAccess(null); }}>Save</Button></>}>
-      {editingAccess && <ProjectPicker value={editingAccess.projects} onChange={projects => setEditingAccess(e => ({ ...e, projects }))} />}
+    <Dialog open={!!link} onClose={() => setLink(null)} icon={LinkIcon} title={link?.title} description={link?.note}
+      footer={<Button variant="primary" onClick={() => setLink(null)}>Done</Button>}>
+      {link && <LinkBox url={link.url} />}
     </Dialog>
 
     <Dialog open={!!confirm} onClose={() => setConfirm(null)} title={confirmCopy?.title} description={confirmCopy?.body}
-      footer={<><Button onClick={() => setConfirm(null)}>Cancel</Button><Button variant={confirmCopy?.danger ? undefined : 'primary'} className={cx(confirmCopy?.danger && 'danger-solid')} onClick={() => { confirmCopy.run(); notify('Done.'); setConfirm(null); }}>{confirmCopy?.action}</Button></>} />
+      footer={<><Button onClick={() => setConfirm(null)}>Cancel</Button><Button variant={confirmCopy?.danger ? undefined : 'primary'} className={cx(confirmCopy?.danger && 'danger-solid')}
+        onClick={() => { const c = confirmCopy; setConfirm(null); run(c.run, c.done); }}>{confirmCopy?.action}</Button></>} />
   </div>;
 }
 
-function ProjectPicker({ value, onChange }) {
-  const all = value.length === allProjects.length;
-  return <div className="project-picker">
-    <label className="picker-row all"><Checkbox label="All projects" checked={all} indeterminate={!all && value.length > 0} onChange={() => onChange(all ? [] : [...allProjects])} />All projects</label>
-    {allProjects.map(p => <label key={p} className="picker-row"><Checkbox label={p} checked={value.includes(p)} onChange={on => onChange(on ? [...value, p] : value.filter(x => x !== p))} />{p}</label>)}
+function LinkBox({ url }) {
+  const [copied, setCopied] = useState(false);
+  return <div className="link-box">
+    <code>{url}</code>
+    <Button icon={copied ? CheckIcon : ClipboardDocumentIcon} onClick={() => { navigator.clipboard?.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>{copied ? 'Copied' : 'Copy'}</Button>
   </div>;
 }
 
-function InviteDialog({ existing, onClose, onInvite }) {
-  const [text, setText] = useState('');
+function InviteDialog({ roles, onClose, onInvited }) {
+  const [email, setEmail] = useState('');
   const [role, setRole] = useState('developer');
-  const [access, setAccess] = useState([]);
-  const [error, setError] = useState('');
-  const emails = [...new Set(text.split(/[\s,;]+/).map(e => e.trim().toLowerCase()).filter(Boolean))];
-  const invalid = emails.filter(e => !EMAIL_RE.test(e));
-  const duplicates = emails.filter(e => existing.includes(e));
-
-  function submit() {
-    if (!emails.length) return setError('Enter at least one email address.');
-    if (invalid.length) return setError(`Not a valid email: ${invalid.join(', ')}`);
-    if (duplicates.length) return setError(`Already a member or invited: ${duplicates.join(', ')}`);
-    if (rank[role] < 2 && !access.length) return setError('Choose at least one project, or make them an admin.');
-    onInvite(emails, role, access);
+  const [errors, setErrors] = useState({});
+  const [pending, setPending] = useState(false);
+  async function submit(e) {
+    e.preventDefault();
+    setPending(true);
+    try { const out = await api.invite(email.trim(), role); onInvited(email.trim(), out.url); } catch (err) { setErrors(err.fields ?? { email: err.message }); }
+    setPending(false);
   }
-
-  return <Dialog open onClose={onClose} title="Invite users" description="They'll get an email with a link that expires in 7 days."
-    footer={<><span className="invite-count">{emails.length ? `${emails.length} ${emails.length === 1 ? 'person' : 'people'}` : ''}</span><Button onClick={onClose}>Cancel</Button><Button variant="primary" icon={EnvelopeIcon} onClick={submit}>Send {emails.length > 1 ? `${emails.length} invitations` : 'invitation'}</Button></>}>
-    <FormField label="Email addresses" hint="Separate several with commas or new lines." htmlFor="invite-emails">
-      <textarea id="invite-emails" className="labels-input invite-emails" rows={3} value={text} placeholder="sam@acme.dev, alex@acme.dev" onChange={e => { setText(e.target.value); setError(''); }} autoFocus />
-    </FormField>
-    <FormField label="Role" htmlFor="invite-role"><Select id="invite-role" label="Role" value={role} onChange={r => { setRole(r); setError(''); }} options={ROLES.filter(r => r.value !== 'owner')} /></FormField>
-    {rank[role] < 2
-      ? <FormField label="Projects"><ProjectPicker value={access} onChange={a => { setAccess(a); setError(''); }} /></FormField>
-      : <p className="invite-note">Admins can see every project.</p>}
-    {error && <p className="rp-error invite-error">{error}</p>}
+  return <Dialog open onClose={onClose} icon={UserPlusIcon} title="Invite someone" description="You'll get a one-time link to send them. Ignition doesn't send email."
+    footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" type="submit" form="invite-form" disabled={pending}>{pending ? 'Creating…' : 'Create invite link'}</Button></>}>
+    <form id="invite-form" className="invite-form" onSubmit={submit}>
+      <FormField label="Email" htmlFor="invite-email" error={errors.email}><TextInput id="invite-email" type="email" value={email} autoFocus onChange={e => { setEmail(e.target.value); setErrors({}); }} placeholder="sam@example.com" /></FormField>
+      <FormField label="Role" htmlFor="invite-role" error={errors.role} hint={ROLES.find(r => r.value === role)?.description}><Select id="invite-role" label="Role" value={role} onChange={setRole} options={roles} /></FormField>
+    </form>
   </Dialog>;
 }

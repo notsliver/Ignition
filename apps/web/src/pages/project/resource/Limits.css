@@ -41,3 +41,10 @@
   .limits-stats{grid-template-columns:repeat(2,minmax(0,1fr))}
   .limits-rec{flex-wrap:wrap}
 }
+.limits-muted,.limits-empty{margin:0;font-size:12.5px;color:var(--muted)}
+.limits-error{color:var(--danger)}
+.limits-num{width:140px}
+.limits-stats dd small{font-weight:400;color:var(--muted)}
+.limits-note{display:flex;align-items:flex-start;gap:6px;margin:0;font-size:12px;line-height:1.5;color:var(--muted)}
+.limits-note>svg{width:13px;flex:none;margin-top:2px;color:var(--success)}
+.limits-note .inline-link{margin-left:0}

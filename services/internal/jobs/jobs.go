@@ -20,6 +20,7 @@ const (
 	KindDeploy = "deploy" // build (if needed) and roll out a resource
 	KindAction = "action" // start / stop / restart a resource
 	KindRemove = "remove" // delete a resource's containers (and optionally volumes)
+	KindHealth = "health" // run one health check with the given settings (Health Checks, Test)
 )
 
 type Job struct {
@@ -76,10 +77,15 @@ func (q *Queue) Claim(ctx context.Context, owner string, lease time.Duration) (*
 		UPDATE jobs SET status = 'running', lease_owner = $1, lease_until = now() + $2::interval,
 		       heartbeat_at = now(), attempts = attempts + 1, started_at = COALESCE(started_at, now())
 		WHERE id = (
-			SELECT id FROM jobs
-			WHERE (status = 'pending' AND run_after <= now())
-			   OR (status = 'running' AND lease_until < now())
-			ORDER BY created_at
+			SELECT id FROM jobs j
+			WHERE ((j.status = 'pending' AND j.run_after <= now())
+			       OR (j.status = 'running' AND j.lease_until < now()))
+			  -- One job at a time per resource: two deploys of the same resource must never overlap.
+			  -- The advisory lock covers two workers claiming at the same instant.
+			  AND (j.resource_id IS NULL OR (
+			       NOT EXISTS (SELECT 1 FROM jobs o WHERE o.resource_id = j.resource_id AND o.id <> j.id AND o.status = 'running' AND o.lease_until >= now())
+			       AND pg_try_advisory_xact_lock(hashtext('ignition-job:' || j.resource_id::text))))
+			ORDER BY j.created_at
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
 		)

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ignition/ignition/internal/database"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/notsliver/Ignition/services/internal/database"
 )
 
 func testQueue(t *testing.T) *Queue {
@@ -166,5 +166,40 @@ func TestMigrationsAreIdempotent(t *testing.T) {
 	q := testQueue(t)
 	if err := database.Migrate(context.Background(), q.DB); err != nil {
 		t.Fatalf("re-running migrations must be a no-op: %v", err)
+	}
+}
+
+func TestOneJobAtATimePerResource(t *testing.T) {
+	q := testQueue(t)
+	ctx := context.Background()
+	var project, env, resource string
+	if err := q.DB.QueryRow(ctx, `INSERT INTO projects (name) VALUES ('jobs-test-' || gen_random_uuid()) RETURNING id`).Scan(&project); err != nil {
+		t.Fatal(err)
+	}
+	q.DB.QueryRow(ctx, `INSERT INTO environments (project_id, name) VALUES ($1, 'Production') RETURNING id`, project).Scan(&env)
+	if err := q.DB.QueryRow(ctx, `INSERT INTO resources (project_id, environment_id, name, type, source_type, image) VALUES ($1, $2, 'web', 'application', 'image', 'nginx') RETURNING id`, project, env).Scan(&resource); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { q.DB.Exec(ctx, `DELETE FROM projects WHERE id = $1`, project) })
+	first, _ := Enqueue(ctx, q.DB, NewJob{Kind: "deploy", ResourceID: resource, MaxAttempts: 1})
+	second, _ := Enqueue(ctx, q.DB, NewJob{Kind: "deploy", ResourceID: resource, MaxAttempts: 1})
+	other, _ := Enqueue(ctx, q.DB, NewJob{Kind: "test", MaxAttempts: 1})
+
+	j, err := q.Claim(ctx, "w1", time.Minute)
+	if err != nil || j == nil || j.ID != first {
+		t.Fatalf("expected the first deploy, got %+v %v", j, err)
+	}
+	j, _ = q.Claim(ctx, "w2", time.Minute)
+	if j == nil || j.ID != other {
+		t.Fatalf("the second deploy of the same resource must wait; got %+v", j)
+	}
+	if j, _ = q.Claim(ctx, "w3", time.Minute); j != nil {
+		t.Fatalf("nothing else is claimable yet, got %s", j.ID)
+	}
+	if err := q.Succeed(ctx, first); err != nil {
+		t.Fatal(err)
+	}
+	if j, _ = q.Claim(ctx, "w3", time.Minute); j == nil || j.ID != second {
+		t.Fatalf("the second deploy runs once the first finished, got %+v", j)
 	}
 }

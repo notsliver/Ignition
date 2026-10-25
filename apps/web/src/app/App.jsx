@@ -14,6 +14,8 @@ import { General } from '../pages/settings/General/General';
 import { Security } from '../pages/settings/Security/Security';
 import { Updates } from '../pages/settings/Updates/Updates';
 import { Users } from '../pages/settings/Users/Users';
+import { AuditLog } from '../pages/settings/Audit/AuditLog';
+import { useInstanceName } from './instance';
 import { useSidebarWidth, SIDEBAR_MAX, SIDEBAR_MIN } from '../hooks/useSidebarWidth';
 import { AppSidebar } from './AppSidebar';
 import { confirmLeave } from './unsaved';
@@ -30,10 +32,14 @@ const resourcePageComponents = {
 };
 // Pages still running on sample data are labelled so nothing pretends to be live.
 const preview = node => <><PreviewBanner />{node}</>;
-const LIVE_RESOURCE_VIEWS = ['Overview', 'Deployments', 'Logs', 'Metrics', 'Environment Variables', 'Source', 'Domains', 'Networking'];
+const LIVE_RESOURCE_VIEWS = ['Overview', 'Deployments', 'Logs', 'Metrics', 'Environment Variables', 'Source', 'Domains', 'Networking', 'Build & Deploy', 'Resource Limits', 'Storage', 'Terminal',
+  'Health Checks', 'Rollback History', 'Scheduled Tasks', 'Access & Secrets', 'Advanced Settings'];
+// Settings pages backed by the API (the rest are still previews).
+const LIVE_PAGES = ['General', 'Updates', 'Users & Permissions'];
 const pages = { Dashboard: <Dashboard />, General: <General />, 'Authentication & Security': <Security />, Updates: <Updates />, 'Users & Permissions': <Users /> };
 
 export function App() {
+  const instanceName = useInstanceName();
   const [active, setActive] = useState('Dashboard');
   const [hidden, setHidden] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -87,8 +93,8 @@ export function App() {
   }, [url, restoring]);
   useEffect(() => {
     const where = resource ? `${resourceView === 'Overview' ? resource.name : `${resourceView} · ${resource.name}`}` : project ? `${active} · ${project.name}` : active;
-    document.title = `${where} · Ignition`;
-  }, [active, project, resource, resourceView]);
+    document.title = `${where} · ${instanceName}`;
+  }, [active, project, resource, resourceView, instanceName]);
 
   const projectPages = project && { Resources: resource
     ? renderResourcePage()
@@ -110,7 +116,8 @@ export function App() {
     : active === 'Projects' ? <Projects onOpen={openProject} />
       : active === 'Monitor' ? <Monitor onOpenResource={openResourceFromAnywhere} />
         : active === 'Sources' ? <Sources onOpenResource={openResourceFromAnywhere} />
-        : pages[active] && preview(pages[active]);
+          : active === 'Audit Log' ? <AuditLog onOpenResource={openResourceFromAnywhere} />
+            : LIVE_PAGES.includes(active) ? pages[active] : pages[active] && preview(pages[active]);
 
   return <div ref={appRef} className={cx('app', hidden && 'sidebar-hidden', mobileOpen && 'mobile-open', sidebar.resizing && 'resizing')}>
     {mobileOpen && <button className="backdrop" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}

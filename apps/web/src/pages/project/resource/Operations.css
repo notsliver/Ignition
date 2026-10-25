@@ -1,0 +1,99 @@
+/* Health Checks, Rollback History, Scheduled Tasks, Access & Secrets and Advanced Settings. */
+.ops-muted{margin:0;font-size:12px;color:var(--muted)}
+.ops-pad{padding:12px 16px}
+.ops-error{color:var(--danger)}
+.ops-num{width:110px}
+.ops-note{display:flex;align-items:flex-start;gap:6px;margin:0;font-size:12px;line-height:1.5;color:var(--muted)}
+.ops-note svg{flex:none;width:14px;margin-top:2px}
+.ops-ellipsis{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ops-page code{font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace}
+.ops-unavailable{opacity:.6}
+.ops-dialog-body{display:flex;flex-direction:column;gap:10px}
+.ops-label{display:flex;flex-direction:column;gap:5px;font-size:12px;font-weight:500;color:var(--text-2)}
+.ops-label .ops-error{font-weight:400}
+
+/* Health */
+.ops-health-card{display:flex;flex-direction:column;gap:12px;padding:14px 16px}
+.ops-health-summary{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+.ops-strip span.empty{background:var(--hover)}
+.ops-strip span.ok{background:color-mix(in srgb,var(--success) 70%,transparent)}
+.ops-strip span{cursor:default}
+.ops-health-card .health-result{align-items:flex-start;line-height:1.5}
+.ops-health-card .health-result svg{flex:none;margin-top:2px}
+.ops-health-card .health-result.inconclusive{color:var(--text-2)}
+.ops-health-card .health-result span{min-width:0;word-break:break-word}
+.ops-events{padding:4px 0}
+.ops-event{display:flex;align-items:baseline;gap:10px;padding:7px 16px;font-size:12px}
+.ops-event+.ops-event{border-top:1px solid var(--border)}
+.ops-event-dot{flex:none;width:6px;height:6px;border-radius:50%;transform:translateY(-1px)}
+.ops-event-dot.bad{background:var(--danger)}
+.ops-event-dot.warn{background:var(--warning)}
+.ops-event-text{flex:1;min-width:0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;color:var(--text-2);word-break:break-word}
+.ops-event-text em{font-style:normal;font-family:inherit;color:var(--muted)}
+.ops-event time{flex:none;color:var(--muted);font-variant-numeric:tabular-nums}
+
+/* Releases */
+.ops-release-num{flex:none;min-width:34px;font:500 12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted)}
+.rollback-move .status{margin-left:6px;font-family:inherit}
+.ops-env-choice{display:flex;flex-direction:column;gap:8px;padding:10px 12px;border-radius:8px;background:var(--hover)}
+.ops-env-diff{display:flex;flex-direction:column;gap:3px;margin:0;padding:0 0 0 26px;list-style:none;font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text-2)}
+.ops-env-diff span{display:inline-block;min-width:78px;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:var(--muted)}
+.ops-env-diff .del{color:var(--danger)}
+
+/* Tasks */
+.ops-task-form{display:flex;flex-direction:column;gap:10px;padding:14px}
+.ops-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 12px}
+.ops-form-grid .ops-span{grid-column:1/-1}
+.ops-preview{min-height:18px;margin:0;font-size:12px;color:var(--muted)}
+.ops-preview strong{font-weight:500;color:var(--text)}
+.ops-preview.bad{color:var(--danger)}
+.ops-tasks .ops-task-row{cursor:pointer}
+.ops-tasks .ops-task-row:hover td{background:color-mix(in srgb,var(--hover) 60%,transparent)}
+.ops-caret{width:12px;margin:0 4px -1px -2px;color:var(--muted)}
+.ops-cmd{max-width:300px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ops-edit-cell{padding:8px!important}
+.ops-edit-cell .ops-task-form{border:0;box-shadow:none}
+.ops-runs-row>td{padding:0!important;background:color-mix(in srgb,var(--hover) 40%,transparent)}
+.ops-runs{display:grid;grid-template-columns:220px 1fr;min-height:180px}
+.ops-run-list{margin:0;padding:6px;list-style:none;border-right:1px solid var(--border);max-height:320px;overflow-y:auto}
+.ops-run-list button{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:0 8px;width:100%;padding:6px 8px;border-radius:6px;text-align:left;font-size:12px;color:var(--text-2)}
+.ops-run-list button small{grid-column:2;font-size:11px;color:var(--muted)}
+.ops-run-list button:hover{background:var(--hover)}
+.ops-run-list button.active{background:var(--surface);color:var(--text);box-shadow:0 0 0 1px var(--border)}
+.ops-run-output{display:flex;flex-direction:column;gap:8px;min-width:0;padding:10px 12px}
+.ops-run-head{display:flex;align-items:center;gap:10px;font-size:12px}
+.ops-run-head .button{margin-left:auto}
+.ops-run-error{margin:0;font-size:12px;color:var(--danger)}
+.ops-run-error.warn{color:var(--warning)}
+.ops-console{max-height:260px;min-height:90px;margin:0;padding:10px 12px;overflow:auto;white-space:pre-wrap;word-break:break-word;font:11.5px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace}
+
+/* Access */
+.ops-row-icon{flex:none;width:14px;color:var(--muted)}
+.ops-hook-meta{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:0 12px 10px 16px;font-size:12px;color:var(--muted)}
+.ops-hook-actions{display:flex;gap:6px;margin-left:auto}
+.ops-howto{display:flex;flex-direction:column;gap:6px;padding:10px 16px 12px;border-top:1px solid var(--border);font-size:12px;line-height:1.55;color:var(--text-2)}
+.ops-howto p{margin:0;word-break:break-word}
+.ops-empty-row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 16px;font-size:12.5px;color:var(--muted)}
+.ops-token-reveal{display:flex;align-items:center;gap:6px;margin-top:6px}
+.ops-token-reveal .token-value{margin-top:0}
+.ops-snippet{display:block;margin-top:8px;padding:8px 10px;border-radius:6px;background:var(--surface);color:var(--text-2);white-space:pre-wrap;word-break:break-all}
+.ops-token-form{flex-wrap:wrap}
+.role-select.wide-ish{width:170px}
+.ops-can{flex:none;font-size:12px;color:var(--muted)}
+.settings-group>p code{font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace}
+
+/* Advanced */
+.ops-drift-env{margin-top:8px}
+.drift .dep-compare code{font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all}
+
+@media(max-width:720px){
+  .ops-form-grid{grid-template-columns:1fr}
+  .ops-runs{grid-template-columns:1fr}
+  .ops-run-list{border-right:0;border-bottom:1px solid var(--border);max-height:160px}
+  .ops-can{display:none}
+  .ops-cmd{max-width:160px}
+}
+@media(prefers-reduced-motion:reduce){
+  .ops-page .is-busy svg{animation:none}
+}
+.ops-page a.button{text-decoration:none}

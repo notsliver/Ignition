@@ -14,14 +14,15 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
-	"github.com/ignition/ignition/internal/auth"
-	"github.com/ignition/ignition/internal/httpx"
-	"github.com/ignition/ignition/internal/proxy"
-	"github.com/ignition/ignition/internal/runtime"
-	"github.com/ignition/ignition/internal/secrets"
-	"github.com/ignition/ignition/internal/store"
+	"github.com/notsliver/Ignition/services/internal/auth"
+	"github.com/notsliver/Ignition/services/internal/httpx"
+	"github.com/notsliver/Ignition/services/internal/proxy"
+	"github.com/notsliver/Ignition/services/internal/runtime"
+	"github.com/notsliver/Ignition/services/internal/secrets"
+	"github.com/notsliver/Ignition/services/internal/store"
 )
 
 const sessionCookie = "ignition_session"
@@ -36,6 +37,9 @@ type Server struct {
 	WebDir        string
 	PublishHost   string
 	Proxy         *proxy.Client
+
+	dashboardURL atomic.Pointer[string] // set in Settings › General; overrides PublicURL
+	dashboardOne sync.Once
 
 	setupMu   sync.Mutex
 	setupCode string
@@ -73,6 +77,8 @@ func (s *Server) Handler() http.Handler {
 	h("POST /api/setup", s.setup)
 	h("POST /api/auth/login", s.login)
 	h("POST /api/auth/logout", s.logout)
+	h("GET /api/links/{token}", s.inspectLink)
+	h("POST /api/links/{token}", s.acceptLink)
 	authed("GET /api/auth/me", "viewer", s.me)
 	authed("GET /api/system", "viewer", s.system)
 
@@ -97,13 +103,39 @@ func (s *Server) Handler() http.Handler {
 	authed("GET /api/resources/{id}/deployments", "viewer", s.listDeployments)
 	authed("POST /api/resources/{id}/deployments", "developer", s.createDeployment)
 	authed("GET /api/resources/{id}/logs", "viewer", s.containerLogs)
+	authed("GET /api/resources/{id}/terminal", "developer", s.terminal)
+	authed("GET /api/resources/{id}/logs/deployments", "viewer", s.logSources)
 	authed("GET /api/resources/{id}/stats", "viewer", s.containerStats)
 	authed("GET /api/resources/{id}/metrics", "viewer", s.resourceMetrics)
 	authed("GET /api/deployments/{id}", "viewer", s.getDeployment)
 	authed("GET /api/deployments/{id}/logs", "viewer", s.deploymentLogs)
 	authed("POST /api/deployments/{id}/cancel", "developer", s.cancelDeployment)
 	authed("GET /api/audit", "admin", s.listAudit)
+	authed("GET /api/audit/export", "admin", s.exportAudit)
+	authed("GET /api/settings/general", "admin", s.getGeneral)
+	authed("PUT /api/settings/general", "admin", s.putGeneral)
+	authed("GET /api/settings/updates", "admin", s.getUpdates)
+	authed("PUT /api/settings/updates", "admin", s.putUpdates)
+	authed("POST /api/settings/updates/check", "admin", s.checkUpdates)
+	authed("POST /api/settings/updates/apply", "admin", s.applyUpdate)
+	authed("POST /api/settings/updates/dismiss", "admin", s.dismissUpdate)
+	authed("GET /api/users", "admin", s.listUsers)
+	authed("PATCH /api/users/{id}", "admin", s.updateUser)
+	authed("DELETE /api/users/{id}", "admin", s.deleteUser)
+	authed("POST /api/users/{id}/sessions/revoke", "admin", s.revokeUserSessions)
+	authed("POST /api/users/{id}/reset-link", "admin", s.createResetLink)
+	authed("POST /api/invites", "admin", s.createInvite)
+	authed("DELETE /api/invites/{id}", "admin", s.revokeInvite)
 	authed("GET /api/resources/{id}/source", "viewer", s.resourceSource)
+	authed("GET /api/resources/{id}/limits", "viewer", s.getLimits)
+	authed("PUT /api/resources/{id}/limits", "developer", s.putLimits)
+	authed("GET /api/resources/{id}/storage", "viewer", s.getStorage)
+	authed("PUT /api/resources/{id}/storage", "developer", s.putStorage)
+	authed("DELETE /api/resources/{id}/storage/{volume}", "admin", s.deleteVolume)
+	authed("GET /api/resources/{id}/storage/{volume}/backup", "admin", s.backupVolume)
+	authed("GET /api/resources/{id}/build", "viewer", s.getBuild)
+	authed("PUT /api/resources/{id}/build", "developer", s.putBuild)
+	authed("POST /api/resources/{id}/build/inspect", "developer", s.inspectBuild)
 	authed("GET /api/resources/{id}/networking", "viewer", s.getNetworking)
 	authed("PUT /api/resources/{id}/networking", "developer", s.putNetworking)
 	authed("POST /api/resources/{id}/networking/port-check", "developer", s.checkHostPort)
@@ -120,6 +152,32 @@ func (s *Server) Handler() http.Handler {
 	authed("DELETE /api/sources/{id}", "admin", s.deleteSource)
 	authed("POST /api/sources/{id}/test", "developer", s.testSourceHandler)
 	authed("GET /api/sources/{id}/repositories", "developer", s.sourceRepositories)
+	authed("GET /api/resources/{id}/health", "viewer", s.getHealth)
+	authed("PUT /api/resources/{id}/health", "developer", s.putHealth)
+	authed("POST /api/resources/{id}/health/test", "developer", s.testHealth)
+	authed("GET /api/resources/{id}/releases", "viewer", s.listReleases)
+	authed("GET /api/deployments/{id}/env-diff", "viewer", s.envDiff)
+	authed("GET /api/resources/{id}/tasks", "viewer", s.listTasks)
+	authed("POST /api/resources/{id}/tasks", "developer", s.createTask)
+	authed("PATCH /api/tasks/{id}", "developer", s.updateTask)
+	authed("DELETE /api/tasks/{id}", "developer", s.deleteTask)
+	authed("POST /api/tasks/{id}/run", "developer", s.runTask)
+	authed("GET /api/tasks/{id}/runs", "viewer", s.listTaskRuns)
+	authed("GET /api/task-runs/{id}", "viewer", s.getTaskRun)
+	authed("POST /api/task-runs/{id}/cancel", "developer", s.cancelTaskRun)
+	authed("GET /api/cron/preview", "viewer", s.cronPreview)
+	authed("GET /api/resources/{id}/access", "viewer", s.getAccess)
+	authed("POST /api/resources/{id}/hook", "developer", s.createHook)
+	authed("POST /api/resources/{id}/hook/reveal", "developer", s.revealHook)
+	authed("DELETE /api/resources/{id}/hook", "developer", s.deleteHook)
+	authed("POST /api/resources/{id}/tokens", "developer", s.createResourceToken)
+	authed("DELETE /api/resource-tokens/{id}", "developer", s.deleteResourceToken)
+	h("POST /api/hooks/{token}", s.deployHook)
+	authed("GET /api/resources/{id}/advanced", "viewer", s.getAdvanced)
+	authed("PUT /api/resources/{id}/advanced", "developer", s.putAdvanced)
+	authed("GET /api/resources/{id}/export", "viewer", s.exportResource)
+	authed("POST /api/resources/{id}/images/purge", "admin", s.purgeImages)
+	authed("POST /api/resources/{id}/move", "admin", s.moveResource)
 
 	mux.Handle("/api/", httpx.Handler(func(w http.ResponseWriter, r *http.Request) error { return httpx.NotFound("Endpoint") }))
 	if s.WebDir != "" {
@@ -143,9 +201,15 @@ func securityHeaders(next http.Handler) http.Handler {
 // checkOrigin is the CSRF defence: state-changing requests must come from our own origin.
 // Combined with SameSite=Lax cookies this blocks cross-site form and fetch attacks.
 func (s *Server) checkOrigin(next http.Handler) http.Handler {
-	allowed, _ := url.Parse(s.PublicURL)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		allowed, _ := url.Parse(s.publicURL())
 		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
+			next.ServeHTTP(w, r)
+			return
+		}
+		// Deploy hooks carry their own secret, and token requests have no cookie a forged request could ride on.
+		_, cookieErr := r.Cookie(sessionCookie)
+		if strings.HasPrefix(r.URL.Path, "/api/hooks/") || (strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") && cookieErr != nil) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -167,6 +231,16 @@ var roleRank = map[string]int{"viewer": 0, "developer": 1, "admin": 2, "owner": 
 
 func (s *Server) requireUser(minRole string, fn func(http.ResponseWriter, *http.Request, *store.User) error) http.Handler {
 	return httpx.Handler(func(w http.ResponseWriter, r *http.Request) error {
+		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
+			user, err := s.tokenUser(r, strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")))
+			if err != nil {
+				return err
+			}
+			if roleRank[user.Role] < roleRank[minRole] {
+				return httpx.Forbidden("This token can't do this.")
+			}
+			return fn(w, r, user)
+		}
 		c, err := r.Cookie(sessionCookie)
 		if err != nil || c.Value == "" {
 			return httpx.Unauthorized()
@@ -247,4 +321,25 @@ func (l *limiter) allow(key string) bool {
 	}
 	l.hits[key] = append(recent, now)
 	return true
+}
+
+// publicURL is the address people open the dashboard at: the one saved in Settings › General, else IGNITION_PUBLIC_URL.
+// Requests to the address actually in use are always accepted, so changing it can't lock anyone out.
+func (s *Server) publicURL() string {
+	s.dashboardOne.Do(func() {
+		var saved string
+		s.Store.GetSetting(context.Background(), "dashboard_url", &saved)
+		if saved != "" {
+			s.dashboardURL.Store(&saved)
+		}
+	})
+	if v := s.dashboardURL.Load(); v != nil && *v != "" {
+		return *v
+	}
+	return s.PublicURL
+}
+
+func (s *Server) setPublicURL(v string) {
+	s.dashboardOne.Do(func() {})
+	s.dashboardURL.Store(&v)
 }

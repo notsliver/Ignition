@@ -6,7 +6,7 @@
 .users-search{flex:1;min-width:180px}
 
 .users-list{overflow:visible}
-.user-row{display:grid;grid-template-columns:30px minmax(180px,1.4fr) minmax(120px,1fr) 76px 120px 130px 26px;align-items:center;gap:14px;min-height:58px;padding:8px 10px 8px 16px}
+.user-row{display:grid;grid-template-columns:30px minmax(180px,1fr) 150px 130px 26px;align-items:center;gap:14px;min-height:58px;padding:8px 10px 8px 16px}
 .user-row+.user-row{border-top:1px solid var(--border)}
 .user-row.suspended .user-main,.user-row.suspended .avatar{opacity:.55}
 .user-main{display:flex;flex-direction:column;gap:3px;min-width:0}
@@ -48,3 +48,9 @@
   .user-row{grid-template-columns:30px minmax(0,1fr) 120px 26px}
   .user-access,.user-mfa,.user-status{display:none}
 }
+.users-page{gap:14px}
+.user-menu-gap{width:26px}
+.user-row.invited .user-main strong{font-weight:500}
+.link-box{display:flex;align-items:center;gap:8px;padding:8px 8px 8px 12px;border-radius:8px;border:1px solid var(--border);background:var(--hover)}
+.link-box code{flex:1;min-width:0;overflow-x:auto;white-space:nowrap;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text)}
+.invite-form{display:flex;flex-direction:column;gap:12px}

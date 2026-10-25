@@ -1,18 +1,20 @@
 import { ArrowLeftIcon, PlusIcon, ChevronDownIcon, MoonIcon, SunIcon, ViewColumnsIcon } from '@heroicons/react/20/solid';
-import { IconButton, Menu, Select, Status, SegmentedControl, Sidebar, SidebarFooter, SidebarGroup, SidebarHeader, SidebarItem, SidebarNav, SidebarSeparator, SidebarSubItem } from '../ui';
+import { IconButton, Menu, Select, Status, SegmentedControl, Sidebar, SidebarFooter, SidebarGroup, SidebarHeader, SidebarItem, SidebarNav, SidebarSeparator, SidebarSubItem, Logo } from '../ui';
 import { useTheme } from '../hooks/useTheme';
 import { useSession } from './AuthGate';
+import { useInstanceName } from './instance';
 import { ArrowRightStartOnRectangleIcon, UserCircleIcon } from '@heroicons/react/16/solid';
 import { groups, projectItems, resourceSectionsFor, settingsPages, settingsSections, topItems } from './navigation';
 
 const envColor = env => env === 'Production' ? 'var(--success)' : env === 'Staging' ? 'var(--warning)' : 'var(--muted)';
 const themeOptions = [{ value: 'light', label: 'Light', icon: SunIcon }, { value: 'dark', label: 'Dark', icon: MoonIcon }];
 
-const resourceTone = { running: 'success', deploying: 'progress', unhealthy: 'warning', failed: 'danger' };
+const resourceTone = { running: 'success', deploying: 'progress', unhealthy: 'warning', paused: 'warning', failed: 'danger' };
 
 export function AppSidebar({ active, project, environment, onEnvironmentChange, onNavigate, onCloseProject, resource, resourceView, onResourceNavigate, onCloseResource, onHide }) {
   const [theme, setTheme] = useTheme();
   const { user, signOut } = useSession();
+  const instanceName = useInstanceName();
   const footer = <SidebarFooter><SegmentedControl label="Theme" options={themeOptions} value={theme} onChange={setTheme} /></SidebarFooter>;
 
   if (project && resource) return <Sidebar label={`${resource.name} navigation`}>
@@ -71,7 +73,7 @@ export function AppSidebar({ active, project, environment, onEnvironmentChange, 
         { label: `Signed in as ${user.email} (${user.role})`, icon: UserCircleIcon, onSelect: () => {} },
         'separator',
         { label: 'Sign out', icon: ArrowRightStartOnRectangleIcon, onSelect: signOut },
-      ]}><span className="brand-mark"><img src="/ignition-logo.svg" alt="" /></span><span>Ignition</span><ChevronDownIcon className="workspace-caret" /></Menu>
+      ]}><Logo className="brand-logo" /><span>{instanceName}</span><ChevronDownIcon className="workspace-caret" /></Menu>
       <IconButton icon={ViewColumnsIcon} label="Hide sidebar" onClick={onHide} />
     </SidebarHeader>
     <SidebarNav>

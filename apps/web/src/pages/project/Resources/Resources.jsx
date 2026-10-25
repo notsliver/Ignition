@@ -24,6 +24,7 @@ export const resourceStatus = {
   stopped: { tone: 'neutral', label: 'Stopped' },
   failed: { tone: 'danger', label: 'Failed' },
   removing: { tone: 'warning', label: 'Removing' },
+  paused: { tone: 'warning', label: 'Paused' },
 };
 export const sourceLabel = r => r.sourceType === 'git' ? r.repoUrl.replace(/^https:\/\//, '') : r.image;
 // A working domain wins over the published host port.
@@ -163,7 +164,7 @@ export function DeleteDialog({ resource, onClose, onDeleted }) {
   const [volumes, setVolumes] = useState(false);
   const [error, setError] = useState('');
   const [pending, setPending] = useState(false);
-  const hasData = !!resource.dataPath;
+  const hasData = resource.volumes?.length > 0;
   async function remove() {
     setPending(true);
     try {
@@ -177,7 +178,7 @@ export function DeleteDialog({ resource, onClose, onDeleted }) {
   return <Dialog open onClose={onClose} title={`Delete ${resource.name}?`}
     description={`Its container is stopped and removed, along with its deployment history and variables.${hasData ? ' The data volume is kept unless you choose to delete it.' : ''}`}
     footer={<><Button onClick={onClose}>Cancel</Button><Button className="danger-solid" icon={TrashIcon} disabled={confirm !== resource.name || pending} onClick={remove}>{pending ? 'Deleting…' : 'Delete'}</Button></>}>
-    {hasData && <label className="check-row"><Checkbox label="Also delete the data volume" checked={volumes} onChange={setVolumes} />Also delete the data volume ({resource.dataPath}). This can't be undone.</label>}
+    {hasData && <label className="check-row"><Checkbox label="Also delete the data volume" checked={volumes} onChange={setVolumes} />Also delete {resource.volumes?.length === 1 ? 'its volume' : 'its volumes'} ({resource.volumes?.join(', ')}) and all data in {resource.volumes?.length === 1 ? 'it' : 'them'}. This can't be undone.</label>}
     <p className="confirm-hint">Type <code>{resource.name}</code> to confirm.</p>
     <TextInput value={confirm} onChange={e => setConfirm(e.target.value)} aria-label={`Type ${resource.name} to confirm`} autoComplete="off" autoFocus />
     {error && <p className="rp-error">{error}</p>}

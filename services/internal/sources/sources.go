@@ -358,3 +358,50 @@ func RegistryAuthHeader(c Credentials) string {
 	b, _ := json.Marshal(map[string]string{"username": c.Username, "password": c.Secret, "serveraddress": RegistryAddress(c)})
 	return base64.URLEncoding.EncodeToString(b)
 }
+
+type Commit struct {
+	SHA     string    `json:"sha"`
+	Message string    `json:"message"` // first line
+	Author  string    `json:"author"`
+	Date    time.Time `json:"date"`
+}
+
+// GitHubCompare reports how head relates to base and the commits base is missing (newest first, up to 50).
+func GitHubCompare(ctx context.Context, c Credentials, ownerRepo, base, head string) (status string, ahead, behind int, commits []Commit, err error) {
+	var out struct {
+		Status   string `json:"status"` // ahead (head is newer), behind, identical, diverged
+		AheadBy  int    `json:"ahead_by"`
+		BehindBy int    `json:"behind_by"`
+		Commits  []struct {
+			SHA    string `json:"sha"`
+			Commit struct {
+				Message string `json:"message"`
+				Author  struct {
+					Name string    `json:"name"`
+					Date time.Time `json:"date"`
+				} `json:"author"`
+			} `json:"commit"`
+		} `json:"commits"`
+	}
+	if err = providerGet(ctx, c, "/repos/"+ownerRepo+"/compare/"+base+"..."+head, &out); err != nil {
+		return
+	}
+	commits = []Commit{}
+	for i := len(out.Commits) - 1; i >= 0 && len(commits) < 50; i-- {
+		cm := out.Commits[i]
+		msg, _, _ := strings.Cut(cm.Commit.Message, "\n")
+		commits = append(commits, Commit{SHA: cm.SHA, Message: msg, Author: cm.Commit.Author.Name, Date: cm.Commit.Author.Date})
+	}
+	// From the installed build's point of view.
+	switch out.Status {
+	case "ahead":
+		status = "behind"
+	case "behind":
+		status = "ahead"
+	case "identical":
+		status = "up-to-date"
+	default:
+		status = out.Status
+	}
+	return status, out.BehindBy, out.AheadBy, commits, nil
+}

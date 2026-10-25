@@ -10,10 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ignition/ignition/internal/httpx"
-	"github.com/ignition/ignition/internal/jobs"
-	"github.com/ignition/ignition/internal/store"
-	"github.com/ignition/ignition/internal/worker"
+	"github.com/notsliver/Ignition/services/internal/httpx"
+	"github.com/notsliver/Ignition/services/internal/jobs"
+	"github.com/notsliver/Ignition/services/internal/store"
+	"github.com/notsliver/Ignition/services/internal/version"
+	"github.com/notsliver/Ignition/services/internal/worker"
 )
 
 var (
@@ -46,13 +47,15 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request, _ *store.User) e
 	defer cancel()
 	dockerErr := s.Runtime.Ping(ctx)
 	caps := map[string]any{
-		"docker":      dockerErr == nil,
-		"gitBuilds":   true,
-		"builders":    []string{"dockerfile"},
-		"domains":     true,
-		"terminal":    false,
-		"metrics":     "live", // live container stats only; no history is stored yet
-		"publishHost": s.PublishHost,
+		"docker":       dockerErr == nil,
+		"gitBuilds":    true,
+		"builders":     []string{"dockerfile"},
+		"domains":      true,
+		"terminal":     true,
+		"metrics":      "live", // live container stats only; no history is stored yet
+		"publishHost":  s.PublishHost,
+		"instanceName": s.instance(r.Context()).Name,
+		"version":      version.Version,
 	}
 	if dockerErr != nil {
 		caps["dockerError"] = dockerErr.Error()
@@ -343,6 +346,14 @@ func (s *Server) createResource(w http.ResponseWriter, r *http.Request, u *store
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
+	// Instance defaults fill in what the request leaves out.
+	defs := s.defaults(r.Context())
+	if in.MemoryMB == 0 {
+		in.MemoryMB = defs.MemoryMB
+	}
+	if in.CPUs == 0 {
+		in.CPUs = defs.CPUs
+	}
 	if err := s.checkResourceSource(r.Context(), &in); err != nil {
 		return err
 	}
@@ -369,7 +380,8 @@ func (s *Server) createResource(w http.ResponseWriter, r *http.Request, u *store
 	id, err := s.Store.CreateResource(r.Context(), tx, store.NewResource{
 		ProjectID: projectID, EnvironmentID: envID, Name: in.Name, Type: in.Type, SourceType: in.SourceType, Image: in.Image,
 		RepoURL: in.RepoURL, Branch: in.Branch, Dockerfile: in.Dockerfile, Command: in.Command, DataPath: in.DataPath, CreatedBy: u.ID, SourceID: in.SourceID,
-		Port: in.Port, MemoryMB: in.MemoryMB, CPUs: in.CPUs,
+		Defaults: &store.ResourceDefaults{HealthSeconds: defs.HealthSeconds, StopGrace: defs.StopGrace, RestartPolicy: defs.RestartPolicy, BuildMode: defs.BuildMode},
+		Port:     in.Port, MemoryMB: in.MemoryMB, CPUs: in.CPUs,
 	})
 	if store.IsUnique(err) {
 		return httpx.Invalid(map[string]string{"name": "A resource with this name already exists in this environment."})
@@ -478,7 +490,7 @@ func (s *Server) updateResource(w http.ResponseWriter, r *http.Request, u *store
 
 func (s *Server) enqueueForResource(ctx context.Context, kind, resourceID, userID string, payload any) (string, error) {
 	var active int
-	s.Store.DB.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE resource_id = $1 AND status IN ('pending', 'running')`, resourceID).Scan(&active)
+	s.Store.DB.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE resource_id = $1 AND kind <> 'health' AND status IN ('pending', 'running')`, resourceID).Scan(&active)
 	if active > 0 && kind != jobs.KindDeploy {
 		return "", httpx.Conflict("Another operation is in progress for this resource. Wait for it to finish.")
 	}
@@ -496,8 +508,10 @@ func (s *Server) resourceAction(w http.ResponseWriter, r *http.Request, u *store
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
-	if in.Action != "start" && in.Action != "stop" && in.Action != "restart" {
-		return httpx.BadRequest("Action must be start, stop or restart.")
+	switch in.Action {
+	case "start", "stop", "restart", "pause", "resume", "refresh":
+	default:
+		return httpx.BadRequest("Action must be start, stop, restart, pause, resume or refresh.")
 	}
 	res, err := s.Store.GetResource(r.Context(), id)
 	if err != nil {
@@ -506,15 +520,22 @@ func (s *Server) resourceAction(w http.ResponseWriter, r *http.Request, u *store
 	if res.ContainerID == "" {
 		return httpx.Conflict(res.Name + " isn't deployed yet. Deploy it first.")
 	}
+	if in.Action == "pause" && res.Status != "running" {
+		return httpx.Conflict("Only a running resource can be paused.")
+	}
+	if in.Action == "resume" && res.Status != "paused" {
+		return httpx.Conflict(res.Name + " isn't paused.")
+	}
 	jobID, err := s.enqueueForResource(r.Context(), jobs.KindAction, id, u.ID, map[string]string{"action": in.Action})
 	if err != nil {
 		return err
 	}
-	desired := "running"
-	if in.Action == "stop" {
-		desired = "stopped"
+	switch in.Action {
+	case "stop":
+		s.Store.SetDesiredState(r.Context(), id, "stopped")
+	case "start", "restart", "resume":
+		s.Store.SetDesiredState(r.Context(), id, "running")
 	}
-	s.Store.SetDesiredState(r.Context(), id, desired)
 	s.Store.Audit(r.Context(), u, "resource."+in.Action, "resource", id, map[string]any{"name": res.Name}, clientIP(r))
 	httpx.JSON(w, 202, map[string]string{"jobId": jobID})
 	return nil
@@ -695,10 +716,12 @@ func (s *Server) createDeployment(w http.ResponseWriter, r *http.Request, u *sto
 		return err
 	}
 	var in struct {
-		From   string `json:"from"`
-		Reason string `json:"reason"`
+		From       string `json:"from"`
+		Reason     string `json:"reason"`
+		NoCache    bool   `json:"noCache"`    // rebuild every layer and pull fresh base images
+		RestoreEnv bool   `json:"restoreEnv"` // rollback: also bring back that release's variables
 	}
-	if err := httpx.Decode(r, &in); err != nil {
+	if err := httpx.DecodeOptional(r, &in); err != nil {
 		return err
 	}
 	res, err := s.Store.GetResource(r.Context(), id)
@@ -706,9 +729,12 @@ func (s *Server) createDeployment(w http.ResponseWriter, r *http.Request, u *sto
 		return notFound(err, "Resource")
 	}
 	trigger, imageRef, branch := "manual", "", res.Branch
+	if strings.HasPrefix(u.Email, tokenActorPrefix) {
+		trigger = "token"
+	}
+	var from *store.Deployment
 	if in.From != "" {
-		from, err := s.Store.GetDeployment(r.Context(), in.From)
-		if err != nil || from.ResourceID != id {
+		if from, err = s.Store.GetDeployment(r.Context(), in.From); err != nil || from.ResourceID != id {
 			return httpx.NotFound("Deployment")
 		}
 		if from.ImageRef == "" {
@@ -716,11 +742,23 @@ func (s *Server) createDeployment(w http.ResponseWriter, r *http.Request, u *sto
 		}
 		trigger, imageRef, branch = "redeploy", from.ImageRef, from.Branch
 		if from.Status == "successful" && !from.Current {
-			trigger = "rollback"
-		}
-		if res.SourceType == "image" {
+			// A rollback runs exactly that release's image.
+			img, why := rollbackImage(res, from)
+			if img == "" {
+				return httpx.Conflict(why)
+			}
+			if iid, err := s.Runtime.ImageID(r.Context(), img); err == nil && iid == "" {
+				return httpx.Conflict(fmt.Sprintf("#%d's image is no longer on this machine (old images were removed). Deploy that commit from the source instead.", from.Number))
+			}
+			trigger, imageRef = "rollback", img
+		} else if res.SourceType == "image" {
 			imageRef = "" // image resources redeploy by pulling the configured tag again
 		}
+		if in.RestoreEnv && !from.EnvKept {
+			return httpx.Conflict("That release's variables weren't kept (it's older than this feature), so they can't be restored.")
+		}
+	} else if in.RestoreEnv {
+		return httpx.BadRequest("Restoring variables needs a release to restore them from.")
 	}
 	tx, err := s.Store.DB.Begin(r.Context())
 	if err != nil {
@@ -731,6 +769,19 @@ func (s *Server) createDeployment(w http.ResponseWriter, r *http.Request, u *sto
 	if err != nil {
 		return err
 	}
+	if in.NoCache && imageRef == "" {
+		if _, err := tx.Exec(r.Context(), `UPDATE deployments SET no_cache = true WHERE id = $1`, depID); err != nil {
+			return err
+		}
+	}
+	if in.RestoreEnv {
+		if err := s.Store.RestoreEnv(r.Context(), tx, id, from.ID, u.ID); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(r.Context(), `UPDATE deployments SET restore_env = true WHERE id = $1`, depID); err != nil {
+			return err
+		}
+	}
 	jobID, err := jobs.Enqueue(r.Context(), tx, jobs.NewJob{Kind: jobs.KindDeploy, ResourceID: id, DeploymentID: depID, CreatedBy: u.ID})
 	if err != nil {
 		return err
@@ -738,7 +789,7 @@ func (s *Server) createDeployment(w http.ResponseWriter, r *http.Request, u *sto
 	if err := tx.Commit(r.Context()); err != nil {
 		return err
 	}
-	s.Store.Audit(r.Context(), u, "deployment."+trigger, "resource", id, map[string]any{"deployment": depID, "reason": in.Reason}, clientIP(r))
+	s.Store.Audit(r.Context(), u, "deployment."+trigger, "resource", id, map[string]any{"deployment": depID, "reason": in.Reason, "restoreEnv": in.RestoreEnv}, clientIP(r))
 	httpx.JSON(w, 202, map[string]string{"deploymentId": depID, "jobId": jobID})
 	return nil
 }
@@ -792,6 +843,8 @@ func (s *Server) deploymentLogs(w http.ResponseWriter, r *http.Request, _ *store
 
 /* ------------------------------ Runtime queries ---------------------------- */
 
+// containerLogs returns runtime output: the running container's from Docker, or an earlier deployment's
+// from the archive kept when its container was replaced (?deployment=<id>).
 func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request, _ *store.User) error {
 	id, err := pathID(r, "Resource")
 	if err != nil {
@@ -801,24 +854,62 @@ func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request, _ *store.
 	if err != nil {
 		return notFound(err, "Resource")
 	}
-	if res.ContainerID == "" {
-		httpx.JSON(w, 200, map[string]any{"lines": []any{}, "available": false, "reason": "This resource has no running container yet."})
-		return nil
-	}
 	tail, _ := strconv.Atoi(r.URL.Query().Get("tail"))
-	if tail <= 0 || tail > 5000 {
-		tail = 500
+	if tail <= 0 || tail > 10000 {
+		tail = 1000
 	}
 	var since time.Time
 	if v, err := strconv.ParseInt(r.URL.Query().Get("since"), 10, 64); err == nil && v > 0 {
 		since = time.Unix(v, 0)
+	}
+	const retention = "Logs of the running release come from Docker. When a release is replaced, its last 10,000 lines are kept for the 10 most recent deployments."
+	dep := r.URL.Query().Get("deployment")
+	if dep != "" && (res.CurrentDeploymentID == nil || dep != *res.CurrentDeploymentID) {
+		if !uuidRE.MatchString(dep) {
+			return httpx.Invalid(map[string]string{"deployment": "Unknown deployment."})
+		}
+		d, err := s.Store.GetDeployment(r.Context(), dep)
+		if err != nil || d.ResourceID != id {
+			return httpx.NotFound("Deployment")
+		}
+		lines, err := s.Store.ArchivedRuntimeLogs(r.Context(), dep, since, tail)
+		if err != nil {
+			return err
+		}
+		reason := ""
+		if len(lines) == 0 {
+			reason = fmt.Sprintf("No logs were kept for deployment #%d. It produced no output, or its archive was pruned.", d.Number)
+		}
+		httpx.JSON(w, 200, map[string]any{"lines": lines, "available": len(lines) > 0, "reason": reason, "archived": true, "retention": retention})
+		return nil
+	}
+	if res.ContainerID == "" {
+		httpx.JSON(w, 200, map[string]any{"lines": []any{}, "available": false, "reason": "This resource has no running container yet. Earlier deployments' logs are in the deployment picker."})
+		return nil
 	}
 	lines, err := s.Runtime.Logs(r.Context(), res.ContainerID, tail, since)
 	if err != nil {
 		httpx.JSON(w, 200, map[string]any{"lines": []any{}, "available": false, "reason": "Docker didn't return logs: " + err.Error()})
 		return nil
 	}
-	httpx.JSON(w, 200, map[string]any{"lines": lines, "available": true, "retention": "Logs come from Docker's json-file driver and are kept until the container is replaced by the next deployment."})
+	httpx.JSON(w, 200, map[string]any{"lines": lines, "available": true, "archived": false, "retention": retention})
+	return nil
+}
+
+// logSources lists the deployments whose runtime logs can be read.
+func (s *Server) logSources(w http.ResponseWriter, r *http.Request, _ *store.User) error {
+	id, err := pathID(r, "Resource")
+	if err != nil {
+		return err
+	}
+	if _, err := s.Store.GetResource(r.Context(), id); err != nil {
+		return notFound(err, "Resource")
+	}
+	list, err := s.Store.LogSources(r.Context(), id)
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, 200, map[string]any{"deployments": list})
 	return nil
 }
 
@@ -882,14 +973,5 @@ func (s *Server) resourceMetrics(w http.ResponseWriter, r *http.Request, _ *stor
 		"sampleIntervalSeconds": 15, "retentionDays": 7,
 		"limits": map[string]any{"memoryBytes": int64(res.MemoryMB) << 20, "cpus": res.CPUs},
 	})
-	return nil
-}
-
-func (s *Server) listAudit(w http.ResponseWriter, r *http.Request, _ *store.User) error {
-	list, err := s.Store.ListAudit(r.Context(), r.URL.Query().Get("target"), 200)
-	if err != nil {
-		return err
-	}
-	httpx.JSON(w, 200, map[string]any{"events": list})
 	return nil
 }

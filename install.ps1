@@ -34,6 +34,17 @@ if (-not (Test-Path .env)) {
 $port = ((Get-Content .env | Where-Object { $_ -match '^IGNITION_PORT=' }) -replace '^IGNITION_PORT=', '')
 if (-not $port) { $port = '8080' }
 
+# Stamp the build with the commit it comes from (Settings > Updates compares it with the repository).
+git rev-parse HEAD *> $null
+if ($LASTEXITCODE -eq 0) {
+  $env:IGNITION_COMMIT = (git rev-parse HEAD)
+  $env:IGNITION_VERSION = (git describe --tags --always 2>$null)
+  if (-not $env:IGNITION_VERSION) { $env:IGNITION_VERSION = 'dev' }
+  $env:IGNITION_DIRTY = if (git status --porcelain --untracked-files=no) { 'true' } else { 'false' }
+}
+$env:IGNITION_BUILT_AT = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ssZ')
+$env:IGNITION_SOURCE_DIR = (Get-Location).Path
+
 # 3. Build and start. Deployed apps share the "ignition" network with the domain proxy.
 docker network inspect ignition *> $null
 if ($LASTEXITCODE -ne 0) { docker network create ignition | Out-Null }

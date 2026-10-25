@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ignition/ignition/internal/httpx"
-	"github.com/ignition/ignition/internal/sources"
-	"github.com/ignition/ignition/internal/store"
+	"github.com/notsliver/Ignition/services/internal/httpx"
+	"github.com/notsliver/Ignition/services/internal/sources"
+	"github.com/notsliver/Ignition/services/internal/store"
 )
 
 // Which auth types each provider supports, and its kind.

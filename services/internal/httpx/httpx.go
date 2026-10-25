@@ -4,6 +4,7 @@
 package httpx
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
@@ -12,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 )
@@ -72,6 +74,19 @@ type statusRecorder struct {
 }
 
 func (s *statusRecorder) WriteHeader(code int) { s.status = code; s.ResponseWriter.WriteHeader(code) }
+
+// Hijack lets WebSocket upgrades (the terminal) take over the connection.
+func (s *statusRecorder) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	h, ok := s.ResponseWriter.(http.Hijacker)
+	if !ok {
+		return nil, nil, errors.New("connection can't be hijacked")
+	}
+	s.status = http.StatusSwitchingProtocols
+	return h.Hijack()
+}
+
+func (s *statusRecorder) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
 func (s *statusRecorder) Flush() {
 	if f, ok := s.ResponseWriter.(http.Flusher); ok {
 		f.Flush()
@@ -113,6 +128,16 @@ func Decode(r *http.Request, v any) error {
 	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
+		return BadRequest("Invalid JSON body: " + err.Error())
+	}
+	return nil
+}
+
+// DecodeOptional is Decode for endpoints whose body can be left out (e.g. a bare curl -X POST).
+func DecodeOptional(r *http.Request, v any) error {
+	dec := json.NewDecoder(io.LimitReader(r.Body, 1<<20))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(v); err != nil && err != io.EOF {
 		return BadRequest("Invalid JSON body: " + err.Error())
 	}
 	return nil

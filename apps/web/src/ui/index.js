@@ -21,4 +21,5 @@ export { Sparkline } from './components/Sparkline/Sparkline';
 export { Status } from './components/Status/Status';
 export { GitHubIcon, GitLabIcon } from './icons/brands';
 export { BranchIcon, CommitIcon } from './icons/git';
+export { Logo } from './icons/Logo';
 export { cx } from './utils/cx';

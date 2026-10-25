@@ -1,123 +1,164 @@
-import { useMemo, useState } from 'react';
-import { ArrowPathIcon, ArrowUturnLeftIcon, CheckCircleIcon, RocketLaunchIcon, TrashIcon, WrenchIcon } from '@heroicons/react/16/solid';
-import { Button, Notice, Select, Switch, TextInput } from '../../../ui';
+import { useEffect, useState } from 'react';
+import { ArrowPathIcon, CheckCircleIcon, CommandLineIcon, CubeIcon, DocumentMagnifyingGlassIcon, ExclamationTriangleIcon, RocketLaunchIcon } from '@heroicons/react/16/solid';
+import { Button, Notice, Select, TextInput } from '../../../ui';
+import { api } from '../../../api/client';
+import { timeAgo, useQuery } from '../../../api/hooks';
+import { useSession } from '../../../app/AuthGate';
 import { SaveBar, SettingsField, SettingsGroup } from '../../settings/SettingsField';
-import { useLater, useSettingsForm } from './shared';
+import './BuildDeploy.css';
 
-/* How source becomes a running release. Build settings need a rebuild; deploy settings only a redeploy. */
+/*
+ * How source becomes a running release. Build settings apply on the next build, deploy settings on the next deployment.
+ * Automatic builds use the repository's Dockerfile, or detect Node.js, Python, Go and static sites when there isn't one.
+ */
 
-const opts = list => list.map(v => (Array.isArray(v) ? { value: v[0], label: v[1], description: v[2] } : { value: v, label: v }));
-
-const detected = {
-  builder: 'nixpacks', dockerfile: 'Dockerfile', context: '.', target: '', install: 'npm ci', build: 'npm run build',
-  buildArgs: 'NODE_VERSION=22', buildVars: 'NEXT_PUBLIC_API_URL', platform: 'linux/amd64', buildTimeout: '20', buildMemory: '4096', cache: true,
-  start: 'npm start', workdir: '/app', port: '3000', strategy: 'rolling', zeroDowntime: true, replicas: '2', grace: '30',
-  deployTimeout: '10', healthDeadline: '120', concurrency: 'cancel', preDeploy: '', postDeploy: '',
+const MODES = [
+  { value: 'auto', label: 'Automatic', description: 'Dockerfile if there is one, otherwise detect the stack' },
+  { value: 'dockerfile', label: 'Dockerfile only', description: 'Fail when the Dockerfile is missing' },
+];
+const LABELS = {
+  mode: 'Builder', dockerfile: 'Dockerfile path', context: 'Build context', target: 'Target stage', args: 'Build arguments', timeoutMinutes: 'Build timeout',
+  command: 'Start command', port: 'Port', healthSeconds: 'Health wait', stopGraceSeconds: 'Shutdown grace period', releaseCommand: 'Release command',
 };
-const labels = {
-  builder: 'Builder', dockerfile: 'Dockerfile path', context: 'Build context', target: 'Target stage', install: 'Install command', build: 'Build command',
-  buildArgs: 'Build arguments', buildVars: 'Build-time variables', platform: 'Platform', buildTimeout: 'Build timeout', buildMemory: 'Build memory', cache: 'Build cache',
-  start: 'Start command', workdir: 'Working directory', port: 'Port', strategy: 'Strategy', zeroDowntime: 'Zero-downtime', replicas: 'Replicas', grace: 'Shutdown grace period',
-  deployTimeout: 'Deployment timeout', healthDeadline: 'Health deadline', concurrency: 'Concurrent deployments', preDeploy: 'Pre-deploy hook', postDeploy: 'Post-deploy hook',
-};
-const buildKeys = new Set(['builder', 'dockerfile', 'context', 'target', 'install', 'build', 'buildArgs', 'buildVars', 'platform', 'buildTimeout', 'buildMemory', 'cache']);
-const show = v => v === true ? 'On' : v === false ? 'Off' : v === '' ? '(empty)' : v;
+const BUILD_KEYS = ['mode', 'dockerfile', 'context', 'target', 'args', 'timeoutMinutes'];
 
-function validate(v) {
-  const errors = [];
-  const port = Number(v.port);
-  if (!Number.isInteger(port) || port < 1 || port > 65535) errors.push('Port must be a number from 1 to 65535.');
-  if (Number(v.buildTimeout) < 1 || Number(v.buildTimeout) > 120) errors.push('Build timeout must be between 1 and 120 minutes.');
-  if (Number(v.replicas) < 1) errors.push('At least one replica is required.');
-  if (v.builder === 'dockerfile' && !v.dockerfile.trim()) errors.push('Enter the Dockerfile path.');
-  if (v.builder !== 'dockerfile' && v.builder !== 'static' && !v.start.trim()) errors.push('Enter a start command.');
-  for (const line of v.buildArgs.split('\n').filter(Boolean)) if (!/^[A-Za-z_][A-Za-z0-9_]*=/.test(line.trim())) errors.push(`Build argument "${line.trim()}" must look like NAME=value.`);
-  return errors;
-}
+// Settings ⇄ form strings, so inputs can be edited freely and validated on save.
+const toForm = s => ({
+  mode: s.mode, dockerfile: s.dockerfile, context: s.context, target: s.target, args: s.args.join('\n'), timeoutMinutes: String(s.timeoutMinutes),
+  command: s.command, port: s.port ? String(s.port) : '', healthSeconds: String(s.healthSeconds), stopGraceSeconds: String(s.stopGraceSeconds), releaseCommand: s.releaseCommand,
+});
+const toBody = f => ({
+  mode: f.mode, dockerfile: f.dockerfile, context: f.context, target: f.target, args: f.args.split('\n').map(a => a.trim()).filter(Boolean),
+  timeoutMinutes: Number(f.timeoutMinutes), command: f.command, port: f.port ? Number(f.port) : null,
+  healthSeconds: Number(f.healthSeconds), stopGraceSeconds: Number(f.stopGraceSeconds), releaseCommand: f.releaseCommand,
+});
+const show = (k, v) => v === '' ? '(empty)' : k === 'mode' ? MODES.find(m => m.value === v)?.label : k === 'args' ? `${v.split('\n').filter(Boolean).length} args` : v;
 
-export function BuildDeploy({ resource }) {
-  const later = useLater();
-  const form = useSettingsForm(detected);
-  const { values, set, bind, bindInput } = form;
-  const [pipeline, setPipeline] = useState(null);
-  const [cacheCleared, setCacheCleared] = useState(false);
-  const errors = validate(values);
-  const isDocker = values.builder === 'dockerfile';
-  const isStatic = values.builder === 'static';
+export function BuildDeploy({ resource, onNavigate, onResourceChange }) {
+  const { user } = useSession();
+  const canEdit = user.role !== 'viewer';
+  const { data, error, refetch } = useQuery(() => api.build(resource.id), [resource.id], { pollMs: 8000 });
+  const [saved, setSaved] = useState(null);
+  const [form, setForm] = useState(null);
+  const [errors, setErrors] = useState({});
+  const [feedback, setFeedback] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [inspect, setInspect] = useState(null);
+  const dirty = saved && JSON.stringify(form) !== JSON.stringify(saved);
+  useEffect(() => { if (data && !dirty) { const f = toForm(data.settings); setSaved(f); setForm(f); } }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Compare against the saved values that useSettingsForm discards back to.
-  const [baseline, setBaseline] = useState(detected);
-  const changes = useMemo(() => Object.keys(labels).filter(k => values[k] !== baseline[k]), [values, baseline]);
-  const needsRebuild = changes.some(k => buildKeys.has(k));
+  if (error && !data) return <div className="rp-page"><Notice tone="danger" title="Couldn't load build settings">{error.message} <button type="button" className="inline-link" onClick={refetch}>Retry</button></Notice></div>;
+  if (!data || !form) return <div className="rp-page"><p className="bd-muted">Loading…</p></div>;
 
-  function run(kind) {
-    setPipeline({ kind, state: 'running' });
-    later(() => setPipeline({ kind, state: 'done' }), 2500);
-  }
-  function save(event) {
+  const builds = data.builds;
+  const last = data.lastBuild;
+  const changes = Object.keys(LABELS).filter(k => form[k] !== saved[k]);
+  const needsRebuild = builds && changes.some(k => BUILD_KEYS.includes(k));
+  const set = key => value => { setForm(f => ({ ...f, [key]: value })); setErrors(({ [key]: _, ...rest }) => rest); setFeedback(null); if (BUILD_KEYS.includes(key)) setInspect(null); };
+  const input = (key, props = {}) => <TextInput id={key} value={form[key]} disabled={!canEdit} aria-invalid={!!errors[key]} onChange={e => set(key)(props.numeric ? e.target.value.replace(/\D/g, '') : e.target.value)} spellCheck={false} {...props} numeric={undefined} />;
+  const field = (key, hint, control) => <SettingsField label={LABELS[key]} hint={errors[key] ? <span className="bd-error">{errors[key]}</span> : hint} htmlFor={key}>{control}</SettingsField>;
+
+  async function save(event) {
     event.preventDefault();
-    if (errors.length) return;
-    form.save();
-    setBaseline(values);
+    setBusy(true); setErrors({});
+    try {
+      const out = await api.putBuild(resource.id, toBody(form));
+      const f = toForm(out.settings);
+      setSaved(f); setForm(f);
+      if (String(resource.port ?? '') !== f.port || resource.command !== f.command) onResourceChange?.({ ...resource, port: out.settings.port, command: out.settings.command });
+      setFeedback({ tone: 'success', title: 'Saved', text: out.requiresRebuild ? 'Build changes apply on the next build.' : 'Applies on the next deployment.', deploy: true });
+    } catch (err) {
+      setErrors(err.fields ?? {});
+      setFeedback({ tone: 'danger', title: 'Couldn\'t save', text: err.fields ? 'Check the highlighted fields.' : err.message });
+    }
+    setBusy(false);
+  }
+  async function deploy(noCache = false) {
+    setBusy(true); setFeedback(null);
+    try {
+      await api.deploy(resource.id, noCache ? { noCache: true } : {});
+      setFeedback({ tone: 'success', title: noCache ? 'Rebuilding from scratch' : builds ? 'Building and deploying' : 'Deploying', text: 'Follow it under Deployments.', link: true });
+      refetch();
+    } catch (err) { setFeedback({ tone: 'danger', title: 'Couldn\'t start the deployment', text: err.message }); }
+    setBusy(false);
+  }
+  async function checkRepo() {
+    setInspect({ loading: true });
+    try { setInspect(await api.inspectBuild(resource.id, toBody(form))); } catch (err) { setInspect({ error: err.fields ? Object.values(err.fields)[0] : err.message }); }
   }
 
   return <form className="settings-page rp-settings build-deploy" onSubmit={save}>
-    <div className="pipeline-bar">
-      <Button type="button" variant="primary" icon={RocketLaunchIcon} onClick={() => run('deploy')} disabled={pipeline?.state === 'running' || form.dirty}>Build and deploy</Button>
-      <Button type="button" icon={WrenchIcon} onClick={() => run('build')} disabled={pipeline?.state === 'running' || form.dirty}>Build only</Button>
-      <Button type="button" icon={TrashIcon} onClick={() => setCacheCleared(true)} disabled={cacheCleared}>{cacheCleared ? 'Cache cleared' : 'Clear build cache'}</Button>
-      <span className="spacer" />
-      <Button type="button" icon={ArrowUturnLeftIcon} onClick={() => Object.entries(detected).forEach(([k, v]) => set(k)(v))}>Reset to detected</Button>
+    <div className="bd-bar">
+      <div className="bd-last">
+        {last ? <>
+          <strong>{builds ? `Build #${last.number}` : `Release #${last.number}`}{last.commit && <code>{last.commit}</code>}</strong>
+          <span>{[last.buildInfo || (builds ? 'Dockerfile' : last.imageRef), last.branch && `from ${last.branch}`, timeAgo(last.at), last.current ? 'running now' : last.status].filter(Boolean).join(' · ')}</span>
+        </> : <><strong>Nothing deployed yet</strong><span>{builds ? 'The first deployment clones the repository and builds it.' : 'The first deployment pulls the image.'}</span></>}
+      </div>
+      {canEdit && <div className="bd-actions">
+        {builds && <Button type="button" icon={ArrowPathIcon} disabled={busy || dirty} onClick={() => deploy(true)} title="Ignore cached layers and pull fresh base images">Rebuild without cache</Button>}
+        <Button type="button" variant="primary" icon={RocketLaunchIcon} disabled={busy || dirty} onClick={() => deploy(false)}>{builds ? 'Build and deploy' : 'Pull and deploy'}</Button>
+      </div>}
     </div>
-    {form.dirty && <p className="pipeline-note">Save or discard your changes before starting a build.</p>}
-    {pipeline && <p className={`pipeline-status ${pipeline.state}`}>{pipeline.state === 'running' ? <ArrowPathIcon className="spin" /> : <CheckCircleIcon />}
-      {pipeline.state === 'running' ? (pipeline.kind === 'build' ? 'Building image…' : 'Building and deploying…') : pipeline.kind === 'build' ? `Image ${resource.name}:9c41e0a built. It isn't deployed yet.` : 'Deployed. See Deployments for details.'}</p>}
+    {dirty && <p className="bd-note">Save or discard your changes before deploying.</p>}
+    {feedback && <Notice tone={feedback.tone} title={feedback.title}>{feedback.text}
+      {feedback.link && <> <button type="button" className="inline-link" onClick={() => onNavigate?.('Deployments')}>Open Deployments</button></>}
+      {feedback.deploy && canEdit && <> <button type="button" className="inline-link" disabled={busy} onClick={() => deploy(false)}>Deploy now</button></>}</Notice>}
 
-    <SettingsGroup title="Build" description="Changes here take effect on the next build.">
-      <SettingsField label="Builder" htmlFor="builder"><Select {...bind('builder')} label="Builder" options={opts([['nixpacks', 'Nixpacks', 'Detects your stack automatically'], ['dockerfile', 'Dockerfile', 'Build from a Dockerfile'], ['buildpacks', 'Cloud Native Buildpacks', 'Heroku-compatible builds'], ['static', 'Static site', 'Serve files with no runtime']])} /></SettingsField>
-      {isDocker ? <>
-        <SettingsField label="Dockerfile path" htmlFor="dockerfile"><TextInput className="mono" {...bindInput('dockerfile')} /></SettingsField>
-        <SettingsField label="Build context" htmlFor="context"><TextInput className="mono" {...bindInput('context')} /></SettingsField>
-        <SettingsField label="Target stage" hint="For multi-stage Dockerfiles. Empty builds the last stage." htmlFor="target"><TextInput className="mono" placeholder="runtime" {...bindInput('target')} /></SettingsField>
-      </> : <>
-        <SettingsField label="Install command" htmlFor="install"><TextInput className="mono" {...bindInput('install')} /></SettingsField>
-        <SettingsField label="Build command" htmlFor="build"><TextInput className="mono" {...bindInput('build')} /></SettingsField>
-      </>}
-      <SettingsField label="Build arguments" hint="NAME=value per line. Passed as --build-arg; not available at runtime." htmlFor="buildArgs">
-        <textarea id="buildArgs" className="labels-input" rows={2} spellCheck={false} value={values.buildArgs} onChange={e => set('buildArgs')(e.target.value)} />
-      </SettingsField>
-      <SettingsField label="Build-time variables" hint="Names of environment variables exposed during the build. Values come from Environment Variables." htmlFor="buildVars">
-        <TextInput className="mono" {...bindInput('buildVars')} />
-      </SettingsField>
-      <SettingsField label="Platform" htmlFor="platform"><Select {...bind('platform')} label="Platform" options={opts([['linux/amd64', 'linux/amd64'], ['linux/arm64', 'linux/arm64']])} /></SettingsField>
-      <SettingsField label="Build timeout" htmlFor="buildTimeout"><TextInput type="number" suffix="minutes" {...bindInput('buildTimeout')} /></SettingsField>
-      <SettingsField label="Build memory" hint="Separate from the runtime memory limit." htmlFor="buildMemory"><Select {...bind('buildMemory')} label="Build memory" options={opts([['2048', '2 GB'], ['4096', '4 GB'], ['8192', '8 GB']])} /></SettingsField>
-      <SettingsField label="Build cache" hint="Reuse dependency layers between builds."><Switch label="Build cache" checked={values.cache} onChange={set('cache')} /></SettingsField>
-    </SettingsGroup>
-
-    <SettingsGroup title="Deploy" description="Changes here take effect on the next deployment, without rebuilding.">
-      {!isDocker && !isStatic && <SettingsField label="Start command" htmlFor="start"><TextInput className="mono" {...bindInput('start')} /></SettingsField>}
-      <SettingsField label="Working directory" htmlFor="workdir"><TextInput className="mono" {...bindInput('workdir')} /></SettingsField>
-      <SettingsField label="Port" hint="The port your process listens on." htmlFor="port"><TextInput type="number" {...bindInput('port')} /></SettingsField>
-      <SettingsField label="Replicas" htmlFor="replicas"><TextInput type="number" min="1" {...bindInput('replicas')} /></SettingsField>
-      <SettingsField label="Strategy" htmlFor="strategy"><Select {...bind('strategy')} label="Strategy" options={opts([['rolling', 'Rolling', 'Replace replicas one at a time'], ['recreate', 'Recreate', 'Stop all replicas, then start the new release']])} /></SettingsField>
-      <SettingsField label="Zero-downtime" hint="Keep the old release serving until the new one is healthy."><Switch label="Zero-downtime" checked={values.zeroDowntime && values.strategy === 'rolling'} onChange={set('zeroDowntime')} disabled={values.strategy === 'recreate'} /></SettingsField>
-      <SettingsField label="Shutdown grace period" htmlFor="grace"><TextInput type="number" suffix="seconds" {...bindInput('grace')} /></SettingsField>
-      <SettingsField label="Deployment timeout" hint="Fail the deployment if the rollout takes longer." htmlFor="deployTimeout"><TextInput type="number" suffix="minutes" {...bindInput('deployTimeout')} /></SettingsField>
-      <SettingsField label="Health deadline" hint="Time for new replicas to pass their health check." htmlFor="healthDeadline"><TextInput type="number" suffix="seconds" {...bindInput('healthDeadline')} /></SettingsField>
-      <SettingsField label="Concurrent deployments" htmlFor="concurrency"><Select {...bind('concurrency')} label="Concurrent deployments" options={opts([['cancel', 'Cancel the older one', 'A new push replaces a queued deployment'], ['queue', 'Queue them', 'Deploy every push in order']])} /></SettingsField>
-      <SettingsField label="Pre-deploy hook" hint="Runs once before traffic switches, e.g. migrations." htmlFor="preDeploy"><TextInput className="mono" placeholder="npm run migrate" {...bindInput('preDeploy')} /></SettingsField>
-      <SettingsField label="Post-deploy hook" hint="Runs after the release is live." htmlFor="postDeploy"><TextInput className="mono" placeholder="npm run warm-cache" {...bindInput('postDeploy')} /></SettingsField>
-    </SettingsGroup>
-
-    {errors.length > 0 && <Notice tone="danger" title="Fix these before saving">{errors.join(' ')}</Notice>}
-    {changes.length > 0 && <section className="settings-group">
-      <h2>Pending changes</h2>
-      <div className="settings-card pending-changes">
-        {changes.map(k => <div key={k}><span>{labels[k]}</span><code>{show(baseline[k])}</code><span className="arrow">→</span><code>{show(values[k])}</code><em>{buildKeys.has(k) ? 'Rebuild' : 'Redeploy'}</em></div>)}
+    {builds ? <SettingsGroup title="Build" description="Applies on the next build.">
+      {field('mode', 'Nixpacks and Buildpacks aren\'t supported; Automatic covers Node.js, Python, Go and static sites without a Dockerfile.',
+        <Select id="mode" label="Builder" value={form.mode} options={MODES} onChange={set('mode')} />)}
+      {field('dockerfile', 'Relative to the build context.', input('dockerfile', { className: 'mono', placeholder: 'Dockerfile' }))}
+      {field('context', 'The folder to build, for monorepos. Empty is the repository root.', input('context', { className: 'mono', prefix: '/', placeholder: 'apps/web' }))}
+      {field('target', 'For multi-stage Dockerfiles. Empty builds the last stage.', input('target', { className: 'mono', placeholder: 'runtime' }))}
+      {field('args', 'NAME=value per line. Passed as --build-arg; not available at runtime unless the Dockerfile copies them.',
+        <textarea id="args" className="input mono bd-args" rows={3} spellCheck={false} disabled={!canEdit} value={form.args} placeholder="NODE_VERSION=22" onChange={e => set('args')(e.target.value)} />)}
+      {field('timeoutMinutes', 'The build is stopped and fails after this long.', input('timeoutMinutes', { numeric: true, suffix: 'minutes', className: 'bd-num', inputMode: 'numeric' }))}
+      <div className="bd-inspect">
+        <Button type="button" icon={DocumentMagnifyingGlassIcon} disabled={inspect?.loading} onClick={checkRepo}>{inspect?.loading ? 'Checking repository…' : 'Check what will be built'}</Button>
+        <span className="bd-muted">Clones {resource.branch} and shows what the next build uses, without building.</span>
+      </div>
+      {inspect && !inspect.loading && <InspectResult result={inspect} />}
+    </SettingsGroup> : <section className="settings-group">
+      <h2>Build</h2>
+      <div className="settings-card bd-empty">
+        <CubeIcon />
+        <div><strong>Nothing to build</strong>
+          <span>{resource.name} runs the image <code>{resource.image}</code>, pulled again on every deployment. Change the image or its registry credentials under <button type="button" className="inline-link" onClick={() => onNavigate?.('Source')}>Source</button>.</span></div>
       </div>
     </section>}
 
-    <SaveBar dirty={form.dirty} onDiscard={() => { form.discard(); }} summary={`${changes.length} ${changes.length === 1 ? 'change' : 'changes'} · applies on the next ${needsRebuild ? 'build' : 'deployment'}`} />
+    <SettingsGroup title="Deploy" description="Applies on the next deployment, without rebuilding.">
+      {field('command', builds ? 'Overrides the image\'s CMD. Empty uses what the build defines.' : 'Overrides the image\'s CMD. Empty uses the image\'s default.',
+        input('command', { className: 'mono', placeholder: builds ? 'npm start' : 'image default' }))}
+      {field('port', resource.type === 'application' ? 'The port your app listens on. Domains and the default port mapping use it.' : 'Optional for databases and workers.',
+        input('port', { numeric: true, className: 'bd-num', inputMode: 'numeric', placeholder: '3000' }))}
+      {field('releaseCommand', 'Runs once in the new release before it takes over, e.g. database migrations. If it fails, the previous release keeps running.',
+        input('releaseCommand', { className: 'mono', placeholder: 'npm run migrate' }))}
+      {field('healthSeconds', 'The new release must stay up this long before the old one is retired.', input('healthSeconds', { numeric: true, suffix: 'seconds', className: 'bd-num', inputMode: 'numeric' }))}
+      {field('stopGraceSeconds', 'Time the old release gets to finish requests after SIGTERM.', input('stopGraceSeconds', { numeric: true, suffix: 'seconds', className: 'bd-num', inputMode: 'numeric' }))}
+      <p className="bd-footnote"><CheckCircleIcon />Zero downtime: the new release starts and passes the health wait before the old one stops (unless a fixed host port is mapped under Networking). One instance runs per resource; replicas aren't supported yet.</p>
+    </SettingsGroup>
+
+    {changes.length > 0 && <section className="settings-group">
+      <h2>Pending changes</h2>
+      <div className="settings-card pending-changes">
+        {changes.map(k => <div key={k}><span>{LABELS[k]}</span><code>{show(k, saved[k])}</code><span className="arrow">→</span><code>{show(k, form[k])}</code><em>{builds && BUILD_KEYS.includes(k) ? 'Rebuild' : 'Redeploy'}</em></div>)}
+      </div>
+    </section>}
+
+    <SaveBar dirty={dirty} onDiscard={() => { setForm(saved); setErrors({}); setInspect(null); }} summary={`${changes.length} ${changes.length === 1 ? 'change' : 'changes'} · applies on the next ${needsRebuild ? 'build' : 'deployment'}`} />
   </form>;
+}
+
+function InspectResult({ result }) {
+  const [open, setOpen] = useState(false);
+  if (result.error) return <p className="bd-result bad"><ExclamationTriangleIcon />{result.error}</p>;
+  return <div className="bd-result-wrap">
+    {result.uses === 'dockerfile' && <p className="bd-result ok"><CheckCircleIcon />Builds with <code>{result.dockerfile}</code> at {result.commit} on {result.branch}.</p>}
+    {result.uses === 'detected' && <>
+      <p className="bd-result ok"><CommandLineIcon />No Dockerfile, so Ignition will build it as <strong>{result.plan.stack}</strong>: {result.plan.summary}. <button type="button" className="inline-link" onClick={() => setOpen(o => !o)}>{open ? 'Hide' : 'Show'} the Dockerfile</button></p>
+      {open && <pre className="bd-dockerfile">{result.plan.dockerfile}</pre>}
+    </>}
+  </div>;
 }

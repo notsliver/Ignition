@@ -1,128 +1,55 @@
-// Placeholder update notices. Flip `enabled` to show or hide each one.
-// Later these will be driven by real conditions from the API.
-export const notices = [
-  {
-    id: 'security-patch',
-    enabled: false,
-    tone: 'danger',
-    title: 'Security update available',
-    text: 'v0.10.0 fixes a vulnerability that could expose environment variables. Update as soon as possible.',
-    action: 'Update now',
-  },
-  {
-    id: 'critically-outdated',
-    enabled: false,
-    tone: 'danger',
-    title: 'Your version is critically outdated',
-    text: 'You are 14 releases behind. Updates from this version may require several steps.',
-    action: 'View upgrade path',
-  },
-  {
-    id: 'end-of-life',
-    enabled: false,
-    tone: 'danger',
-    title: 'v0.9 reaches end of life on Dec 31, 2026',
-    text: 'After this date, it will no longer receive security fixes.',
-    action: 'Learn more',
-  },
-  {
-    id: 'last-update-failed',
-    enabled: false,
-    tone: 'danger',
-    title: 'Last update failed and was rolled back',
-    text: 'Updating to v0.10.0 failed during the database migration. Your instance is still on v0.9.2.',
-    action: 'View logs',
-  },
-  {
-    id: 'outdated',
-    enabled: false,
-    tone: 'warning',
-    title: 'Ignition is 3 releases behind',
+// Update notices, each shown only when its condition is true for this instance.
+// `server` notices are about the last update run; dismissing them is remembered by the API.
+
+const duration = (from, to) => {
+  const s = Math.max(0, Math.round((new Date(to) - new Date(from)) / 1000));
+  return s < 60 ? `${s}s` : `${Math.floor(s / 60)}m ${s % 60}s`;
+};
+const v = s => (s && /^\d+\.\d+/.test(s) ? `v${s}` : s);
+
+export function activeNotices({ installed, config, check, lastCheck, run, docker, startError, retry, viewLogs }) {
+  const list = [];
+  const dockerMajor = parseInt(docker, 10);
+
+  if (startError) list.push({
+    id: 'start-failed', tone: 'danger', title: "The update couldn't start", text: startError,
+  });
+  if (run?.state === 'failed' && !run.dismissed) list.push({
+    id: 'last-update-failed', server: true, tone: 'danger',
+    title: 'Last update failed',
+    text: `Updating to ${v(run.version)} didn't finish. Ignition is still on ${v(installed.version)}.`,
+    action: 'View logs', onAction: viewLogs,
+  });
+  if (check?.behind >= 3) list.push({
+    id: 'outdated', tone: 'warning',
+    title: `Ignition is ${check.behind} commits behind`,
     text: 'Staying up to date gives you the latest fixes and features.',
-  },
-  {
-    id: 'breaking-changes',
-    enabled: false,
-    tone: 'warning',
-    title: 'This update includes breaking changes',
-    text: 'The environment variable format for build secrets has changed. Review the migration guide before updating.',
-    action: 'Migration guide',
-  },
-  {
-    id: 'backup-recommended',
-    enabled: false,
-    tone: 'warning',
-    title: 'No recent backup',
-    text: 'Your last backup was 9 days ago. We recommend backing up before updating.',
-    action: 'Back up now',
-  },
-  {
-    id: 'low-disk',
-    enabled: false,
-    tone: 'warning',
-    title: 'Not enough disk space to update',
-    text: 'The update needs 1.2 GB of free space. production-01 has 640 MB available.',
-    action: 'Open server',
-  },
-  {
-    id: 'docker-incompatible',
-    enabled: false,
-    tone: 'warning',
+  });
+  if (installed.dirty) list.push({
+    id: 'local-changes', tone: 'warning',
+    title: 'This build has local changes',
+    text: "It was built from an install folder with uncommitted changes. Updates won't overwrite them, so commit or stash them before updating.",
+  });
+  if (dockerMajor && dockerMajor < 24) list.push({
+    id: 'docker-incompatible', tone: 'warning',
     title: 'Docker version not supported',
-    text: 'v0.10.0 requires Docker 24.0 or newer. production-02 is running Docker 20.10.',
-  },
-  {
-    id: 'check-failed',
-    enabled: false,
-    tone: 'warning',
-    title: "Couldn't check for updates",
-    text: 'The update server could not be reached. Check your network or proxy settings.',
-    action: 'Retry',
-  },
-  {
-    id: 'prerelease-channel',
-    enabled: false,
-    tone: 'info',
+    text: `Ignition needs Docker 24.0 or newer. This machine is running Docker ${docker}.`,
+  });
+  const failedCheck = lastCheck?.channel === config.channel || !lastCheck?.channel ? lastCheck?.error : '';
+  if (failedCheck) list.push({
+    id: 'check-failed', tone: 'warning',
+    title: "Couldn't check for updates", text: failedCheck,
+    action: 'Retry', onAction: retry,
+  });
+  if (config.channel === 'prerelease') list.push({
+    id: 'prerelease-channel', tone: 'info',
     title: "You're on the prerelease channel",
     text: 'Prereleases may contain bugs. Switch to Stable for production workloads.',
-  },
-  {
-    id: 'restart-required',
-    enabled: false,
-    tone: 'info',
-    title: 'Restart required',
-    text: 'An update has been downloaded and will finish installing after Ignition restarts.',
-    action: 'Restart now',
-  },
-  {
-    id: 'update-scheduled',
-    enabled: false,
-    tone: 'info',
-    title: 'Update scheduled for tonight at 03:00',
-    text: 'Ignition will update to v0.10.0 during your maintenance window.',
-    action: 'Reschedule',
-  },
-  {
-    id: 'major-available',
-    enabled: false,
-    tone: 'info',
-    title: 'Ignition 1.0 is available',
-    text: 'A new major version is out. It is not installed automatically.',
-    action: 'Read announcement',
-  },
-  {
-    id: 'auto-check-disabled',
-    enabled: false,
-    tone: 'info',
-    title: 'Automatic update checks are off',
-    text: 'You will only see new versions when you check manually.',
-    action: 'Turn on',
-  },
-  {
-    id: 'update-complete',
-    enabled: false,
-    tone: 'success',
-    title: 'Updated to v0.9.2',
-    text: 'The update finished in 1m 48s. All services are running.',
-  },
-];
+  });
+  if (run?.state === 'succeeded' && !run.dismissed) list.push({
+    id: 'update-complete', server: true, tone: 'success',
+    title: `Updated to ${v(run.version)}`,
+    text: run.finishedAt && !run.finishedAt.startsWith('0001') ? `The update finished in ${duration(run.startedAt, run.finishedAt)}. All services are running.` : 'All services are running.',
+  });
+  return list;
+}

@@ -5,9 +5,9 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/ignition/ignition/internal/httpx"
-	"github.com/ignition/ignition/internal/sources"
-	"github.com/ignition/ignition/internal/store"
+	"github.com/notsliver/Ignition/services/internal/httpx"
+	"github.com/notsliver/Ignition/services/internal/sources"
+	"github.com/notsliver/Ignition/services/internal/store"
 )
 
 // resourceSource reports what the resource is built from: the linked credentials, the remote's branches

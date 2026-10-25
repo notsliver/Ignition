@@ -8,16 +8,18 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/ignition/ignition/internal/jobs"
-	"github.com/ignition/ignition/internal/proxy"
-	"github.com/ignition/ignition/internal/runtime"
-	"github.com/ignition/ignition/internal/secrets"
-	"github.com/ignition/ignition/internal/sources"
-	"github.com/ignition/ignition/internal/store"
+	"github.com/notsliver/Ignition/services/internal/jobs"
+	"github.com/notsliver/Ignition/services/internal/proxy"
+	"github.com/notsliver/Ignition/services/internal/runtime"
+	"github.com/notsliver/Ignition/services/internal/secrets"
+	"github.com/notsliver/Ignition/services/internal/sources"
+	"github.com/notsliver/Ignition/services/internal/store"
 )
 
 // LegacyNetwork is the single network every resource used to share. Containers are moved off it.
@@ -32,6 +34,11 @@ type Worker struct {
 	Concurrency int
 	Lease       time.Duration
 	Proxy       *proxy.Client
+
+	selfOnce sync.Once
+	self     string // the worker's own container, for joining app networks
+	joinedMu sync.Mutex
+	joined   map[string]time.Time
 }
 
 var errCancelled = errors.New("cancelled")
@@ -66,6 +73,10 @@ func (w *Worker) Run(ctx context.Context) {
 	go func() { defer wg.Done(); w.syncLoop(ctx) }()
 	wg.Add(1)
 	go func() { defer wg.Done(); w.metricsLoop(ctx) }()
+	wg.Add(1)
+	go func() { defer wg.Done(); w.HealthLoop(ctx) }()
+	wg.Add(1)
+	go func() { defer wg.Done(); w.TaskLoop(ctx) }()
 	wg.Wait()
 }
 
@@ -103,6 +114,8 @@ func (w *Worker) execute(parent context.Context, owner string, job *jobs.Job) {
 		err = w.action(ctx, job)
 	case jobs.KindRemove:
 		err = w.remove(ctx, job)
+	case jobs.KindHealth:
+		err = w.healthTest(ctx, job)
 	default:
 		err = fmt.Errorf("%w: unknown job kind %q", jobs.ErrPermanent, job.Kind)
 	}
@@ -186,9 +199,14 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 
 	imageRef := dep.ImageRef
 	switch {
-	case imageRef != "" && res.SourceType == "git":
-		// Redeploy or rollback of an image built earlier: reuse it without rebuilding.
-		w.Queue.Log(ctx, job.ID, "info", "source", "Reusing built image "+imageRef)
+	case imageRef != "":
+		// Redeploy or rollback of an earlier release: reuse its exact image without rebuilding or pulling.
+		if id, err := w.Runtime.ImageID(ctx, imageRef); err != nil {
+			return err
+		} else if id == "" {
+			return fmt.Errorf("%w: that release's image is no longer on this machine (old images may have been purged). Deploy from the source instead.", jobs.ErrPermanent)
+		}
+		w.Queue.Log(ctx, job.ID, "info", "source", "Reusing the image of an earlier release: "+shortImage(imageRef))
 	case res.SourceType == "image":
 		imageRef = res.Image
 		w.Store.SetDeploymentStatus(ctx, dep.ID, "deploying", "")
@@ -224,29 +242,85 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 			return err
 		}
 		w.Queue.Log(ctx, job.ID, "info", "source", "Checked out "+commit)
-		dockerfile, err := SafeDockerfile(res.Dockerfile)
+		bs, err := w.Store.GetBuildSettings(ctx, res.ID)
 		if err != nil {
 			return err
 		}
-		if _, err := os.Stat(dir + "/" + dockerfile); err != nil {
-			return fmt.Errorf("%w: %s not found in the repository. Only Dockerfile builds are supported right now", jobs.ErrPermanent, dockerfile)
+		opts, info, contextDir, err := w.prepareBuild(ctx, job.ID, dir, res, bs)
+		if err != nil {
+			return err
 		}
-		buildContext, err := tarDir(dir)
+		buildContext, err := tarDir(contextDir)
 		if err != nil {
 			return err
 		}
 		imageRef = fmt.Sprintf("ignition/%s:%s", res.ID[:8], commit)
-		w.Queue.Log(ctx, job.ID, "info", "build", "Building "+imageRef)
-		if err := w.Runtime.BuildImage(ctx, buildContext, dockerfile, imageRef, w.logf(ctx, job.ID, "build")); err != nil {
+		opts.Tag, opts.NoCache = imageRef, w.Store.DeploymentNoCache(ctx, dep.ID)
+		// Labelled, so an older build of the same commit (left untagged) can still be found and removed.
+		opts.Labels = map[string]string{"ignition.resource": res.ID, "ignition.deployment": dep.ID}
+		if opts.NoCache {
+			w.Queue.Log(ctx, job.ID, "info", "build", "Building without cache and pulling fresh base images")
+		}
+		w.Queue.Log(ctx, job.ID, "info", "build", fmt.Sprintf("Building %s (%s)", imageRef, info))
+		w.Store.SetBuildInfo(ctx, dep.ID, info)
+		buildCtx, cancelBuild := context.WithTimeout(ctx, time.Duration(bs.TimeoutMinutes)*time.Minute)
+		err = w.Runtime.BuildImage(buildCtx, buildContext, opts, w.logf(ctx, job.ID, "build"))
+		timedOut := buildCtx.Err() == context.DeadlineExceeded
+		cancelBuild()
+		if timedOut {
+			return fmt.Errorf("%w: the build took longer than %d minutes. Raise the build timeout in Build & Deploy.", jobs.ErrPermanent, bs.TimeoutMinutes)
+		}
+		if err != nil {
 			return fmt.Errorf("%w: build failed: %v", jobs.ErrPermanent, err)
 		}
 		w.Store.SetDeploymentArtifact(ctx, dep.ID, imageRef, commit)
 	}
 
+	if id, err := w.Runtime.ImageID(ctx, imageRef); err == nil && id != "" {
+		w.Store.SetDeploymentImageID(ctx, dep.ID, id) // the exact image, so a rollback gets the same bits
+	}
 	w.Store.SetDeploymentStatus(ctx, dep.ID, "deploying", "")
+	ds, err := w.Store.GetBuildSettings(ctx, res.ID)
+	if err != nil {
+		return err
+	}
+	grace := time.Duration(ds.StopGrace) * time.Second
+	lim, err := w.Store.GetLimits(ctx, res.ID)
+	if err != nil {
+		return err
+	}
+	vols, err := w.Store.Volumes(ctx, res.ID)
+	if err != nil {
+		return err
+	}
 	env, err := w.envFor(ctx, res.ID)
 	if err != nil {
 		return err
+	}
+	w.Store.SnapshotEnv(ctx, dep.ID, res.ID) // kept so a rollback can restore exactly these variables
+	adv, err := w.Store.GetAdvanced(ctx, res.ID)
+	if err != nil {
+		return err
+	}
+	entrypoint, err := SplitArgs(adv.Entrypoint)
+	if err != nil {
+		return fmt.Errorf("%w: entrypoint %v", jobs.ErrPermanent, err)
+	}
+	labels := map[string]string{}
+	for k, v := range adv.Labels {
+		if !strings.HasPrefix(k, "ignition.") && !strings.HasPrefix(k, "com.docker.") {
+			labels[k] = v
+		}
+	}
+	// Which labels are ours, so Advanced Settings can tell a removed label from one the image brings.
+	customKeys := make([]string, 0, len(labels))
+	for k := range labels {
+		customKeys = append(customKeys, k)
+	}
+	sort.Strings(customKeys)
+	labels["ignition.labels"] = strings.Join(customKeys, ",")
+	for k, v := range map[string]string{"ignition.managed": "true", "ignition.resource": res.ID, "ignition.deployment": dep.ID, "ignition.project": res.ProjectID} {
+		labels[k] = v
 	}
 	// Each environment has its own private network; shared networks connect resources across projects on purpose.
 	network := runtime.EnvNetwork(res.EnvironmentID)
@@ -274,9 +348,11 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 	w.Queue.Log(ctx, job.ID, "info", "rollout", "Starting container "+name)
 	id, err := w.Runtime.CreateContainer(ctx, runtime.ContainerSpec{
 		Name: name, Image: imageRef, Env: env, Cmd: cmd, Ports: ports, MemoryMB: res.MemoryMB, CPUs: res.CPUs, Network: network, Networks: shared,
-		Volumes: volumesFor(res),
-		Aliases: append([]string{res.Name}, netcfg.Aliases...),
-		Labels:  map[string]string{"ignition.managed": "true", "ignition.resource": res.ID, "ignition.deployment": dep.ID, "ignition.project": res.ProjectID},
+		Volumes: volumesFor(res, vols), VolumeLabels: map[string]string{"ignition.resource": res.ID},
+		Limits:     RuntimeLimits(lim),
+		Aliases:    append([]string{res.Name}, netcfg.Aliases...),
+		Labels:     labels,
+		Entrypoint: entrypoint, WorkingDir: adv.Workdir, User: adv.User, ReadOnlyRoot: adv.ReadOnlyRoot, Init: adv.Init, Privileged: adv.Privileged,
 	})
 	if err != nil {
 		return fmt.Errorf("create container: %w", err)
@@ -286,7 +362,7 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 	stoppedOld := false
 	if len(fixed) > 0 && res.ContainerID != "" {
 		w.Queue.Log(ctx, job.ID, "info", "rollout", fmt.Sprintf("Stopping the previous container first: host port %s is fixed (brief downtime)", strings.Join(fixed, ", ")))
-		w.Runtime.Stop(ctx, res.ContainerID, 10*time.Second)
+		w.Runtime.Stop(ctx, res.ContainerID, grace)
 		stoppedOld = true
 	}
 	restoreOld := func() {
@@ -304,10 +380,10 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 		return fmt.Errorf("%w: start container: %v", jobs.ErrPermanent, err)
 	}
 
-	// Health verification: the container must stay running for a few seconds.
-	w.Queue.Log(ctx, job.ID, "info", "health", "Waiting for the container to stay up")
+	// Health verification: the container must stay running for the configured time.
+	w.Queue.Log(ctx, job.ID, "info", "health", fmt.Sprintf("Waiting %ds for the container to stay up", ds.HealthSeconds))
 	var st runtime.State
-	for i := 0; i < 5; i++ {
+	for i := 0; i < ds.HealthSeconds; i++ {
 		select {
 		case <-ctx.Done():
 			w.Runtime.Remove(context.WithoutCancel(ctx), id, false)
@@ -327,6 +403,7 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 				w.Queue.Log(ctx, job.ID, "error", "health", l.Message)
 			}
 		}
+		w.archiveLogs(ctx, id) // the crash output stays readable under Logs for this deployment
 		w.Runtime.Remove(ctx, id, false)
 		restoreOld()
 		reason := fmt.Sprintf("container exited with code %d", st.ExitCode)
@@ -336,6 +413,46 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 		return fmt.Errorf("%w: health check failed: %s. The previous release keeps running.", jobs.ErrPermanent, reason)
 	}
 	w.Queue.Log(ctx, job.ID, "info", "health", "Container is running")
+
+	// Release command (e.g. migrations): runs once in the new container before it takes over.
+	if ds.ReleaseCommand != "" {
+		w.Queue.Log(ctx, job.ID, "info", "release", "Running release command: "+ds.ReleaseCommand)
+		rctx, cancel := context.WithTimeout(ctx, 15*time.Minute)
+		code, err := w.Runtime.Exec(rctx, id, []string{"sh", "-c", ds.ReleaseCommand}, nil, w.logf(ctx, job.ID, "release"))
+		cancel()
+		if err != nil || code != 0 {
+			w.archiveLogs(ctx, id)
+			w.Runtime.Remove(ctx, id, false)
+			restoreOld()
+			if err != nil {
+				return fmt.Errorf("%w: release command couldn't run: %v. The previous release keeps running.", jobs.ErrPermanent, err)
+			}
+			return fmt.Errorf("%w: release command exited with code %d. The previous release keeps running.", jobs.ErrPermanent, code)
+		}
+		w.Queue.Log(ctx, job.ID, "info", "release", "Release command finished")
+	}
+
+	// Health check gate: the new release only takes over once it answers.
+	hc, _, err := w.Store.GetHealth(ctx, res.ID)
+	if err != nil {
+		return err
+	}
+	if hc.Enabled {
+		if err := w.awaitHealthy(ctx, job.ID, res, id, hc); err != nil {
+			if !errors.Is(err, errCancelled) {
+				if lines, lerr := w.Runtime.Logs(ctx, id, 15, time.Time{}); lerr == nil && len(lines) > 0 {
+					w.Queue.Log(ctx, job.ID, "info", "health", "Last output of the new release:")
+					for _, l := range lines {
+						w.Queue.Log(ctx, job.ID, "info", "health", "  "+l.Message)
+					}
+				}
+			}
+			w.archiveLogs(ctx, id)
+			w.Runtime.Remove(context.WithoutCancel(ctx), id, false)
+			restoreOld()
+			return err
+		}
+	}
 
 	// Switch over, then retire the previous container.
 	old := res.ContainerID
@@ -353,11 +470,16 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 	}
 	w.Store.MarkCurrent(ctx, res.ID, dep.ID)
 	w.Store.SetDeploymentStatus(ctx, dep.ID, "successful", "")
+	if hc.Enabled {
+		w.Store.SetHealthState(ctx, res.ID, "healthy", 0, true)
+	}
 	if old != "" && old != id {
 		w.Queue.Log(ctx, job.ID, "info", "rollout", "Removing previous container")
-		w.Runtime.Stop(ctx, old, 10*time.Second)
+		w.Runtime.Stop(ctx, old, grace)
+		w.archiveLogs(ctx, old)
 		w.Runtime.Remove(ctx, old, false)
 	}
+	w.removeStrays(ctx, job.ID, res.ID, id)
 	w.Queue.Log(ctx, job.ID, "info", "complete", "Deployment complete")
 	return nil
 }
@@ -389,14 +511,33 @@ func (w *Worker) registryAuth(ctx context.Context, res *store.Resource) (string,
 	return sources.RegistryAuthHeader(*c), nil
 }
 
-// volumeName is stable per resource, so data survives redeploys and rollbacks.
-func volumeName(res *store.Resource) string { return "ign-" + res.ID[:8] + "-data" }
+// VolumePrefix starts the Docker name of every volume of a resource. Names are stable per resource and
+// volume name, so data survives redeploys and rollbacks ("data" keeps the original single volume).
+func VolumePrefix(resourceID string) string { return "ign-" + resourceID[:8] + "-" }
 
-func volumesFor(res *store.Resource) map[string]string {
-	if res.DataPath == "" {
+func VolumeName(resourceID, name string) string { return VolumePrefix(resourceID) + name }
+
+func volumesFor(res *store.Resource, vols []store.Volume) map[string]string {
+	if len(vols) == 0 {
 		return nil
 	}
-	return map[string]string{volumeName(res): res.DataPath}
+	out := map[string]string{}
+	for _, v := range vols {
+		out[VolumeName(res.ID, v.Name)] = v.MountPath
+	}
+	return out
+}
+
+// RuntimeLimits converts saved limits into what Docker applies.
+func RuntimeLimits(l store.Limits) runtime.Limits {
+	r := runtime.Limits{MemoryMB: l.MemoryMB, CPUs: l.CPUs, NoSwap: !l.AllowSwap, Restart: l.RestartPolicy, MaxRestarts: l.MaxRestarts}
+	if l.MemoryReservationMB != nil {
+		r.MemoryReservationMB = *l.MemoryReservationMB
+	}
+	if l.PidsLimit != nil {
+		r.PidsLimit = *l.PidsLimit
+	}
+	return r
 }
 
 type actionPayload struct {
@@ -415,9 +556,21 @@ func (w *Worker) action(ctx context.Context, job *jobs.Job) error {
 		return fmt.Errorf("%w: %s has never been deployed. Deploy it first.", jobs.ErrPermanent, res.Name)
 	}
 	w.Queue.Log(ctx, job.ID, "info", p.Action, fmt.Sprintf("%s %s", strings.Title(p.Action), res.Name))
+	if p.Action == "refresh" {
+		w.refreshStatus(ctx, job.ResourceID)
+		return nil
+	}
 	switch p.Action {
 	case "start":
-		err = w.Runtime.Start(ctx, res.ContainerID)
+		if res.Status == "paused" {
+			err = w.Runtime.Unpause(ctx, res.ContainerID)
+		} else {
+			err = w.Runtime.Start(ctx, res.ContainerID)
+		}
+	case "pause":
+		err = w.Runtime.Pause(ctx, res.ContainerID)
+	case "resume":
+		err = w.Runtime.Unpause(ctx, res.ContainerID)
 	case "stop":
 		err = w.Runtime.Stop(ctx, res.ContainerID, 15*time.Second)
 	case "restart":
@@ -452,9 +605,8 @@ func (w *Worker) remove(ctx context.Context, job *jobs.Job) error {
 			return err
 		}
 	}
-	if p.RemoveVolumes && res.DataPath != "" {
-		w.Queue.Log(ctx, job.ID, "warn", "remove", "Deleting volume "+volumeName(res)+" and its data")
-		if err := w.Runtime.RemoveVolume(ctx, volumeName(res)); err != nil {
+	if p.RemoveVolumes {
+		if err := w.removeVolumes(ctx, job.ID, res.ID); err != nil {
 			return err
 		}
 	}
@@ -481,6 +633,8 @@ func (w *Worker) refreshStatus(ctx context.Context, resourceID *string) {
 	switch {
 	case !st.Exists:
 		status = "failed"
+	case st.Paused:
+		status = "paused"
 	case st.Running && !st.Restarting:
 		status = "running"
 	case st.Restarting || (st.ExitCode != 0 && res.DesiredState == "running"):
@@ -513,7 +667,7 @@ func (w *Worker) syncLoop(ctx context.Context) {
 		case <-t.C:
 		}
 		rows, err := w.Store.DB.Query(ctx, `
-			SELECT r.id FROM resources r WHERE r.container_id <> '' AND r.status IN ('running', 'stopped', 'failed')
+			SELECT r.id FROM resources r WHERE r.container_id <> '' AND r.status IN ('running', 'stopped', 'failed', 'paused')
 			  AND NOT EXISTS (SELECT 1 FROM jobs j WHERE j.resource_id = r.id AND j.status IN ('pending', 'running'))`)
 		if err != nil {
 			continue
@@ -544,4 +698,180 @@ func portSpecs(list []store.PortMapping) ([]runtime.PortMapping, []string) {
 		out = append(out, m)
 	}
 	return out, fixed
+}
+
+// prepareBuild decides how to build: the repository's Dockerfile, or (in automatic mode, when there is none)
+// a Dockerfile generated for the detected stack. It returns the options, a description and the context folder.
+func (w *Worker) prepareBuild(ctx context.Context, jobID, repoDir string, res *store.Resource, bs store.BuildSettings) (runtime.BuildOptions, string, string, error) {
+	var opts runtime.BuildOptions
+	contextDir := repoDir
+	if strings.Trim(bs.Context, "/. ") != "" {
+		sub, err := SafeDockerfile(strings.Trim(bs.Context, "/"))
+		if err != nil {
+			return opts, "", "", fmt.Errorf("%w: build context must be a folder inside the repository", jobs.ErrPermanent)
+		}
+		contextDir = filepath.Join(repoDir, filepath.FromSlash(sub))
+		if info, err := os.Stat(contextDir); err != nil || !info.IsDir() {
+			return opts, "", "", fmt.Errorf("%w: build context %s isn't a folder in the repository", jobs.ErrPermanent, sub)
+		}
+	}
+	name := bs.Dockerfile
+	if strings.TrimSpace(name) == "" {
+		name = "Dockerfile"
+	}
+	dockerfile, err := SafeDockerfile(name)
+	if err != nil {
+		return opts, "", "", err
+	}
+	info := dockerfile
+	if _, err := os.Stat(filepath.Join(contextDir, filepath.FromSlash(dockerfile))); err != nil {
+		if bs.Mode == "dockerfile" {
+			return opts, "", "", fmt.Errorf("%w: %s not found in the build context. Add it, or switch the builder to Automatic", jobs.ErrPermanent, dockerfile)
+		}
+		port := 0
+		if res.Port != nil {
+			port = *res.Port
+		}
+		plan, err := DetectStack(contextDir, port, strings.TrimSpace(res.Command) != "")
+		if err != nil {
+			return opts, "", "", fmt.Errorf("%w: %v", jobs.ErrPermanent, err)
+		}
+		if err := os.WriteFile(filepath.Join(contextDir, GeneratedDockerfile), []byte(plan.Dockerfile), 0o644); err != nil {
+			return opts, "", "", err
+		}
+		w.Queue.Log(ctx, jobID, "info", "build", fmt.Sprintf("No %s found. Detected %s: %s", dockerfile, plan.Stack, plan.Summary))
+		for _, line := range strings.Split(strings.TrimSpace(plan.Dockerfile), "\n") {
+			w.Queue.Log(ctx, jobID, "info", "build", "  "+line)
+		}
+		dockerfile, info = GeneratedDockerfile, "Detected "+plan.Stack
+	}
+	opts.Dockerfile, opts.Target = dockerfile, bs.Target
+	if len(bs.Args) > 0 {
+		opts.Args = map[string]string{}
+		for _, a := range bs.Args {
+			if k, v, ok := strings.Cut(a, "="); ok {
+				opts.Args[k] = v
+			}
+		}
+	}
+	if bs.Target != "" {
+		info += " · target " + bs.Target
+	}
+	return opts, info, contextDir, nil
+}
+
+// removeStrays deletes containers of this resource other than keep, e.g. left by an interrupted deploy.
+func (w *Worker) removeStrays(ctx context.Context, jobID, resourceID, keep string) {
+	ids, err := w.Runtime.ResourceContainers(ctx, resourceID)
+	if err != nil {
+		return
+	}
+	for _, c := range ids {
+		if c != keep {
+			w.Queue.Log(ctx, jobID, "info", "rollout", "Removing a leftover container from an earlier deployment")
+			w.archiveLogs(ctx, c)
+			w.Runtime.Remove(ctx, c, false)
+		}
+	}
+}
+
+// removeVolumes deletes every volume of the resource, attached or detached.
+func (w *Worker) removeVolumes(ctx context.Context, jobID, resourceID string) error {
+	vols, err := w.Runtime.Volumes(ctx, VolumePrefix(resourceID))
+	if err != nil {
+		return err
+	}
+	for _, v := range vols {
+		w.Queue.Log(ctx, jobID, "warn", "remove", "Deleting volume "+v.Name+" and its data")
+		if err := w.Runtime.RemoveVolume(ctx, v.Name); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ArchivedLogLines and ArchivedDeployments bound what's kept of retired containers' output.
+const (
+	ArchivedLogLines    = 10000
+	ArchivedDeployments = 10
+)
+
+// archiveLogs saves a container's stdout/stderr under its deployment before the container is removed.
+func (w *Worker) archiveLogs(ctx context.Context, containerID string) {
+	labels, err := w.Runtime.ContainerLabels(ctx, containerID)
+	if err != nil || labels["ignition.deployment"] == "" {
+		return
+	}
+	lines, err := w.Runtime.Logs(ctx, containerID, ArchivedLogLines, time.Time{})
+	if err != nil || len(lines) == 0 {
+		return
+	}
+	out := make([]store.RuntimeLine, 0, len(lines))
+	for _, l := range lines {
+		out = append(out, store.RuntimeLine{Time: l.Time, Stream: l.Stream, Message: l.Message})
+	}
+	if err := w.Store.ArchiveRuntimeLogs(context.WithoutCancel(ctx), labels["ignition.deployment"], out, ArchivedDeployments); err != nil {
+		slog.Warn("archive runtime logs", "container", containerID, "error", err)
+	}
+}
+
+// shortImage shortens sha256 image IDs for logs.
+func shortImage(ref string) string {
+	if strings.HasPrefix(ref, "sha256:") && len(ref) > 19 {
+		return ref[:19]
+	}
+	return ref
+}
+
+// SplitArgs splits a command line like a shell would for quoting ("a b" and 'a b' stay one argument),
+// without running a shell. A JSON array (["a", "b"]) is taken as is.
+func SplitArgs(s string) ([]string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return nil, nil
+	}
+	if strings.HasPrefix(s, "[") {
+		var out []string
+		if err := json.Unmarshal([]byte(s), &out); err != nil {
+			return nil, errors.New("isn't a valid JSON array of strings")
+		}
+		return out, nil
+	}
+	var out []string
+	var cur strings.Builder
+	inWord, escaped := false, false
+	var quote rune
+	for _, r := range s {
+		switch {
+		case escaped:
+			cur.WriteRune(r)
+			escaped = false
+		case r == '\\' && quote != '\'':
+			escaped, inWord = true, true
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				cur.WriteRune(r)
+			}
+		case r == '"' || r == '\'':
+			quote, inWord = r, true
+		case r == ' ' || r == '\t' || r == '\n':
+			if inWord {
+				out = append(out, cur.String())
+				cur.Reset()
+				inWord = false
+			}
+		default:
+			cur.WriteRune(r)
+			inWord = true
+		}
+	}
+	if quote != 0 {
+		return nil, errors.New("has an unclosed quote")
+	}
+	if inWord {
+		out = append(out, cur.String())
+	}
+	return out, nil
 }

@@ -3,6 +3,7 @@ package sources
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -126,5 +127,25 @@ func TestSSHKeysUseSSHURLs(t *testing.T) {
 	}
 	if got := RepoURLFor(Credentials{AuthType: "token"}, "https://github.com/acme/app"); got != "https://github.com/acme/app" {
 		t.Errorf("tokens keep https, got %s", got)
+	}
+}
+
+func TestTagOrder(t *testing.T) {
+	mk := func(name string) Tag {
+		m := semverRE.FindStringSubmatch(name)
+		tag := Tag{Name: name, pre: m[4], Prerelease: m[4] != ""}
+		for i := 0; i < 3; i++ {
+			fmt.Sscan(m[i+1], &tag.semver[i])
+		}
+		return tag
+	}
+	order := []string{"v1.10.0", "v1.10.0-rc.2", "v1.10.0-beta.1", "v1.9.3", "v1.2.0", "0.9.0"}
+	for i := 0; i+1 < len(order); i++ {
+		if !newer(mk(order[i]), mk(order[i+1])) {
+			t.Errorf("%s should be newer than %s", order[i], order[i+1])
+		}
+	}
+	if semverRE.MatchString("latest") || !semverRE.MatchString("v2.0.0-beta.3") {
+		t.Error("only semantic versions are release tags")
 	}
 }

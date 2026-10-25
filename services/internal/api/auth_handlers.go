@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ignition/ignition/internal/auth"
-	"github.com/ignition/ignition/internal/httpx"
-	"github.com/ignition/ignition/internal/store"
+	"github.com/notsliver/Ignition/services/internal/auth"
+	"github.com/notsliver/Ignition/services/internal/httpx"
+	"github.com/notsliver/Ignition/services/internal/store"
 )
 
 const (
@@ -23,7 +23,7 @@ func (s *Server) setupStatus(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	httpx.JSON(w, 200, map[string]bool{"required": n == 0})
+	httpx.JSON(w, 200, map[string]any{"required": n == 0, "instanceName": s.instance(r.Context()).Name})
 	return nil
 }
 

@@ -30,6 +30,15 @@ else
 fi
 port=$(grep -E '^IGNITION_PORT=' .env | cut -d= -f2); port=${port:-8080}
 
+# Stamp the build with the commit it comes from (Settings > Updates compares it with the repository).
+if git rev-parse HEAD >/dev/null 2>&1; then
+  export IGNITION_COMMIT="$(git rev-parse HEAD)"
+  export IGNITION_VERSION="$(git describe --tags --always 2>/dev/null || echo dev)"
+  if [ -n "$(git status --porcelain --untracked-files=no 2>/dev/null)" ]; then export IGNITION_DIRTY=true; else export IGNITION_DIRTY=false; fi
+fi
+export IGNITION_BUILT_AT="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+export IGNITION_SOURCE_DIR="$(pwd)"
+
 # 3. Build and start. Deployed apps share the "ignition" network with the domain proxy.
 docker network inspect ignition >/dev/null 2>&1 || docker network create ignition >/dev/null
 say "Building and starting IGNITION (the first build takes a few minutes)…"

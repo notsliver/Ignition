@@ -22,7 +22,10 @@ const deployLabel = { queued: 'Queued', building: 'Building', deploying: 'Deploy
 const bytes = n => n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(2)} GB` : n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(0)} MB` : `${(n / 1024).toFixed(0)} KB`;
 const eventText = { 'resource.create': 'Resource created', 'resource.start': 'Started', 'resource.stop': 'Stopped', 'resource.restart': 'Restarted', 'resource.update': 'Settings changed',
   'resource.env.update': 'Environment variables updated', 'resource.env.reveal': 'A secret value was revealed', 'deployment.manual': 'Deployment started', 'deployment.redeploy': 'Redeploy started',
-  'deployment.rollback': 'Rollback started', 'deployment.cancel': 'Deployment cancelled' };
+  'deployment.rollback': 'Rollback started', 'deployment.cancel': 'Deployment cancelled', 'deployment.hook': 'Deploy hook called', 'deployment.token': 'Deployed with a token',
+  'resource.pause': 'Paused', 'resource.resume': 'Resumed', 'resource.health': 'Health check changed', 'resource.advanced': 'Advanced settings changed', 'resource.move': 'Moved',
+  'resource.hook_create': 'Deploy hook created', 'resource.hook_reveal': 'Deploy hook shown', 'resource.hook_delete': 'Deploy hook removed', 'resource.token_create': 'Token created', 'resource.token_revoke': 'Token revoked',
+  'task.create': 'Task created', 'task.update': 'Task changed', 'task.delete': 'Task deleted', 'task.run': 'Task run', 'resource.purge_images': 'Old images removed' };
 
 export function ResourceDetail({ project, environment, resource: initial, onNavigate, onResourceChange }) {
   const { user } = useSession();
@@ -38,6 +41,10 @@ export function ResourceDetail({ project, environment, resource: initial, onNavi
   const stats = useQuery(() => api.stats(initial.id), [initial.id, running], { pollMs: running ? 5000 : 0 });
   const deployments = useQuery(() => api.deployments(initial.id, { limit: 5 }), [initial.id], { pollMs: 4000 });
   const audit = useQuery(() => api.audit({ target: initial.id }), [initial.id], { pollMs: 10000, enabled: isAdmin });
+  const health = useQuery(() => api.health(initial.id), [initial.id], { pollMs: 10000 });
+  const hc = health.data?.config.enabled ? health.data.state : null;
+  const healthText = resource.status === 'paused' ? 'Paused' : !running ? (resource.status === 'failed' ? 'Not running' : '—')
+    : !hc ? 'Process running' : { healthy: 'Healthy', unhealthy: `Unhealthy${hc.failures ? ` (${hc.failures} failed)` : ''}`, starting: 'Starting', unknown: 'Checking…' }[hc.state];
 
   const latest = deployments.data?.deployments?.[0];
   const current = deployments.data?.deployments?.find(d => d.current);
@@ -48,6 +55,8 @@ export function ResourceDetail({ project, environment, resource: initial, onNavi
 
   const warnings = [];
   if (resource.status === 'failed') warnings.push({ tone: 'danger', text: latest?.error ? `Not running: ${latest.error}` : 'The container stopped unexpectedly.', link: 'Logs', action: 'Logs' });
+  if (running && hc?.state === 'unhealthy') warnings.push({ tone: 'warning', text: health.data.results.find(r => !r.ok)?.detail ? `Failing its health check: ${health.data.results.find(r => !r.ok).detail}` : 'Failing its health check.', link: 'Health Checks', action: 'Health' });
+  if (resource.status === 'paused') warnings.push({ tone: 'warning', text: "Paused: its processes are frozen and it doesn't answer requests.", link: 'Advanced Settings', action: 'Resume' });
   if (latest?.status === 'failed' && resource.status === 'running') warnings.push({ tone: 'warning', text: 'The latest deployment failed; the previous release is still serving.', link: 'Deployments', action: 'Deployment' });
 
   async function act(label, fn) {
@@ -74,14 +83,16 @@ export function ResourceDetail({ project, environment, resource: initial, onNavi
         <dl>
           <div><dt>Desired state</dt><dd>{resource.desiredState === 'running' ? 'Running' : 'Stopped'}</dd></div>
           <div><dt>Last change</dt><dd>{timeAgo(resource.updatedAt)}</dd></div>
-          <div><dt>Health</dt><dd className={cx(resource.status === 'failed' && 'bad')}>{running ? 'Process running' : resource.status === 'failed' ? 'Not running' : '—'}</dd></div>
+          <div><dt>Health</dt><dd className={cx((resource.status === 'failed' || (running && hc?.state === 'unhealthy')) && 'bad')}>{healthText}</dd></div>
         </dl>
       </div>
       <div className="ov-actions">
         <span className="ov-label">Quick actions</span>
         <div>
           {running && <Button icon={ArrowPathIcon} disabled={!!busy} onClick={() => act('restart', () => api.resourceAction(resource.id, 'restart'))}>{busy === 'restart' ? 'Restarting…' : 'Restart'}</Button>}
-          {resource.status === 'stopped'
+          {resource.status === 'paused'
+            ? <Button icon={PlayIcon} disabled={!!busy} onClick={() => act('resume', () => api.resourceAction(resource.id, 'resume'))}>{busy === 'resume' ? 'Resuming…' : 'Resume'}</Button>
+            : resource.status === 'stopped'
             ? <Button icon={PlayIcon} disabled={!!busy} onClick={() => act('start', () => api.resourceAction(resource.id, 'start'))}>{busy === 'start' ? 'Starting…' : 'Start'}</Button>
             : <Button icon={StopIcon} onClick={() => setConfirmStop(true)} disabled={!running || !!busy}>Stop</Button>}
           {url && resource.type === 'application' && <a className="button" href={url} target="_blank" rel="noreferrer"><ArrowTopRightOnSquareIcon />Open app</a>}
@@ -104,7 +115,7 @@ export function ResourceDetail({ project, environment, resource: initial, onNavi
         <span>Network</span><strong>{s ? bytes(s.networkRxBytes + s.networkTxBytes) : '—'}</strong><small>{s ? `↓ ${bytes(s.networkRxBytes)} · ↑ ${bytes(s.networkTxBytes)} since start` : 'Not running'}</small>
       </button>
       <button type="button" onClick={() => onNavigate('Environment Variables')}>
-        <span>Storage</span><strong>{resource.dataPath ? 'Volume' : 'None'}</strong><small>{resource.dataPath ? `Mounted at ${resource.dataPath}` : 'Stateless: files are lost on redeploy'}</small>
+        <span>Storage</span><strong>{resource.volumes?.length ? `${resource.volumes.length} ${resource.volumes.length === 1 ? 'volume' : 'volumes'}` : 'None'}</strong><small>{resource.volumes?.length ? `Mounted at ${resource.volumes.join(', ')}` : 'Stateless: files are lost on redeploy'}</small>
       </button>
     </section>
 

@@ -93,7 +93,7 @@ export function Monitor({ onOpenResource }) {
     ...(r.status === 'running' ? [{ label: 'Restart', icon: ArrowPathIcon, onSelect: () => action([r], 'restart') }] : []),
     r.status === 'stopped' ? { label: 'Start', icon: PlayIcon, onSelect: () => action([r], 'start') } : { label: 'Stop', icon: StopIcon, onSelect: () => action([r], 'stop') },
     { label: 'Redeploy', icon: ArrowPathIcon, onSelect: () => runOn([r], 'Redeploy', x => api.deploy(x.id, {})) },
-    { label: 'Open terminal', icon: CommandLineIcon, onSelect: () => setNotice({ title: 'Terminal isn\'t available yet', body: `Until it is, use: docker exec -it $(docker ps -qf label=ignition.resource=${r.id}) sh` }) },
+    ...(r.status === 'running' ? [{ label: 'Open terminal', icon: CommandLineIcon, onSelect: () => onOpenResource(r, 'Terminal') }] : []),
     'separator',
     { label: 'View logs', icon: DocumentTextIcon, onSelect: () => onOpenResource(r, 'Logs') },
     { label: 'View metrics', icon: ChartBarIcon, onSelect: () => onOpenResource(r, 'Metrics') },

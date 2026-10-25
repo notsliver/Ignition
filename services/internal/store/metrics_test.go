@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/ignition/ignition/internal/database"
+	"github.com/notsliver/Ignition/services/internal/database"
 )
 
 func TestMetricSeriesBucketsAndGaps(t *testing.T) {

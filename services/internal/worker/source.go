@@ -14,8 +14,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/ignition/ignition/internal/jobs"
-	"github.com/ignition/ignition/internal/sources"
+	"github.com/notsliver/Ignition/services/internal/jobs"
+	"github.com/notsliver/Ignition/services/internal/sources"
 )
 
 var (
@@ -143,4 +143,9 @@ func tarDir(dir string) (io.Reader, error) {
 		return nil, errors.New("build context is larger than 500 MB")
 	}
 	return &buf, nil
+}
+
+// CloneRepo is cloneRepo for the API, which inspects repositories without building them.
+func CloneRepo(ctx context.Context, repo, branch, dir string, creds *sources.Credentials) (string, error) {
+	return cloneRepo(ctx, repo, branch, dir, creds)
 }

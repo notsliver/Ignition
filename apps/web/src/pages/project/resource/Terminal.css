@@ -1,0 +1,30 @@
+.terminal-page{gap:10px}
+.term-root{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-2)}
+.term-card{display:flex;flex-direction:column;overflow:hidden;border-radius:10px;background:#141517;box-shadow:0 0 0 1px var(--border)}
+.term-bar{display:flex;align-items:center;gap:6px;height:34px;padding:0 8px 0 12px;border-bottom:1px solid #ffffff14;font-size:12px;color:#b4b6bb}
+.term-dot{width:7px;height:7px;border-radius:50%;background:#6b7280}
+.term-dot.on{background:#4ade80;box-shadow:0 0 0 3px #4ade8026}
+.term-dot.wait{background:#facc15}
+.term-status{margin-left:2px;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.term-spacer{flex:1}
+.term-btn{display:grid;place-items:center;width:26px;height:26px;border-radius:6px;color:#b4b6bb}
+.term-btn:hover:not(:disabled){color:#fff;background:#ffffff14}
+.term-btn:disabled{opacity:.35;cursor:default}
+.term-btn svg{width:13px}
+.term-size{min-width:32px;text-align:center;font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace;color:#8d9095}
+.term-body{position:relative}
+.term-host{height:min(62svh,560px);padding:8px 4px 6px 10px}
+.term-host .xterm{height:100%}
+.term-host .xterm-viewport{background:#141517 !important}
+.term-overlay{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:24px;text-align:center;color:#d4d4d8;background:#141517e6}
+.term-overlay>svg{width:22px;margin-bottom:4px;color:#8d9095}
+.term-overlay strong{font-size:14px;font-weight:600;color:#fff}
+.term-overlay span{max-width:440px;font-size:12.5px;line-height:1.5;color:#b4b6bb}
+.term-overlay .button{margin-top:8px}
+.term-foot{margin:0;font-size:12px;color:var(--muted)}
+
+/* Full size: the terminal takes over the content area; the sidebar stays. */
+.terminal-page.full .rp-intro,.terminal-page.full .term-foot{display:none}
+.terminal-page.full .term-host{height:calc(100svh - 150px)}
+
+@media(max-width:720px){.term-host{height:60svh}.term-size{display:none}}

@@ -7,15 +7,16 @@ import (
 	"os"
 	"os/signal"
 	"syscall"
+	_ "time/tzdata" // schedules use IANA timezones; the image may not ship them
 
-	"github.com/ignition/ignition/internal/config"
-	"github.com/ignition/ignition/internal/database"
-	"github.com/ignition/ignition/internal/jobs"
-	"github.com/ignition/ignition/internal/proxy"
-	"github.com/ignition/ignition/internal/runtime"
-	"github.com/ignition/ignition/internal/secrets"
-	"github.com/ignition/ignition/internal/store"
-	"github.com/ignition/ignition/internal/worker"
+	"github.com/notsliver/Ignition/services/internal/config"
+	"github.com/notsliver/Ignition/services/internal/database"
+	"github.com/notsliver/Ignition/services/internal/jobs"
+	"github.com/notsliver/Ignition/services/internal/proxy"
+	"github.com/notsliver/Ignition/services/internal/runtime"
+	"github.com/notsliver/Ignition/services/internal/secrets"
+	"github.com/notsliver/Ignition/services/internal/store"
+	"github.com/notsliver/Ignition/services/internal/worker"
 )
 
 func main() {

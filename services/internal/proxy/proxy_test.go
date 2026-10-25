@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/ignition/ignition/internal/store"
+	"github.com/notsliver/Ignition/services/internal/store"
 )
 
 func TestBuildRoutesEachDomain(t *testing.T) {

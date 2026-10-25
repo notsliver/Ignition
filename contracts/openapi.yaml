@@ -252,9 +252,10 @@ paths:
   /api/resources/{id}/logs:
     parameters: [{ $ref: '#/components/parameters/id' }]
     get:
-      summary: Container stdout/stderr from Docker
+      summary: Runtime stdout/stderr. The running release comes from Docker; pass deployment=<id> for an earlier release's archived copy.
       parameters:
-        - { name: tail, in: query, schema: { type: integer, maximum: 5000 } }
+        - { name: deployment, in: query, schema: { type: string, format: uuid } }
+        - { name: tail, in: query, schema: { type: integer, maximum: 10000 } }
         - { name: since, in: query, schema: { type: integer }, description: Unix seconds }
       responses: { '200': { description: '{ lines, available, reason?, retention? }' } }
   /api/resources/{id}/stats:
@@ -278,6 +279,70 @@ paths:
   /api/deployments/{id}/cancel:
     parameters: [{ $ref: '#/components/parameters/id' }]
     post: { summary: Cancel a queued or running deployment (developer), responses: { '202': { description: '{ status }' }, '409': { $ref: '#/components/responses/Error' } } }
+  /api/audit/export:
+    get:
+      summary: Matching audit events as CSV (admin, audited; up to 50,000). Same filters as /api/audit.
+      responses: { '200': { description: text/csv } }
+  /api/settings/general:
+    get:
+      summary: Instance name and ID, deployment defaults for new resources, and facts about this install (version, Docker, host, database).
+      responses: { '200': { description: '{ instance, defaults, about }' } }
+    put:
+      summary: Save the instance name and deployment defaults (admin).
+      responses: { '200': { description: '{ instance, defaults }' }, '422': { description: validation error } }
+  /api/settings/updates:
+    get:
+      summary: The installed build (version, commit, build time) and update settings (repository, branch, credentials), with the last check.
+      responses: { '200': { description: '{ installed, config, lastCheck }' } }
+    put:
+      summary: Set the repository, branch and optional credentials (a Git source) to check for updates.
+      responses: { '200': { description: '{ config }' } }
+  /api/settings/updates/check:
+    post:
+      summary: Compare the installed commit with the channel's latest release (stable = newest semver tag, prerelease = branch head; with a GitHub token also the commits you're missing).
+      responses: { '200': { description: '{ lastCheck, installed }' } }
+  /api/settings/updates/apply:
+    post:
+      summary: Start the updater container - pulls the checked release into the install folder (refuses if it has uncommitted changes) and rebuilds api and worker. Apps, database and proxy keep running.
+      responses: { '202': { description: '{ run }' }, '409': { description: Already running or nothing newer }, '501': { description: Install folder unknown } }
+  /api/settings/updates/dismiss:
+    post:
+      summary: Hide the notice about the last update's result.
+      responses: { '204': { description: Dismissed } }
+  /api/users:
+    get:
+      summary: Accounts with role, status, last activity and open sessions, plus pending invites (admin).
+      responses: { '200': { description: '{ users, invites }' } }
+  /api/users/{id}:
+    patch:
+      summary: Change role or suspend/reactivate. Guards - not yourself, only owners manage owners, never the last owner.
+      responses: { '200': { description: '{ user }' }, '403': { description: not allowed }, '409': { description: last owner } }
+    delete:
+      summary: Remove an account (same guards).
+      responses: { '204': { description: removed } }
+  /api/users/{id}/sessions/revoke:
+    post:
+      summary: Sign the account out everywhere.
+      responses: { '200': { description: '{ revoked }' } }
+  /api/users/{id}/reset-link:
+    post:
+      summary: Create a one-time password reset link (24 hours). Shown once; only its hash is stored.
+      responses: { '201': { description: '{ url, expiresAt }' } }
+  /api/invites:
+    post:
+      summary: Invite someone by email and role. Returns a one-time join link (7 days) to share; there's no email delivery.
+      responses: { '201': { description: '{ invite, url }' } }
+  /api/invites/{id}:
+    delete:
+      summary: Revoke a pending invite.
+      responses: { '204': { description: revoked } }
+  /api/links/{token}:
+    get:
+      summary: Public. What a join/reset link is for (kind, email, role). Rate limited.
+      responses: { '200': { description: '{ kind, email, role?, expiresAt, instance }' }, '404': { description: expired or used } }
+    post:
+      summary: Public. Accept an invite (name + password) or finish a reset (password), then sign in.
+      responses: { '200': { description: '{ user }' } }
   /api/audit:
     get:
       summary: Audit events, newest first (admin). Never contains secret values.
@@ -287,6 +352,51 @@ paths:
     get:
       summary: What the resource is built from - linked credentials, the remote's branches and latest commit (live, via git ls-remote), and the running deployment. A remote that can't be read is reported in `error`.
       responses: { '200': { description: '{ source, branches, latestCommit, deployed, error }' } }
+  /api/resources/{id}/terminal:
+    get:
+      summary: WebSocket. Interactive shell (bash, else sh) in the running container with a TTY. Binary frames are terminal bytes; text frames are JSON control messages (resize from the client; ready/exit from the server). Developer role; root=1 needs admin. Origin must be the dashboard. Audited open/close; 15-minute idle timeout; 4 sessions per resource.
+      parameters:
+        - { name: cols, in: query, schema: { type: integer } }
+        - { name: rows, in: query, schema: { type: integer } }
+        - { name: root, in: query, schema: { type: string, enum: ['1'] } }
+      responses: { '101': { description: switching protocols }, '409': { description: not running }, '429': { description: too many sessions } }
+  /api/resources/{id}/logs/deployments:
+    get:
+      summary: Deployments whose runtime logs can be read - the running one (live from Docker) and archived ones (kept when their container was replaced; newest 10, up to 10,000 lines each).
+      responses: { '200': { description: '{ deployments: [{ deploymentId, number, status, current, archivedAt, lines }] }' } }
+  /api/resources/{id}/limits:
+    get:
+      summary: CPU, memory, reservation, PIDs, swap and restart policy; live usage and restarts from Docker; 7-day average and peak from samples; this machine's capacity.
+      responses: { '200': { description: '{ limits, usage, live?, host? }' } }
+    put:
+      summary: Save limits and apply them to the running container live (no restart). Docker refusals come back as applyError.
+      responses: { '200': { description: '{ limits, applied, applyError? }' }, '422': { description: validation error } }
+  /api/resources/{id}/storage:
+    get:
+      summary: Configured volumes with their size on disk and where the running container mounts them, plus detached volumes that still hold data.
+      responses: { '200': { description: '{ volumes, detached, running }' } }
+    put:
+      summary: Replace the volume list (name + absolute mount path). Applies on the next deployment; removed volumes keep their data until deleted.
+      responses: { '200': { description: '{ requiresRedeploy }' }, '422': { description: validation error } }
+  /api/resources/{id}/storage/{volume}:
+    delete:
+      summary: Delete a detached volume and its data (admin). Refused while configured or in use.
+      responses: { '204': { description: deleted }, '409': { description: still configured or in use } }
+  /api/resources/{id}/storage/{volume}/backup:
+    get:
+      summary: Download the volume's files as .tar.gz (admin, audited). Read through a stopped helper container; the app keeps running.
+      responses: { '200': { description: application/gzip } }
+  /api/resources/{id}/build:
+    get:
+      summary: Build & Deploy settings (builder, Dockerfile, context, target, build args, timeout; start command, port, health wait, stop grace, release command) and the latest build.
+      responses: { '200': { description: '{ settings, builds, lastBuild }' } }
+    put:
+      summary: Save Build & Deploy settings. Build settings apply on the next build; deploy settings on the next deployment.
+      responses: { '200': { description: '{ settings, requiresRebuild }' }, '422': { description: validation error } }
+  /api/resources/{id}/build/inspect:
+    post:
+      summary: Shallow-clone the repository and report what the next build would use (its Dockerfile, or the stack Ignition detects and the Dockerfile it would generate). Takes unsaved settings.
+      responses: { '200': { description: '{ commit, branch, uses, dockerfile?, plan?, error? }' } }
   /api/resources/{id}/networking:
     get:
       summary: Saved networking (ports, extra networks, aliases) next to what Docker reports live, peers on shared networks, drift, and recent diagnostics.
@@ -346,3 +456,102 @@ paths:
     get:
       summary: Up to 100 repositories visible to a GitHub, GitLab or Bitbucket token.
       responses: { '200': { description: '{ repositories }' }, '501': { description: not supported for this source } }
+  /api/resources/{id}/health:
+    get:
+      summary: Health check settings, the worker's current verdict (unknown, starting, healthy, unhealthy) and the last 60 results.
+      responses: { '200': { description: '{ config, state, results, resourcePort, status }' } }
+    put:
+      summary: Save the health check. While enabled, deployments must pass it before taking over, and failing apps are restarted (at most 3 times in 15 minutes).
+      responses: { '200': { description: '{ config, state }' }, '422': { description: validation error } }
+  /api/resources/{id}/health/test:
+    post:
+      summary: Run one check now with the given (possibly unsaved) settings, through the worker. Waits for the answer.
+      responses: { '200': { description: '{ result: { ok, latencyMs, detail, inconclusive? } }' }, '503': { description: worker didn't answer } }
+  /api/resources/{id}/releases:
+    get:
+      summary: Successful deployments with whether their exact image is still on this machine, plus the rollback log.
+      responses: { '200': { description: '{ releases, rollbacks, sourceType }' } }
+  /api/deployments/{id}/env-diff:
+    get:
+      summary: Names (never values) of variables a rollback to this release would add, remove or change.
+      responses: { '200': { description: '{ snapshot, added, removed, changed }' } }
+  /api/resources/{id}/tasks:
+    get:
+      summary: Scheduled tasks with their next run, schedule in words and last run.
+      responses: { '200': { description: '{ tasks, status }' } }
+    post:
+      summary: Create a scheduled task (cron schedule, IANA timezone, command run inside the container, timeout).
+      responses: { '201': { description: '{ task }' }, '422': { description: validation error } }
+  /api/tasks/{id}:
+    patch:
+      summary: Change a task (any of name, schedule, timezone, command, timeoutSeconds, enabled).
+      responses: { '200': { description: '{ task }' }, '422': { description: validation error } }
+    delete:
+      summary: Delete a task and its run history; a run in progress is asked to stop.
+      responses: { '204': { description: Deleted } }
+  /api/tasks/{id}/run:
+    post:
+      summary: Run the task now. Refused while it's already running or the resource isn't running.
+      responses: { '202': { description: '{ run }' }, '409': { description: already running or nowhere to run } }
+  /api/tasks/{id}/runs:
+    get:
+      summary: The last 20 runs (without output).
+      responses: { '200': { description: '{ runs }' } }
+  /api/task-runs/{id}:
+    get:
+      summary: One run with its output (the last 64 KB); updated every 2 seconds while it runs.
+      responses: { '200': { description: '{ run }' } }
+  /api/task-runs/{id}/cancel:
+    post:
+      summary: Stop a queued or running run (SIGTERM, then SIGKILL after 10 seconds).
+      responses: { '202': { description: '{ status }' }, '409': { description: already finished } }
+  /api/cron/preview:
+    get:
+      summary: Validate a schedule (?schedule=&timezone=) and show it in words with its next three runs.
+      responses: { '200': { description: '{ valid, error?, description?, next? }' } }
+  /api/resources/{id}/access:
+    get:
+      summary: Who can do what (from roles), the deploy hook (without its secret) and the resource's tokens.
+      responses: { '200': { description: '{ people, hook, tokens, branch, sourceType, apiBase }' } }
+  /api/resources/{id}/hook:
+    post:
+      summary: Create or regenerate the deploy hook URL (the old one stops working).
+      responses: { '201': { description: '{ url }' } }
+    delete:
+      summary: Remove the deploy hook.
+      responses: { '204': { description: Removed } }
+  /api/resources/{id}/hook/reveal:
+    post:
+      summary: Show the deploy hook URL again (audited).
+      responses: { '200': { description: '{ url }' }, '404': { description: no hook } }
+  /api/resources/{id}/tokens:
+    post:
+      summary: Create a Bearer token for this resource only, read (status, deployments, logs) or deploy, optionally expiring. Shown once.
+      responses: { '201': { description: '{ token, item }' }, '422': { description: validation error } }
+  /api/resource-tokens/{id}:
+    delete:
+      summary: Revoke a resource token.
+      responses: { '204': { description: Revoked } }
+  /api/hooks/{token}:
+    post:
+      summary: Deploy hook (no session; the URL is the secret). Understands GitHub and GitLab push events, ignores other branches and tags, and joins a deployment that's still queued.
+      responses: { '202': { description: '{ deployed, deploymentId?, number?, skipped? }' }, '200': { description: GitHub ping }, '404': { description: unknown hook } }
+  /api/resources/{id}/advanced:
+    get:
+      summary: Name, container options, identifiers, drift between saved settings and the running container, variables changed since the release started, built images and move targets.
+      responses: { '200': { description: '{ name, advanced, identifiers, drift?, envChanged?, images?, moveTargets }' } }
+    put:
+      summary: Save name and container options (entrypoint, working directory, user, labels, read-only root, init, privileged - admins only). Applies on the next deploy.
+      responses: { '200': { description: '{ advanced, resource, requiresRedeploy }' }, '422': { description: validation error } }
+  /api/resources/{id}/export:
+    get:
+      summary: Download the configuration as JSON. Variable names only; values never leave the server.
+      responses: { '200': { description: JSON file } }
+  /api/resources/{id}/images/purge:
+    post:
+      summary: Remove this resource's built images except the running one (and the newest `keep`). Rollbacks to removed releases need a rebuild.
+      responses: { '200': { description: '{ removed, freedBytes, failed }' } }
+  /api/resources/{id}/move:
+    post:
+      summary: Move to another environment (any project) and redeploy the same release there. Domains, variables, volumes and history go with it.
+      responses: { '200': { description: '{ resource, projectId, projectName, environmentName, deploymentId? }' }, '422': { description: name taken there } }
