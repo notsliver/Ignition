@@ -1,0 +1,49 @@
+.dialog.add-resource{width:min(560px,calc(100vw - 32px))}
+.add-resource .dialog-header{padding:22px 18px 0 24px}
+.add-resource .dialog-header h2{margin:0;font-size:18px;letter-spacing:-.3px}
+.add-resource .dialog-header p{margin-top:6px;font-size:13px;line-height:1.55}
+.add-resource .dialog-content{padding:18px 24px 20px}
+
+.add-panel{display:flex;flex-direction:column;border-radius:12px;background:var(--hover);box-shadow:inset 0 0 0 1px var(--border)}
+.add-context{display:flex;flex-direction:column;gap:6px;padding:14px 18px 12px}
+.add-context-label{font-size:12px;color:var(--muted)}
+.add-context-value{display:flex;align-items:center;gap:7px;min-width:0;font-size:14px;font-weight:500;color:var(--text)}
+.add-context-value.placeholder .add-context-text{color:var(--muted);font-weight:400}
+.add-context-icon{width:16px;flex-shrink:0;color:var(--text)}
+.add-context-text{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.add-context-branch{display:inline-flex;align-items:center;gap:4px;flex-shrink:0;margin-left:4px;font-weight:400;color:var(--text-2)}
+.add-context-branch svg{width:13px;color:var(--muted)}
+
+.add-card{display:flex;flex-direction:column;gap:14px;margin:0 2px;padding:16px 16px 18px;border-radius:10px;background:var(--surface);box-shadow:0 0 0 1px var(--border),0 1px 2px #0000000a}
+.add-card .form-field.has-error .form-error{display:none}
+
+.env-editor{display:flex;flex-direction:column;gap:8px}
+.env-row{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,3fr) 30px;gap:8px}
+.env-remove{display:grid;place-items:center;height:30px;border-radius:7px;color:var(--muted);background:var(--hover)}
+.env-remove:hover{color:var(--text);background:color-mix(in srgb,var(--text) 10%,var(--hover))}
+.env-remove svg{width:14px}
+.env-actions{display:flex;align-items:center;gap:10px}
+.env-actions .button{background:var(--hover);box-shadow:none}
+.env-actions .button:hover{background:color-mix(in srgb,var(--text) 8%,var(--hover))}
+.env-actions span{font-size:11.5px;color:var(--muted)}
+.form-field.has-error .env-key .input,.form-field.has-error .env-key{box-shadow:0 0 0 1px var(--danger)}
+
+.secret-input .input-affix{padding:0 3px 0 0}
+.secret-actions{display:flex;gap:1px}
+.secret-actions button{display:grid;place-items:center;width:26px;height:24px;border-radius:5px;color:var(--muted)}
+.secret-actions button:hover{color:var(--text);background:var(--hover)}
+.secret-actions svg{width:13px}
+
+.add-footer{display:flex;align-items:center;gap:12px;padding:14px 16px 14px 12px}
+.add-target{display:flex;align-items:center;gap:6px;min-width:0;margin-right:auto;padding-left:6px;font-size:12.5px;color:var(--muted);white-space:nowrap}
+.add-target strong{font-weight:500;color:var(--text-2);overflow:hidden;text-overflow:ellipsis}
+.add-target .sep{color:var(--line)}
+.add-target-dot{width:7px;height:7px;flex-shrink:0;border-radius:50%}
+.add-error{font-size:12.5px;color:var(--danger);text-align:right}
+.add-resource .file-input{font:inherit;font-size:12.5px;color:var(--text-2)}
+.add-resource .file-input::file-selector-button{margin-right:10px;height:28px;padding:0 10px;border:0;border-radius:6px;font:inherit;font-size:12px;font-weight:500;color:var(--text);background:var(--hover);box-shadow:inset 0 0 0 1px var(--border);cursor:pointer}
+
+@media(max-width:560px){
+  .add-resource .dialog-content{padding:14px 14px 16px}
+  .env-actions span{display:none}
+}

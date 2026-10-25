@@ -4,3 +4,6 @@
 .button.primary{background:var(--accent);color:var(--on-accent);box-shadow:none}
 .button.primary:hover,.button.primary.open{background:color-mix(in srgb,var(--accent) 88%,var(--text))}
 .button.primary svg{color:inherit}
+.button.danger-solid{color:#fff;background:var(--danger);box-shadow:none}
+.button.danger-solid:hover{background:color-mix(in srgb,var(--danger) 88%,#000)}
+.button.danger-solid svg{color:inherit}

@@ -1,5 +1,6 @@
 import {
-  AdjustmentsHorizontalIcon, CommandLineIcon, CubeIcon, GlobeAltIcon, RocketLaunchIcon, ArchiveBoxIcon, ArrowPathIcon, BellIcon, ChartBarIcon, ClipboardDocumentListIcon, Cog6ToothIcon,
+  AdjustmentsHorizontalIcon, ArrowUturnLeftIcon, CalendarDaysIcon, CircleStackIcon, CpuChipIcon, DocumentTextIcon, HeartIcon, HomeIcon,
+  CodeBracketIcon, LockClosedIcon, ServerStackIcon, VariableIcon, CommandLineIcon, CubeIcon, GlobeAltIcon, RocketLaunchIcon, ArchiveBoxIcon, ArrowPathIcon, BellIcon, ChartBarIcon, ClipboardDocumentListIcon, Cog6ToothIcon,
   KeyIcon, RectangleStackIcon, ShieldCheckIcon, Squares2X2Icon, UserCircleIcon, UsersIcon, WrenchScrewdriverIcon,
 } from '@heroicons/react/20/solid';
 
@@ -46,3 +47,37 @@ export const projectItems = [
   { title: 'Logs', icon: CommandLineIcon },
   { title: 'Project Settings', icon: Cog6ToothIcon },
 ];
+
+export const resourceSections = [
+  [
+    { title: 'Overview', icon: HomeIcon },
+    { title: 'Deployments', icon: RocketLaunchIcon },
+    { title: 'Logs', icon: DocumentTextIcon },
+    { title: 'Metrics', icon: ChartBarIcon },
+    { title: 'Terminal', icon: CommandLineIcon },
+  ],
+  [
+    { title: 'Source', icon: CodeBracketIcon },
+    { title: 'Build & Deploy', icon: CubeIcon },
+    { title: 'Environment Variables', icon: VariableIcon },
+    { title: 'Domains', icon: GlobeAltIcon },
+    { title: 'Networking', icon: ServerStackIcon },
+    { title: 'Storage', icon: CircleStackIcon },
+    { title: 'Health Checks', icon: HeartIcon },
+    { title: 'Resource Limits', icon: CpuChipIcon },
+  ],
+  [
+    { title: 'Rollback History', icon: ArrowUturnLeftIcon },
+    { title: 'Scheduled Tasks', icon: CalendarDaysIcon },
+    { title: 'Access & Secrets', icon: LockClosedIcon },
+    { title: 'Advanced Settings', icon: WrenchScrewdriverIcon },
+  ],
+];
+
+// Hide sections that don't apply to a resource type instead of showing empty pages.
+const hiddenByType = {
+  database: ['Build & Deploy', 'Domains'],
+  worker: ['Domains'],
+  cron: ['Domains', 'Networking', 'Health Checks', 'Scheduled Tasks'],
+};
+export const resourceSectionsFor = type => resourceSections.map(section => section.filter(item => !hiddenByType[type]?.includes(item.title)));

@@ -1,0 +1,6 @@
+.metric-card.loading{opacity:.6}
+.metric-placeholder{height:96px;border-radius:6px;background:var(--hover)}
+.metric-limit-key{display:inline-flex;align-items:center;gap:5px;margin-left:auto}
+.metric-limit-key::before{content:"";width:14px;border-top:1.5px dashed var(--muted)}
+.sparkline-limit{stroke:var(--muted);stroke-width:1;stroke-dasharray:4 3}
+.metrics-footnote{margin:0;font-size:12px;line-height:1.5;color:var(--muted)}

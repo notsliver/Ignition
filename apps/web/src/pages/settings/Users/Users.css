@@ -1,0 +1,50 @@
+.settings-page.users-page{max-width:1040px}
+.users-toolbar{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.users-tabs{width:auto}
+.users-tabs button{padding:0 10px;font-variant-numeric:tabular-nums}
+.users-role-filter.select-trigger{width:auto;min-width:110px}
+.users-search{flex:1;min-width:180px}
+
+.users-list{overflow:visible}
+.user-row{display:grid;grid-template-columns:30px minmax(180px,1.4fr) minmax(120px,1fr) 76px 120px 130px 26px;align-items:center;gap:14px;min-height:58px;padding:8px 10px 8px 16px}
+.user-row+.user-row{border-top:1px solid var(--border)}
+.user-row.suspended .user-main,.user-row.suspended .avatar{opacity:.55}
+.user-main{display:flex;flex-direction:column;gap:3px;min-width:0}
+.user-main strong{display:flex;align-items:center;gap:7px;font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.user-main span{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-access{font-size:12px;color:var(--text-2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.user-mfa{display:inline-flex;align-items:center;gap:4px;font-size:12px;color:var(--muted);white-space:nowrap}
+.user-mfa svg{width:12px}
+.user-status{display:flex;flex-direction:column;gap:3px;font-size:12px}
+.user-status small{font-size:11.5px;color:var(--muted)}
+.user-role .select-trigger{width:100%}
+.user-role-static{display:block;padding:0 9px;font-size:12.5px;color:var(--muted)}
+.users-empty{margin:0;padding:24px 16px;font-size:12.5px;color:var(--muted)}
+.users-flash{margin:-12px 2px 0;font-size:12px;color:var(--success)}
+
+.perm-table-wrap{overflow-x:auto}
+.perm-table{width:100%;min-width:560px;border-collapse:collapse;font-size:12.5px}
+.perm-table th,.perm-table td{height:38px;padding:0 14px;border-bottom:1px solid var(--border)}
+.perm-table tbody tr:last-child th,.perm-table tbody tr:last-child td{border-bottom:0}
+.perm-table thead th{text-align:center;font-weight:600;font-size:12.5px}
+.perm-table thead th:first-child,.perm-table tbody th{text-align:left}
+.perm-table thead small{display:block;font-size:11px;font-weight:400;color:var(--muted)}
+.perm-table tbody th{font-weight:400;color:var(--text-2)}
+.perm-table td{text-align:center}
+.perm-yes{width:14px;color:var(--success)}
+.perm-no{width:14px;color:var(--line)}
+
+.project-picker{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:8px;max-height:220px;overflow-y:auto}
+.picker-row{display:flex;align-items:center;gap:9px;min-height:34px;padding:0 12px;font-size:12.5px;cursor:pointer}
+.picker-row+.picker-row{border-top:1px solid var(--border)}
+.picker-row:hover{background:var(--hover)}
+.picker-row.all{font-weight:500}
+.invite-emails{font-family:inherit;font-size:12.5px}
+.invite-note{margin:0;font-size:12.5px;color:var(--muted)}
+.invite-error{margin:0}
+.invite-count{margin-right:auto;font-size:12px;color:var(--muted)}
+
+@media(max-width:1000px){
+  .user-row{grid-template-columns:30px minmax(0,1fr) 120px 26px}
+  .user-access,.user-mfa,.user-status{display:none}
+}

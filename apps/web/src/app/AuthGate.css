@@ -1,0 +1,9 @@
+.auth-screen{display:grid;place-items:center;min-height:100svh;padding:24px 16px;background:var(--bg)}
+.auth-card{display:flex;flex-direction:column;gap:20px;width:min(380px,100%);padding:28px;border-radius:14px;background:var(--surface);box-shadow:0 0 0 1px var(--border),0 12px 32px #0000000f}
+.auth-brand{display:flex;align-items:center;gap:9px;font-size:15px;font-weight:600}
+.auth-form{display:flex;flex-direction:column;gap:14px}
+.auth-form h1{margin:0;font-size:18px;font-weight:600;letter-spacing:-.3px}
+.auth-form .input{height:34px}
+.auth-form .button{height:34px;margin-top:4px}
+.auth-muted{margin:0;font-size:12.5px;line-height:1.5;color:var(--muted)}
+.auth-muted code{font:12px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text-2)}

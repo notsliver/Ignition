@@ -1,0 +1,285 @@
+openapi: 3.1.0
+info:
+  title: IGNITION API
+  version: 0.1.0
+  description: |
+    API for IGNITION, a self-hosted PaaS that runs on your own machine.
+    Authentication is a session cookie (`ignition_session`, HttpOnly, SameSite=Lax) set by
+    `/api/setup` or `/api/auth/login`. State-changing requests must send an `Origin` header
+    matching the dashboard (CSRF protection). Every error uses the `Error` schema.
+    Roles, lowest to highest: viewer, developer, admin, owner.
+servers:
+  - url: http://localhost:8080
+security:
+  - session: []
+
+components:
+  securitySchemes:
+    session: { type: apiKey, in: cookie, name: ignition_session }
+  parameters:
+    id: { name: id, in: path, required: true, schema: { type: string, format: uuid } }
+  responses:
+    Error:
+      description: Error
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, enum: [bad_request, unauthenticated, forbidden, not_found, conflict, validation_failed, rate_limited, unsupported, unavailable, internal, offline] }
+            message: { type: string }
+            fields: { type: object, additionalProperties: { type: string }, description: Per-field messages for 422 responses }
+            requestId: { type: string }
+    User:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        email: { type: string }
+        name: { type: string }
+        role: { type: string, enum: [owner, admin, developer, viewer] }
+        status: { type: string, enum: [active, suspended] }
+        createdAt: { type: string, format: date-time }
+    Environment:
+      type: object
+      properties: { id: { type: string, format: uuid }, name: { type: string } }
+    Project:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        description: { type: string }
+        archived: { type: boolean }
+        favorite: { type: boolean, description: Favorite for the current user }
+        environments: { type: array, items: { $ref: '#/components/schemas/Environment' } }
+        resourceCount: { type: integer }
+        running: { type: integer }
+        failed: { type: integer }
+        deploying: { type: integer }
+        lastDeployAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+    Resource:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        projectId: { type: string, format: uuid }
+        environmentId: { type: string, format: uuid }
+        environment: { type: string }
+        name: { type: string, pattern: '^[a-z0-9]([a-z0-9-]{0,48}[a-z0-9])?$' }
+        type: { type: string, enum: [application, database, worker] }
+        sourceType: { type: string, enum: [image, git] }
+        image: { type: string }
+        repoUrl: { type: string }
+        branch: { type: string }
+        dockerfile: { type: string }
+        port: { type: [integer, 'null'] }
+        command: { type: string }
+        dataPath: { type: string, description: Mount path for a persistent named volume }
+        memoryMb: { type: integer }
+        cpus: { type: number }
+        desiredState: { type: string, enum: [running, stopped] }
+        status: { type: string, enum: [created, deploying, running, stopped, failed, removing], description: Observed state reported by Docker }
+        hostPort: { type: [integer, 'null'], description: Port published on this machine }
+        currentDeploymentId: { type: [string, 'null'] }
+        runningSince: { type: [string, 'null'], format: date-time, description: When the current container started }
+        lastDeployAt: { type: [string, 'null'], format: date-time }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ResourceInput:
+      type: object
+      required: [name, sourceType]
+      properties:
+        environmentId: { type: string, format: uuid }
+        name: { type: string }
+        type: { type: string, enum: [application, database, worker], default: application }
+        sourceType: { type: string, enum: [image, git] }
+        image: { type: string }
+        repoUrl: { type: string, description: Public https URL }
+        branch: { type: string, default: main }
+        dockerfile: { type: string, default: Dockerfile }
+        port: { type: [integer, 'null'] }
+        command: { type: string }
+        dataPath: { type: string }
+        memoryMb: { type: integer, default: 512 }
+        cpus: { type: number, default: 1 }
+        env: { type: array, items: { $ref: '#/components/schemas/EnvInput' } }
+    EnvInput:
+      type: object
+      required: [key]
+      properties:
+        key: { type: string }
+        value: { type: string }
+        secret: { type: boolean }
+        unchanged: { type: boolean, description: Keep the stored value (secrets are never sent to the browser) }
+    EnvVar:
+      type: object
+      properties:
+        key: { type: string }
+        value: { type: string, description: Omitted for secrets }
+        secret: { type: boolean }
+        updatedBy: { type: string }
+        updatedAt: { type: string, format: date-time }
+    Deployment:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        resourceId: { type: string, format: uuid }
+        number: { type: integer }
+        status: { type: string, enum: [queued, building, deploying, successful, failed, cancelled] }
+        trigger: { type: string, enum: [manual, create, redeploy, rollback, retry, config] }
+        imageRef: { type: string }
+        commit: { type: string }
+        branch: { type: string }
+        reason: { type: string }
+        error: { type: string }
+        author: { type: string }
+        jobId: { type: [string, 'null'] }
+        current: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        startedAt: { type: [string, 'null'], format: date-time }
+        finishedAt: { type: [string, 'null'], format: date-time }
+    JobLog:
+      type: object
+      properties:
+        id: { type: integer }
+        level: { type: string, enum: [info, warn, error] }
+        step: { type: string }
+        message: { type: string }
+        createdAt: { type: string, format: date-time }
+
+paths:
+  /api/health:
+    get: { summary: Liveness, security: [], responses: { '200': { description: OK } } }
+  /api/ready:
+    get: { summary: Readiness (database reachable), security: [], responses: { '200': { description: Ready }, '503': { $ref: '#/components/responses/Error' } } }
+  /api/setup:
+    get: { summary: Whether first-run setup is required, security: [], responses: { '200': { description: '{ required: boolean }' } } }
+    post:
+      summary: Create the first owner using the one-time code from the API logs
+      security: []
+      requestBody: { content: { application/json: { schema: { type: object, required: [code, email, password], properties: { code: { type: string }, email: { type: string }, name: { type: string }, password: { type: string, minLength: 12 } } } } } }
+      responses: { '200': { description: Signed in }, '409': { $ref: '#/components/responses/Error' }, '422': { $ref: '#/components/responses/Error' }, '429': { $ref: '#/components/responses/Error' } }
+  /api/auth/login:
+    post:
+      summary: Sign in. Rate limited per IP; accounts lock for 15 minutes after 5 failures.
+      security: []
+      requestBody: { content: { application/json: { schema: { type: object, required: [email, password], properties: { email: { type: string }, password: { type: string } } } } } }
+      responses: { '200': { description: Signed in }, '422': { $ref: '#/components/responses/Error' }, '429': { $ref: '#/components/responses/Error' } }
+  /api/auth/logout:
+    post: { summary: Sign out, responses: { '204': { description: Signed out } } }
+  /api/auth/me:
+    get: { summary: Current user, responses: { '200': { description: '{ user: User }' }, '401': { $ref: '#/components/responses/Error' } } }
+  /api/system:
+    get: { summary: Capabilities of this instance (Docker reachable, supported builders, unsupported features), responses: { '200': { description: Capabilities } } }
+
+  /api/projects:
+    get:
+      summary: List projects
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: Search name and description }
+        - { name: archived, in: query, schema: { type: boolean } }
+      responses: { '200': { description: '{ projects: Project[] }' } }
+    post: { summary: Create a project (admin), responses: { '201': { description: '{ project: Project }' }, '422': { $ref: '#/components/responses/Error' } } }
+  /api/projects/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Get a project, responses: { '200': { description: '{ project: Project }' }, '404': { $ref: '#/components/responses/Error' } } }
+    patch: { summary: Rename, describe, archive or unarchive (admin), responses: { '200': { description: '{ project: Project }' } } }
+    delete: { summary: Delete an empty project (admin). Refused while resources exist., responses: { '204': { description: Deleted }, '409': { $ref: '#/components/responses/Error' } } }
+  /api/projects/{id}/favorite:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    put: { summary: Favorite for the current user, responses: { '204': { description: OK } } }
+    delete: { summary: Unfavorite, responses: { '204': { description: OK } } }
+  /api/projects/{id}/resources:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      summary: List resources
+      parameters:
+        - { name: environment, in: query, schema: { type: string, format: uuid } }
+        - { name: q, in: query, schema: { type: string } }
+        - { name: type, in: query, schema: { type: string } }
+      responses: { '200': { description: '{ resources: Resource[] }' } }
+    post:
+      summary: Create a resource and queue its first deployment (developer)
+      requestBody: { content: { application/json: { schema: { $ref: '#/components/schemas/ResourceInput' } } } }
+      responses: { '201': { description: '{ resource: Resource, deploymentId }' }, '422': { $ref: '#/components/responses/Error' } }
+
+  /api/resources:
+    get:
+      summary: Inventory of resources across all active projects, with projectName, runningSince and the latest usage sample (if under 60 s old)
+      parameters:
+        - { name: q, in: query, schema: { type: string } }
+        - { name: type, in: query, schema: { type: string, enum: [application, database, worker] } }
+      responses: { '200': { description: '{ resources: Resource[] }' } }
+  /api/resources/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Get a resource, responses: { '200': { description: '{ resource: Resource }' } } }
+    patch: { summary: Update source or limits (developer). Applies on the next deployment., responses: { '200': { description: '{ resource, requiresRedeploy }' } } }
+    delete:
+      summary: Queue removal (admin). Requires confirm=<resource name>; volumes=true also deletes the data volume.
+      parameters:
+        - { name: confirm, in: query, required: true, schema: { type: string } }
+        - { name: volumes, in: query, schema: { type: boolean } }
+      responses: { '202': { description: '{ jobId }' } }
+  /api/resources/{id}/actions:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post:
+      summary: Start, stop or restart (developer)
+      requestBody: { content: { application/json: { schema: { type: object, properties: { action: { type: string, enum: [start, stop, restart] } } } } } }
+      responses: { '202': { description: '{ jobId }' }, '409': { $ref: '#/components/responses/Error' } }
+  /api/resources/{id}/env:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: List variables (secret values omitted), responses: { '200': { description: '{ variables: EnvVar[] }' } } }
+    put:
+      summary: Replace all variables (developer)
+      requestBody: { content: { application/json: { schema: { type: object, properties: { variables: { type: array, items: { $ref: '#/components/schemas/EnvInput' } } } } } } }
+      responses: { '200': { description: '{ requiresRedeploy: true }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/resources/{id}/env/{key}/reveal:
+    parameters: [{ $ref: '#/components/parameters/id' }, { name: key, in: path, required: true, schema: { type: string } }]
+    post: { summary: Reveal one secret value (admin, audited), responses: { '200': { description: '{ value }' } } }
+  /api/resources/{id}/deployments:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      summary: Deployment history, newest first
+      parameters: [{ name: limit, in: query, schema: { type: integer, maximum: 200 } }]
+      responses: { '200': { description: '{ deployments: Deployment[] }' } }
+    post:
+      summary: Deploy latest source, or redeploy/roll back to a previous deployment's artifact (developer)
+      requestBody: { content: { application/json: { schema: { type: object, properties: { from: { type: string, format: uuid }, reason: { type: string } } } } } }
+      responses: { '202': { description: '{ deploymentId, jobId }' } }
+  /api/resources/{id}/logs:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      summary: Container stdout/stderr from Docker
+      parameters:
+        - { name: tail, in: query, schema: { type: integer, maximum: 5000 } }
+        - { name: since, in: query, schema: { type: integer }, description: Unix seconds }
+      responses: { '200': { description: '{ lines, available, reason?, retention? }' } }
+  /api/resources/{id}/stats:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Live CPU, memory and network from Docker. No history is stored., responses: { '200': { description: '{ available, stats?, reason? }' } } }
+  /api/resources/{id}/metrics:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      summary: Usage history sampled every 15 s, kept 7 days, averaged into buckets. Empty buckets have samples=0.
+      parameters: [{ name: range, in: query, schema: { type: string, enum: ['15m', '1h', '6h', '24h', '7d'], default: '1h' } }]
+      responses: { '200': { description: '{ range, stepSeconds, buckets: [{ at, samples, cpuAvg, cpuMax, memoryAvg, memoryMax, memoryLimit, netRxAvg, netTxAvg }], lastSampleAt, limits }' } }
+  /api/deployments/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Get a deployment, responses: { '200': { description: '{ deployment: Deployment }' } } }
+  /api/deployments/{id}/logs:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      summary: Persisted step logs from the worker
+      parameters: [{ name: after, in: query, schema: { type: integer }, description: Return lines with id greater than this }]
+      responses: { '200': { description: '{ logs: JobLog[], status }' } }
+  /api/deployments/{id}/cancel:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post: { summary: Cancel a queued or running deployment (developer), responses: { '202': { description: '{ status }' }, '409': { $ref: '#/components/responses/Error' } } }
+  /api/audit:
+    get:
+      summary: Audit events, newest first (admin). Never contains secret values.
+      parameters: [{ name: target, in: query, schema: { type: string } }]
+      responses: { '200': { description: '{ events }' } }

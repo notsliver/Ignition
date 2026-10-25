@@ -1,0 +1,59 @@
+# IGNITION on a single machine. Start with:  docker compose --env-file .env -f deploy/docker-compose.yml up -d --build
+#
+# SECURITY: the api and worker mount the Docker socket. Anything that can talk to that socket
+# effectively has root on this machine, so only give IGNITION accounts to people you'd trust with that.
+
+name: ignition
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ignition
+      POSTGRES_USER: ignition
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ignition -d ignition"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  api:
+    build: { context: .., dockerfile: Dockerfile }
+    image: ignition:local
+    restart: unless-stopped
+    command: ["ignition-api"]
+    depends_on: { db: { condition: service_healthy } }
+    environment: &env
+      IGNITION_DATABASE_URL: postgres://ignition:${POSTGRES_PASSWORD}@db:5432/ignition?sslmode=disable
+      IGNITION_SECRET_KEY: ${IGNITION_SECRET_KEY:?Set IGNITION_SECRET_KEY in .env (openssl rand -base64 32)}
+      IGNITION_PUBLIC_URL: ${IGNITION_PUBLIC_URL:-http://localhost:8080}
+      IGNITION_SECURE_COOKIES: ${IGNITION_SECURE_COOKIES:-false}
+      IGNITION_PUBLISH_HOST: ${IGNITION_PUBLISH_HOST:-localhost}
+    ports:
+      - "${IGNITION_PORT:-8080}:8080"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+
+  worker:
+    image: ignition:local
+    restart: unless-stopped
+    command: ["ignition-worker"]
+    depends_on: { api: { condition: service_healthy } }
+    environment:
+      <<: *env
+      IGNITION_WORKER_CONCURRENCY: ${IGNITION_WORKER_CONCURRENCY:-2}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    stop_grace_period: 40s
+
+volumes:
+  db-data:

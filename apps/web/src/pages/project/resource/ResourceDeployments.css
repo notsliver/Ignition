@@ -1,0 +1,67 @@
+.dep-filter.select-trigger{width:auto;min-width:120px}
+.dep-list{list-style:none;margin:0;padding:0;overflow:hidden}
+.dep+.dep{border-top:1px solid var(--border)}
+.dep-row{display:flex;align-items:center;gap:10px;padding:0 10px 0 14px}
+.dep-row:hover,.dep.open .dep-row{background:color-mix(in srgb,var(--hover) 60%,transparent)}
+.dep-main{display:grid;grid-template-columns:110px 110px minmax(0,1fr) 140px 90px;align-items:center;gap:14px;flex:1;min-width:0;min-height:54px;text-align:left}
+.dep-version{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;font-variant-numeric:tabular-nums}
+.dep-pin{width:12px;color:var(--warning)}
+.dep-main .status{font-size:12.5px;color:var(--text)}
+.dep-commit{display:flex;flex-direction:column;gap:3px;min-width:0}
+.dep-message{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dep-sub{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden}
+.dep-sub svg{width:12px;flex-shrink:0}
+.dep-sub svg+code,.dep-sub code{font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text-2)}
+.dep-sub svg:nth-of-type(2){margin-left:6px}
+.dep-who{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--text-2);white-space:nowrap}
+.dep-when{display:flex;flex-direction:column;align-items:flex-end;gap:3px;font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.dep-when span:first-child{color:var(--text-2)}
+
+.dep-detail{padding:4px 16px 16px 40px;background:color-mix(in srgb,var(--hover) 60%,transparent)}
+.dep-facts{display:flex;flex-wrap:wrap;gap:6px 24px;margin-bottom:12px;font-size:12px;color:var(--text-2)}
+.dep-facts b{margin-right:6px;font-weight:500;color:var(--muted)}
+.dep-facts code{font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace}
+
+.dep-timeline{list-style:none;margin:0;padding:0;border:1px solid var(--border);border-radius:9px;background:var(--surface);overflow:hidden}
+.dep-timeline>li+li{border-top:1px solid var(--border)}
+.dep-step{display:flex;align-items:center;gap:10px;width:100%;height:36px;padding:0 12px;text-align:left;font-size:12.5px}
+.dep-step:disabled{cursor:default}
+.dep-step:not(:disabled):hover{background:var(--hover)}
+.dep-step-icon{display:grid;place-items:center;width:15px}
+.dep-step-icon svg{width:15px}
+.done .dep-step-icon{color:var(--success)}
+.failed .dep-step-icon{color:var(--danger)}
+.running .dep-step-icon{color:var(--accent)}
+.cancelled .dep-step-icon{color:var(--muted)}
+.dep-step-icon .dot{width:9px;height:9px;border-radius:50%;box-shadow:inset 0 0 0 1.5px var(--line)}
+.pending .dep-step-name{color:var(--muted)}
+.failed .dep-step-name{color:var(--danger);font-weight:500}
+.dep-step-name{flex:1}
+.dep-step-time{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.dep-step-caret{width:12px;color:var(--muted);transition:transform .15s ease}
+.dep-step[aria-expanded="true"] .dep-step-caret{transform:rotate(90deg)}
+.dep-step-log{padding:0 12px 12px 37px}
+.dep-step-log pre{margin:0;padding:10px 12px;border-radius:7px;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text-2);background:var(--hover);white-space:pre-wrap}
+.dep-step-log .err{color:var(--danger)}
+.dep-step-actions{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:8px;font-size:12px;color:var(--muted)}
+.spin{animation:dep-spin 1s linear infinite}
+@keyframes dep-spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.spin{animation:none}.dep-step-caret{transition:none}}
+
+.dep-none{padding:24px 2px}
+.dep-compare{width:100%;border-collapse:collapse;font-size:12.5px}
+.dep-compare th,.dep-compare td{padding:7px 8px;text-align:left;border-bottom:1px solid var(--border);vertical-align:top;overflow-wrap:anywhere}
+.dep-compare thead th{font-weight:600}
+.dep-compare tbody th{width:110px;font-weight:500;color:var(--muted)}
+.dep-compare tr.diff td{background:color-mix(in srgb,var(--warning) 9%,transparent)}
+.dep-snapshot{margin:0;padding:12px;border-radius:8px;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--hover);overflow:auto}
+
+@media(max-width:1000px){
+  .dep-main{grid-template-columns:90px minmax(0,1fr) 80px}
+  .dep-main>.status,.dep-who{display:none}
+}
+
+/* Rows reuse the project Deployments styles; these only cover what's specific to a resource. */
+.deployment.comparing .deployment-row{box-shadow:inset 2px 0 0 var(--accent)}
+.deployment-details .dep-timeline{margin-top:2px}
+.dep-error-fact{color:var(--danger)}

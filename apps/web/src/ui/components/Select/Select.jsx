@@ -93,6 +93,6 @@ export function Select({ id, options, value, onChange, label, className, searcha
         {!visible.length && <p className="select-empty">No matches</p>}
       </div>
       {action && <button type="button" className="select-action" onClick={() => { close(); action.onSelect?.(); }}>{action.icon && <action.icon />}{action.label}</button>}
-    </div>, document.body)}
+    </div>, triggerRef.current?.closest('dialog') ?? document.body)}
   </>;
 }

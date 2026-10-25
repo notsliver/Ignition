@@ -1,14 +1,38 @@
 import { ArrowLeftIcon, PlusIcon, BoltIcon, ChevronDownIcon, MoonIcon, SunIcon, ViewColumnsIcon } from '@heroicons/react/20/solid';
-import { IconButton, Select, SegmentedControl, Sidebar, SidebarFooter, SidebarGroup, SidebarHeader, SidebarItem, SidebarNav, SidebarSeparator, SidebarSubItem } from '../ui';
+import { IconButton, Menu, Select, Status, SegmentedControl, Sidebar, SidebarFooter, SidebarGroup, SidebarHeader, SidebarItem, SidebarNav, SidebarSeparator, SidebarSubItem } from '../ui';
 import { useTheme } from '../hooks/useTheme';
-import { groups, projectItems, settingsPages, settingsSections, topItems } from './navigation';
+import { useSession } from './AuthGate';
+import { ArrowRightStartOnRectangleIcon, UserCircleIcon } from '@heroicons/react/16/solid';
+import { groups, projectItems, resourceSectionsFor, settingsPages, settingsSections, topItems } from './navigation';
 
 const envColor = env => env === 'Production' ? 'var(--success)' : env === 'Staging' ? 'var(--warning)' : 'var(--muted)';
 const themeOptions = [{ value: 'light', label: 'Light', icon: SunIcon }, { value: 'dark', label: 'Dark', icon: MoonIcon }];
 
-export function AppSidebar({ active, project, environment, onEnvironmentChange, onNavigate, onCloseProject, onHide }) {
+const resourceTone = { running: 'success', deploying: 'progress', unhealthy: 'warning', failed: 'danger' };
+
+export function AppSidebar({ active, project, environment, onEnvironmentChange, onNavigate, onCloseProject, resource, resourceView, onResourceNavigate, onCloseResource, onHide }) {
   const [theme, setTheme] = useTheme();
+  const { user, signOut } = useSession();
   const footer = <SidebarFooter><SegmentedControl label="Theme" options={themeOptions} value={theme} onChange={setTheme} /></SidebarFooter>;
+
+  if (project && resource) return <Sidebar label={`${resource.name} navigation`}>
+    <SidebarHeader>
+      <button className="back-to-app" onClick={onCloseResource}><ArrowLeftIcon />{project.name}</button>
+      <IconButton icon={ViewColumnsIcon} label="Hide sidebar" onClick={onHide} />
+    </SidebarHeader>
+    <div className="sidebar-project">
+      <span className="sidebar-project-label">Resource</span>
+      <strong className="sidebar-resource-name"><Status tone={resourceTone[resource.status] ?? 'neutral'} label={resource.status} />{resource.name}</strong>
+      <span className="sidebar-resource-meta">{environment}</span>
+    </div>
+    <SidebarNav>
+      {resourceSectionsFor(resource.type).map((section, i) => <div key={i}>
+        {i > 0 && <SidebarSeparator />}
+        {section.map(({ title, icon }) => <SidebarItem key={title} icon={icon} active={resourceView === title} onClick={() => onResourceNavigate(title)}>{title}</SidebarItem>)}
+      </div>)}
+    </SidebarNav>
+    {footer}
+  </Sidebar>;
 
   if (project) return <Sidebar label={`${project.name} navigation`}>
     <SidebarHeader>
@@ -19,8 +43,7 @@ export function AppSidebar({ active, project, environment, onEnvironmentChange, 
       <span className="sidebar-project-label">Project</span>
       <strong>{project.name}</strong>
       <Select className="sidebar-env-select" label="Environment" value={environment} onChange={onEnvironmentChange} searchable={6}
-        options={project.environments.map(env => ({ value: env, label: env, dot: envColor(env) }))}
-        action={{ label: 'New environment', icon: PlusIcon }} />
+        options={project.environments.map(env => ({ value: env.name, label: env.name, dot: envColor(env.name) }))} />
     </div>
     <SidebarNav>
       {projectItems.map(({ title, icon }) => <SidebarItem key={title} icon={icon} active={active === title} onClick={() => onNavigate(title)}>{title}</SidebarItem>)}
@@ -44,7 +67,11 @@ export function AppSidebar({ active, project, environment, onEnvironmentChange, 
 
   return <Sidebar>
     <SidebarHeader>
-      <button className="workspace"><span className="brand-mark"><BoltIcon /></span><span>Ignition</span><ChevronDownIcon className="workspace-caret" /></button>
+      <Menu className="workspace" label="Account" align="start" items={[
+        { label: `Signed in as ${user.email} (${user.role})`, icon: UserCircleIcon, onSelect: () => {} },
+        'separator',
+        { label: 'Sign out', icon: ArrowRightStartOnRectangleIcon, onSelect: signOut },
+      ]}><span className="brand-mark"><BoltIcon /></span><span>Ignition</span><ChevronDownIcon className="workspace-caret" /></Menu>
       <IconButton icon={ViewColumnsIcon} label="Hide sidebar" onClick={onHide} />
     </SidebarHeader>
     <SidebarNav>

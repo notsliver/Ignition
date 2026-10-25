@@ -2,6 +2,7 @@ import './styles/tokens.css';
 import './styles/base.css';
 import './styles/list.css';
 
+export { Avatar, PLACEHOLDER_AVATAR } from './components/Avatar/Avatar';
 export { Badge } from './components/Badge/Badge';
 export { Button } from './components/Button/Button';
 export { Meter } from './components/Meter/Meter';
@@ -9,6 +10,7 @@ export { Menu, MenuPopover } from './components/Menu/Menu';
 export { Checkbox } from './components/Checkbox/Checkbox';
 export { Switch, TextInput } from './components/Field/Field';
 export { Select } from './components/Select/Select';
+export { Dialog, FormField } from './components/Dialog/Dialog';
 export { IconButton } from './components/IconButton/IconButton';
 export { Notice } from './components/Notice/Notice';
 export { SearchField } from './components/SearchField/SearchField';
@@ -18,4 +20,5 @@ export { Sidebar, SidebarHeader, SidebarNav, SidebarFooter, SidebarItem, Sidebar
 export { Sparkline } from './components/Sparkline/Sparkline';
 export { Status } from './components/Status/Status';
 export { GitHubIcon, GitLabIcon } from './icons/brands';
+export { BranchIcon, CommitIcon } from './icons/git';
 export { cx } from './utils/cx';

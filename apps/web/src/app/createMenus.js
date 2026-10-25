@@ -1,7 +1,7 @@
 // "Create" menus used by the Dashboard quick actions and the Projects page.
 import {
   ArchiveBoxArrowDownIcon, ArrowDownTrayIcon, ArrowsRightLeftIcon, CircleStackIcon, CloudArrowDownIcon, CloudArrowUpIcon, CloudIcon,
-  CodeBracketIcon, CommandLineIcon, ComputerDesktopIcon, DocumentArrowUpIcon, DocumentDuplicateIcon, DocumentTextIcon, FolderOpenIcon,
+  CodeBracketIcon, CommandLineIcon, CubeIcon, ComputerDesktopIcon, DocumentArrowUpIcon, DocumentDuplicateIcon, DocumentTextIcon, FolderOpenIcon,
   FolderPlusIcon, GlobeAltIcon, KeyIcon, LinkIcon, PlusIcon, ServerIcon, Squares2X2Icon, WrenchScrewdriverIcon,
 } from '@heroicons/react/20/solid';
 import { GitHubIcon, GitLabIcon } from '../ui';
@@ -18,6 +18,7 @@ export const deployOptions = [
     label: 'From Git repository', icon: CodeBracketIcon, items: gitSources,
   },
   'separator',
+  { label: 'Deploy a container image', icon: CubeIcon, color: 'var(--accent)' },
   { label: 'Start with Hello World!', icon: GlobeAltIcon, color: 'var(--success)' },
   { label: 'Select a template', icon: Squares2X2Icon, color: 'var(--accent)' },
   { label: 'Upload your static files', icon: FolderOpenIcon, color: 'var(--warning)' },

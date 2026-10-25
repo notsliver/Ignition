@@ -1,4 +1,5 @@
 import { Button } from '../../ui';
+import { useUnsavedChanges } from '../../app/unsaved';
 import './settings.css';
 
 export function SettingsGroup({ title, description, children }) {
@@ -16,9 +17,10 @@ export function SettingsField({ label, hint, htmlFor, children }) {
   </div>;
 }
 
-export function SaveBar({ dirty, onDiscard }) {
+export function SaveBar({ dirty, onDiscard, summary }) {
+  useUnsavedChanges(dirty);
   return <div className={`save-bar${dirty ? ' visible' : ''}`} aria-hidden={!dirty}>
-    <span>You have unsaved changes</span>
+    <span>{summary ?? 'You have unsaved changes'}</span>
     <Button type="button" onClick={onDiscard} tabIndex={dirty ? 0 : -1}>Discard</Button>
     <Button type="submit" variant="primary" tabIndex={dirty ? 0 : -1}>Save changes</Button>
   </div>;
