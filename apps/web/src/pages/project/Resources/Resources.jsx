@@ -26,7 +26,8 @@ export const resourceStatus = {
   removing: { tone: 'warning', label: 'Removing' },
 };
 export const sourceLabel = r => r.sourceType === 'git' ? r.repoUrl.replace(/^https:\/\//, '') : r.image;
-export const publicUrl = (r, host = 'localhost') => r.hostPort ? `http://${host}:${r.hostPort}` : null;
+// A working domain wins over the published host port.
+export const publicUrl = (r, host = 'localhost') => r.domain || (r.hostPort ? `http://${host}:${r.hostPort}` : null);
 
 // Attach onSelect to every leaf, passing its menu path (e.g. "Database/Create new database/Redis").
 const withPaths = (items, onPick, prefix = '') => items.map(item => item === 'separator' ? item

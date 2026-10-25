@@ -1,5 +1,4 @@
 import { createContext, useContext, useEffect, useState } from 'react';
-import { BoltIcon } from '@heroicons/react/20/solid';
 import { Button, FormField, Notice, TextInput } from '../ui';
 import { api, onUnauthenticated } from '../api/client';
 import './AuthGate.css';
@@ -26,7 +25,7 @@ export function AuthGate({ children }) {
   if (state.phase === 'ready') return <SessionContext.Provider value={{ user: state.user, signOut: async () => { await api.logout().catch(() => {}); setState({ phase: 'login' }); } }}>{children}</SessionContext.Provider>;
   return <div className="auth-screen">
     <div className="auth-card">
-      <div className="auth-brand"><span className="brand-mark"><BoltIcon /></span>Ignition</div>
+      <div className="auth-brand"><span className="brand-mark"><img src="/ignition-logo.svg" alt="" /></span>Ignition</div>
       {state.phase === 'loading' && <p className="auth-muted">Connecting…</p>}
       {state.phase === 'error' && <><Notice tone="danger" title="Can't reach the API">{state.error.message}</Notice><Button onClick={check}>Try again</Button></>}
       {state.phase === 'setup' && <SetupForm onDone={user => setState({ phase: 'ready', user })} />}

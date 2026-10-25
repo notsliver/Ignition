@@ -1,0 +1,84 @@
+.net-page .settings-group>h2{margin-bottom:2px}
+.net-desc{margin:0 0 10px;font-size:12.5px;line-height:1.5;color:var(--muted)}
+.net-muted{font-size:12px;color:var(--muted)}
+.net-page .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+.net-chip{margin-left:8px}
+.net-wrap{white-space:normal !important}
+.net-row{margin-top:10px}
+.net-select{min-width:200px}
+.net-spacer{flex:1}
+.net-removed td{opacity:.7}
+
+.net-aliases{display:flex;flex-direction:column;gap:4px;margin-top:16px}
+.net-aliases strong{font-size:12.5px;font-weight:600}
+.net-chips{display:flex;align-items:center;flex-wrap:wrap;gap:6px;margin-top:4px}
+.net-chips .rp-chip{height:24px}
+.net-chips .rp-chip button{display:grid;place-items:center;margin-right:-3px;color:var(--muted)}
+.net-chips .rp-chip button:hover{color:var(--danger)}
+.net-chips .rp-chip svg{width:11px}
+.net-alias-input{width:140px;height:26px}
+
+.net-ports td{vertical-align:middle;height:auto;padding-top:6px;padding-bottom:6px}
+.net-port{width:84px}
+.net-proto{width:76px}
+.net-bind{width:170px}
+.net-error{display:block;max-width:220px;margin-top:3px;font-size:11.5px;white-space:normal;color:var(--danger)}
+.net-flag{display:flex;align-items:center;gap:4px;margin-top:3px;font-size:11.5px;color:var(--warning)}
+.net-flag.bad{color:var(--danger)}
+.net-flag svg{width:12px}
+.net-empty{display:flex;align-items:center;gap:6px;margin:0;padding:12px 14px;border:1px dashed var(--border);border-radius:10px;font-size:12.5px;color:var(--muted)}
+.net-empty svg{width:13px;color:var(--success)}
+
+.net-kv{display:flex;align-items:flex-start;gap:16px;padding:12px 16px;font-size:12.5px}
+.net-kv+.net-kv{border-top:1px solid var(--border)}
+.net-kv>span:first-child{flex:0 0 180px;color:var(--text-2);font-weight:500}
+.net-addresses{display:flex;flex-wrap:wrap;gap:6px 14px}
+.net-address{display:inline-flex;align-items:center;gap:4px}
+.net-sub{display:flex;align-items:center;gap:6px;margin:18px 0 8px;font-size:12.5px;font-weight:600;color:var(--text-2)}
+.net-count{font-weight:500;color:var(--muted)}
+.net-name{font-weight:500}
+
+.net-diag{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:10px 12px}
+.net-target{min-width:220px}
+.net-custom{width:180px}
+.net-tests{margin-top:10px}
+.net-test+.net-test{border-top:1px solid var(--border)}
+.net-test-row{display:flex;align-items:center;gap:10px;width:100%;padding:9px 14px;text-align:left;background:none;border:0;color:inherit;font:inherit;cursor:pointer}
+.net-test-row:hover{background:var(--hover)}
+.net-test-row>svg{width:14px;flex:none}
+.net-test-main{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.net-test-main strong{font-size:12.5px;font-weight:500}
+.net-test-main>span{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.net-when{white-space:nowrap}
+.net-output{margin:0 14px 10px 38px;padding:8px 10px;max-height:220px;overflow:auto;border-radius:8px;background:var(--hover);font:11.5px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre-wrap;color:var(--text-2)}
+.net-footnote{margin:0;padding:8px 14px;border-top:1px solid var(--border);font-size:11.5px;color:var(--muted)}
+
+.net-expo{display:flex;align-items:flex-start;gap:10px;padding:11px 16px}
+.net-expo+.net-expo{border-top:1px solid var(--border)}
+.net-expo>svg{width:14px;flex:none;margin-top:2px;color:var(--icon)}
+.net-expo>span{display:flex;flex-direction:column;gap:2px;min-width:0}
+.net-expo strong{font-size:12.5px;font-weight:500}
+.net-expo>span>span{font-size:12px;color:var(--muted)}
+.net-page .ok{color:var(--success)}
+.net-page .warn,.net-impact .warn{color:var(--warning)}
+.net-page .bad,.net-impact .bad{color:var(--danger)}
+.net-impact{display:flex;flex-direction:column;gap:10px;margin:0;padding:0;list-style:none;font-size:12.5px;line-height:1.5;color:var(--text-2)}
+.net-impact li{display:flex;gap:8px}
+.net-impact svg{width:14px;flex:none;margin-top:2px}
+.net-impact .ok{color:var(--success)}
+
+@media(max-width:720px){
+  .net-kv{flex-direction:column;gap:6px}
+  .net-kv>span:first-child{flex:none}
+  .net-target,.net-select{min-width:0;flex:1}
+}
+
+.net-list .net-item{display:flex;align-items:center;gap:12px;padding:11px 14px 11px 16px}
+.net-list .net-item+.net-item{border-top:1px solid var(--border)}
+.net-icon{width:14px;flex:none;color:var(--icon)}
+.net-item-main{display:flex;flex-direction:column;gap:3px;flex:1;min-width:0}
+.net-item-main strong{display:flex;align-items:center;gap:8px;font-size:13px;font-weight:500}
+.net-item-main>span{font-size:12px;color:var(--muted);overflow-wrap:anywhere}
+.net-item-main .net-chip{margin-left:0}
+.net-leaving{opacity:.65}
+.net-new{width:170px}

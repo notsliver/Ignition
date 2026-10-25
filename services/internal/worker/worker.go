@@ -13,12 +13,15 @@ import (
 	"time"
 
 	"github.com/ignition/ignition/internal/jobs"
+	"github.com/ignition/ignition/internal/proxy"
 	"github.com/ignition/ignition/internal/runtime"
 	"github.com/ignition/ignition/internal/secrets"
+	"github.com/ignition/ignition/internal/sources"
 	"github.com/ignition/ignition/internal/store"
 )
 
-const network = "ignition"
+// LegacyNetwork is the single network every resource used to share. Containers are moved off it.
+const LegacyNetwork = "ignition"
 
 type Worker struct {
 	ID          string
@@ -28,6 +31,7 @@ type Worker struct {
 	Secrets     *secrets.Box
 	Concurrency int
 	Lease       time.Duration
+	Proxy       *proxy.Client
 }
 
 var errCancelled = errors.New("cancelled")
@@ -189,7 +193,11 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 		imageRef = res.Image
 		w.Store.SetDeploymentStatus(ctx, dep.ID, "deploying", "")
 		w.Queue.Log(ctx, job.ID, "info", "pull", "Pulling "+imageRef)
-		if err := w.Runtime.PullImage(ctx, imageRef, w.logf(ctx, job.ID, "pull")); err != nil {
+		auth, err := w.registryAuth(ctx, res)
+		if err != nil {
+			return err
+		}
+		if err := w.Runtime.PullImage(ctx, imageRef, auth, w.logf(ctx, job.ID, "pull")); err != nil {
 			if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "denied") || strings.Contains(err.Error(), "invalid reference") {
 				return fmt.Errorf("%w: pull %s: %v", jobs.ErrPermanent, imageRef, err)
 			}
@@ -204,7 +212,14 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 		}
 		defer os.RemoveAll(dir)
 		w.Queue.Log(ctx, job.ID, "info", "source", fmt.Sprintf("Cloning %s (%s)", res.RepoURL, res.Branch))
-		commit, err := cloneRepo(ctx, res.RepoURL, res.Branch, dir)
+		creds, err := w.sourceCredentials(ctx, res)
+		if err != nil {
+			return err
+		}
+		if creds != nil {
+			w.Queue.Log(ctx, job.ID, "info", "source", "Using saved credentials ("+creds.AuthType+")")
+		}
+		commit, err := cloneRepo(ctx, res.RepoURL, res.Branch, dir, creds)
 		if err != nil {
 			return err
 		}
@@ -233,14 +248,24 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 	if err != nil {
 		return err
 	}
-	if err := w.Runtime.EnsureNetwork(ctx, network); err != nil {
+	// Each environment has its own private network; shared networks connect resources across projects on purpose.
+	network := runtime.EnvNetwork(res.EnvironmentID)
+	if err := w.Runtime.EnsureManagedNetwork(ctx, network, envLabels(res.EnvironmentID)); err != nil {
 		return err
 	}
 	name := fmt.Sprintf("ign-%s-%s-%d", res.Name, res.ID[:8], dep.Number)
 	w.Runtime.Remove(ctx, name, false) // idempotent retry: drop a half-created container from a previous attempt
-	port := 0
-	if res.Port != nil {
-		port = *res.Port
+	netcfg, err := w.Store.GetNetworking(ctx, res.ID)
+	if err != nil {
+		return err
+	}
+	ports, fixed := portSpecs(netcfg.Ports)
+	var shared []string
+	for _, n := range netcfg.Networks {
+		if err := w.Runtime.EnsureManagedNetwork(ctx, runtime.SharedNetwork(n), sharedLabels(n)); err != nil {
+			return err
+		}
+		shared = append(shared, runtime.SharedNetwork(n))
 	}
 	var cmd []string
 	if res.Command != "" {
@@ -248,16 +273,34 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 	}
 	w.Queue.Log(ctx, job.ID, "info", "rollout", "Starting container "+name)
 	id, err := w.Runtime.CreateContainer(ctx, runtime.ContainerSpec{
-		Name: name, Image: imageRef, Env: env, Cmd: cmd, Port: port, MemoryMB: res.MemoryMB, CPUs: res.CPUs, Network: network,
+		Name: name, Image: imageRef, Env: env, Cmd: cmd, Ports: ports, MemoryMB: res.MemoryMB, CPUs: res.CPUs, Network: network, Networks: shared,
 		Volumes: volumesFor(res),
-		Aliases: []string{res.Name},
+		Aliases: append([]string{res.Name}, netcfg.Aliases...),
 		Labels:  map[string]string{"ignition.managed": "true", "ignition.resource": res.ID, "ignition.deployment": dep.ID, "ignition.project": res.ProjectID},
 	})
 	if err != nil {
 		return fmt.Errorf("create container: %w", err)
 	}
+	// A fixed host port can only be bound by one container, so the old one has to let go first.
+	// That means a few seconds of downtime; if the new release fails, the old one is started again.
+	stoppedOld := false
+	if len(fixed) > 0 && res.ContainerID != "" {
+		w.Queue.Log(ctx, job.ID, "info", "rollout", fmt.Sprintf("Stopping the previous container first: host port %s is fixed (brief downtime)", strings.Join(fixed, ", ")))
+		w.Runtime.Stop(ctx, res.ContainerID, 10*time.Second)
+		stoppedOld = true
+	}
+	restoreOld := func() {
+		if stoppedOld {
+			w.Queue.Log(ctx, job.ID, "info", "rollout", "Starting the previous container again")
+			w.Runtime.Start(context.WithoutCancel(ctx), res.ContainerID)
+		}
+	}
 	if err := w.Runtime.Start(ctx, id); err != nil {
 		w.Runtime.Remove(ctx, id, false)
+		restoreOld()
+		if strings.Contains(err.Error(), "address already in use") || strings.Contains(err.Error(), "port is already allocated") {
+			return fmt.Errorf("%w: a host port is already in use by another program. Pick a different one under Networking. (%v)", jobs.ErrPermanent, err)
+		}
 		return fmt.Errorf("%w: start container: %v", jobs.ErrPermanent, err)
 	}
 
@@ -285,6 +328,7 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 			}
 		}
 		w.Runtime.Remove(ctx, id, false)
+		restoreOld()
 		reason := fmt.Sprintf("container exited with code %d", st.ExitCode)
 		if st.OOMKilled {
 			reason = fmt.Sprintf("container ran out of memory (limit %d MB)", res.MemoryMB)
@@ -316,6 +360,33 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 	}
 	w.Queue.Log(ctx, job.ID, "info", "complete", "Deployment complete")
 	return nil
+}
+
+// sourceCredentials decrypts the resource's linked source, if it has one.
+func (w *Worker) sourceCredentials(ctx context.Context, res *store.Resource) (*sources.Credentials, error) {
+	if res.SourceID == nil {
+		return nil, nil
+	}
+	src, err := w.Store.GetSource(ctx, *res.SourceID)
+	if err != nil {
+		return nil, fmt.Errorf("%w: the linked source no longer exists", jobs.ErrPermanent)
+	}
+	c := sources.Credentials{Provider: src.Provider, URL: src.URL, AuthType: src.AuthType, Username: src.Username}
+	if src.SecretEnc != nil {
+		if c.Secret, err = w.Secrets.Open(src.SecretEnc, "source:"+src.ID); err != nil {
+			return nil, fmt.Errorf("%w: source %s can't be decrypted; was IGNITION_SECRET_KEY changed?", jobs.ErrPermanent, src.Name)
+		}
+	}
+	return &c, nil
+}
+
+// registryAuth returns the X-Registry-Auth header for image pulls through a linked registry source.
+func (w *Worker) registryAuth(ctx context.Context, res *store.Resource) (string, error) {
+	c, err := w.sourceCredentials(ctx, res)
+	if err != nil || c == nil || c.AuthType == "none" || sources.IsGitProvider(c.Provider) {
+		return "", err
+	}
+	return sources.RegistryAuthHeader(*c), nil
 }
 
 // volumeName is stable per resource, so data survives redeploys and rollbacks.
@@ -458,4 +529,19 @@ func (w *Worker) syncLoop(ctx context.Context) {
 			w.refreshStatus(ctx, &id)
 		}
 	}
+}
+
+// portSpecs turns saved mappings into Docker port bindings and lists the fixed host ports among them.
+func portSpecs(list []store.PortMapping) ([]runtime.PortMapping, []string) {
+	var out []runtime.PortMapping
+	var fixed []string
+	for _, p := range list {
+		m := runtime.PortMapping{HostIP: p.BindAddress, ContainerPort: p.ContainerPort, Protocol: p.Protocol}
+		if p.HostPort != nil {
+			m.HostPort = *p.HostPort
+			fixed = append(fixed, fmt.Sprintf("%d/%s", *p.HostPort, p.Protocol))
+		}
+		out = append(out, m)
+	}
+	return out, fixed
 }

@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex">
+<meta http-equiv="refresh" content="15">
+<title>{{TITLE}}</title>
+<style>
+  :root{--bg:#f7f6f4;--surface:#fff;--border:#e6e5e2;--text:#1d1f22;--text-2:#4b4e53;--muted:#8d9095;--dot:#b9bbbf;--warn:#b7791f;color-scheme:light dark}
+  @media (prefers-color-scheme:dark){:root{--bg:#141517;--surface:#1b1c1f;--border:#2a2b2f;--text:#ececee;--text-2:#b4b6bb;--muted:#7d8086;--dot:#5d6066;--warn:#e0a84a}}
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;display:grid;place-items:center;padding:24px 16px;background:var(--bg);color:var(--text);
+    font:14px/1.55 Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+  main{width:100%;max-width:420px}
+  .logo{display:block;width:34px;height:auto;margin-bottom:28px;color:var(--text)}
+  .pill{display:inline-flex;align-items:center;gap:6px;height:22px;padding:0 9px;margin-bottom:14px;border:1px solid var(--border);border-radius:999px;
+    background:var(--surface);font-size:12px;font-weight:500;color:var(--text-2)}
+  .pill i{width:6px;height:6px;border-radius:50%;background:var(--{{TONE}})}
+  h1{margin:0 0 8px;font-size:22px;font-weight:600;letter-spacing:-.4px;line-height:1.25;overflow-wrap:anywhere}
+  p{margin:0;color:var(--text-2)}
+  .hint{margin-top:18px;padding-top:16px;border-top:1px solid var(--border);font-size:13px;color:var(--muted)}
+  code{font:12.5px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text-2);overflow-wrap:anywhere}
+</style>
+</head>
+<body>
+<main>
+  {{LOGO}}
+  <span class="pill"><i></i>{{STATUS}}</span>
+  <h1>{{TITLE}}</h1>
+  <p>{{MESSAGE}}</p>
+  <p class="hint">{{HINT}}</p>
+</main>
+</body>
+</html>

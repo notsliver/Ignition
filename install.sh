@@ -30,7 +30,8 @@ else
 fi
 port=$(grep -E '^IGNITION_PORT=' .env | cut -d= -f2); port=${port:-8080}
 
-# 3. Build and start.
+# 3. Build and start. Deployed apps share the "ignition" network with the domain proxy.
+docker network inspect ignition >/dev/null 2>&1 || docker network create ignition >/dev/null
 say "Building and starting IGNITION (the first build takes a few minutes)…"
 "${COMPOSE[@]}" up -d --build
 

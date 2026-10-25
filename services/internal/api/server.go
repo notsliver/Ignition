@@ -18,6 +18,7 @@ import (
 
 	"github.com/ignition/ignition/internal/auth"
 	"github.com/ignition/ignition/internal/httpx"
+	"github.com/ignition/ignition/internal/proxy"
 	"github.com/ignition/ignition/internal/runtime"
 	"github.com/ignition/ignition/internal/secrets"
 	"github.com/ignition/ignition/internal/store"
@@ -34,6 +35,7 @@ type Server struct {
 	SecureCookies bool
 	WebDir        string
 	PublishHost   string
+	Proxy         *proxy.Client
 
 	setupMu   sync.Mutex
 	setupCode string
@@ -101,6 +103,23 @@ func (s *Server) Handler() http.Handler {
 	authed("GET /api/deployments/{id}/logs", "viewer", s.deploymentLogs)
 	authed("POST /api/deployments/{id}/cancel", "developer", s.cancelDeployment)
 	authed("GET /api/audit", "admin", s.listAudit)
+	authed("GET /api/resources/{id}/source", "viewer", s.resourceSource)
+	authed("GET /api/resources/{id}/networking", "viewer", s.getNetworking)
+	authed("PUT /api/resources/{id}/networking", "developer", s.putNetworking)
+	authed("POST /api/resources/{id}/networking/port-check", "developer", s.checkHostPort)
+	authed("POST /api/resources/{id}/diagnostics", "developer", s.runDiagnostic)
+	authed("GET /api/resources/{id}/domains", "viewer", s.listDomains)
+	authed("POST /api/resources/{id}/domains", "developer", s.createDomain)
+	authed("PATCH /api/domains/{id}", "developer", s.updateDomain)
+	authed("DELETE /api/domains/{id}", "developer", s.deleteDomain)
+	authed("POST /api/domains/{id}/check", "viewer", s.checkDomainHandler)
+	authed("GET /api/sources", "viewer", s.listSources)
+	authed("POST /api/sources", "admin", s.createSource)
+	authed("GET /api/sources/{id}", "viewer", s.getSource)
+	authed("PATCH /api/sources/{id}", "admin", s.updateSource)
+	authed("DELETE /api/sources/{id}", "admin", s.deleteSource)
+	authed("POST /api/sources/{id}/test", "developer", s.testSourceHandler)
+	authed("GET /api/sources/{id}/repositories", "developer", s.sourceRepositories)
 
 	mux.Handle("/api/", httpx.Handler(func(w http.ResponseWriter, r *http.Request) error { return httpx.NotFound("Endpoint") }))
 	if s.WebDir != "" {

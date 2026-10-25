@@ -1,0 +1,7 @@
+{
+  "admin": {
+    "listen": "unix//run/ignition-proxy/admin.sock",
+    "origins": ["ignition-proxy"],
+    "config": { "persist": false }
+  }
+}

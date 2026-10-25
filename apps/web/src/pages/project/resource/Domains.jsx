@@ -1,131 +1,181 @@
-import { useState } from 'react';
-import { ArrowPathIcon, ChevronRightIcon, GlobeAltIcon, LockClosedIcon, PlusIcon, SignalIcon, StarIcon, TrashIcon } from '@heroicons/react/16/solid';
-import { Button, Dialog, Select, Status, Switch, TextInput, cx } from '../../../ui';
-import { CopyButton, Empty, PageIntro, Table, isPublicUrl, portOf, randomId, useLater } from './shared';
+import { useEffect, useRef, useState } from 'react';
+import { ArrowPathIcon, ArrowTopRightOnSquareIcon, ChevronRightIcon, GlobeAltIcon, LockClosedIcon, LockOpenIcon, PlusIcon, StarIcon, TrashIcon } from '@heroicons/react/16/solid';
+import { Button, Dialog, Notice, Status, Switch, TextInput, cx } from '../../../ui';
+import { api } from '../../../api/client';
+import { timeAgo, useQuery } from '../../../api/hooks';
+import { useSession } from '../../../app/AuthGate';
+import { CopyButton, Empty, PageIntro, Table } from './shared';
 
 /*
- * Lifecycle: DNS not configured → DNS verified → certificate pending → HTTPS active.
- * Failures: certificate renewal failing, domain unreachable.
+ * Domains are routed by the Caddy proxy bundled with Ignition. Every status comes from a real check:
+ * DNS lookup → a request for this domain's token through the proxy → the certificate it serves.
+ * The worker re-checks in the background; this page also re-checks domains that are still settling.
  */
 
-const HOST_RE = /^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/;
 const STATES = {
-  'dns-missing': { tone: 'warning', label: 'DNS not configured' },
-  'dns-checking': { tone: 'progress', label: 'Checking DNS…' },
-  'dns-verified': { tone: 'progress', label: 'DNS verified' },
-  'cert-pending': { tone: 'progress', label: 'Certificate pending' },
-  active: { tone: 'success', label: 'HTTPS active' },
-  'cert-failing': { tone: 'danger', label: 'Certificate renewal failing' },
-  unreachable: { tone: 'danger', label: 'Domain unreachable' },
+  pending: { tone: 'progress', label: 'Setting up' },
+  'dns-missing': { tone: 'warning', label: 'DNS not found' },
+  unreachable: { tone: 'danger', label: 'Not reaching this server' },
+  active: { tone: 'success', label: 'Active' },
 };
-const TIPS = {
-  'dns-missing': ['Add the record below at your DNS provider, then select Check DNS.', 'Records can take a few minutes, sometimes up to an hour, to propagate.', 'Cloudflare users: set the record to "DNS only" (grey cloud) until HTTPS is active.'],
-  'cert-failing': ['Make sure the CAA record (if any) allows letsencrypt.org.', 'Port 80 must reach this server for the HTTP challenge.', 'Too many failed attempts can trigger Let\'s Encrypt rate limits; wait an hour before retrying.'],
-  unreachable: ['Check that the server firewall allows ports 80 and 443.', 'Confirm the record still points to 203.0.113.24.', 'Look at the resource logs for crashes or failing health checks.'],
+const isLocal = host => host.endsWith('.localhost');
+const slugify = s => s.toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+const urlFor = (d, proxy) => {
+  const https = d.https;
+  const port = https ? proxy?.httpsPort : proxy?.httpPort;
+  return `${https ? 'https' : 'http'}://${d.hostname}${port && port !== (https ? 443 : 80) ? `:${port}` : ''}`;
 };
-const isApex = host => host.split('.').length === 2;
-const recordFor = host => isApex(host) ? [{ type: 'A', name: '@', value: '203.0.113.24' }, { type: 'AAAA', name: '@', value: '2001:db8::24' }] : [{ type: 'CNAME', name: host.split('.')[0], value: 'edge.ignition.app' }];
+const recordName = host => host.split('.').length === 2 ? '@' : host.split('.').slice(0, -2).join('.');
+const fmtDate = iso => new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' });
 
 export function Domains({ resource }) {
-  const later = useLater();
-  const generated = `${resource.name}-${randomId(4)}.ignition.app`;
-  const [domains, setDomains] = useState(() => [
-    { host: generated, state: 'active', generated: true, primary: !isPublicUrl(resource.url), port: portOf(resource), redirect: true, expires: 'Jan 4, 2027' },
-    ...(isPublicUrl(resource.url) ? [{ host: resource.url, state: 'active', primary: true, port: portOf(resource), redirect: true, expires: 'Jan 12, 2027' }] : []),
-    { host: 'shop-legacy.example.com', state: 'cert-failing', port: portOf(resource), redirect: true, expires: 'Nov 2, 2026' },
-  ]);
+  const { user } = useSession();
+  const canEdit = user.role !== 'viewer';
+  const { data, error, refetch, setData } = useQuery(() => api.domains(resource.id), [resource.id], { pollMs: 10000 });
+  const domains = data?.domains ?? [];
+  const proxy = data?.proxy;
   const [draft, setDraft] = useState('');
-  const [error, setError] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [formError, setFormError] = useState('');
   const [open, setOpen] = useState(null);
-  const [checks, setChecks] = useState({});
+  const [checking, setChecking] = useState(() => new Set());
+  const [rowError, setRowError] = useState({});
   const [removing, setRemoving] = useState(null);
+  const suggestion = `${slugify(resource.name)}.localhost`;
+
+  const replace = d => setData(cur => cur && { ...cur, domains: cur.domains.map(x => x.id === d.id ? d : x) });
+  const busy = (id, on) => setChecking(s => { const n = new Set(s); on ? n.add(id) : n.delete(id); return n; });
+
+  async function check(d) {
+    busy(d.id, true);
+    try { replace((await api.checkDomain(d.id)).domain); } catch (err) { setRowError(e => ({ ...e, [d.id]: err.message })); }
+    busy(d.id, false);
+  }
+  async function update(d, patch) {
+    setRowError(e => ({ ...e, [d.id]: '' }));
+    replace({ ...d, ...patch.optimistic });
+    if (patch.body.https !== undefined) busy(d.id, true);
+    try {
+      const { domain } = await api.updateDomain(d.id, patch.body);
+      if (patch.body.primary) refetch(); else replace(domain);
+    } catch (err) {
+      replace(d);
+      setRowError(e => ({ ...e, [d.id]: err.message }));
+    }
+    busy(d.id, false);
+  }
+
+  // Domains that are still settling (certificate on its way, DNS just added) are re-checked while the page is open.
+  const settling = domains.filter(d => d.status !== 'active').map(d => d.id).join();
+  const checkingRef = useRef(checking);
+  checkingRef.current = checking;
+  useEffect(() => {
+    if (!settling) return;
+    const t = setInterval(() => domains.filter(d => d.status === 'pending' && !checkingRef.current.has(d.id)).forEach(check), 8000);
+    return () => clearInterval(t);
+  }, [settling]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (resource.type !== 'application') return <div className="rp-page">
-    <Empty icon={GlobeAltIcon} title="This resource doesn't serve HTTP">Domains are for web applications. Use Networking to expose a TCP port or share the internal hostname.</Empty>
+    <Empty icon={GlobeAltIcon} title="This resource doesn't serve HTTP">Domains are for web applications. Other apps on this server reach it at {resource.name}:{resource.port ?? 'its port'}.</Empty>
   </div>;
 
-  const update = (host, patch) => setDomains(list => list.map(d => d.host === host ? { ...d, ...patch } : d));
-  const note = (host, text, tone = 'ok') => setChecks(c => ({ ...c, [host]: { text, tone } }));
-
-  function add(event) {
-    event.preventDefault();
-    const host = draft.trim().toLowerCase().replace(/^https?:\/\//, '').replace(/\/.*$/, '');
-    if (host.startsWith('*.')) return setError('Wildcard domains need a DNS-01 challenge, which isn\'t set up on this server yet.');
-    if (!HOST_RE.test(host)) return setError('Enter a domain like app.example.com.');
-    if (domains.some(d => d.host === host)) return setError('That domain is already added.');
-    setDomains(list => [...list, { host, state: 'dns-missing', port: portOf(resource), redirect: true }]);
-    setOpen(host);
-    setDraft('');
-    setError('');
+  async function add(event, hostname = draft) {
+    event?.preventDefault();
+    if (!hostname.trim()) return setFormError('Enter a domain.');
+    setAdding(true); setFormError('');
+    try {
+      const body = { hostname };
+      if (isLocal(hostname.trim().toLowerCase())) body.https = false; // a local certificate would make browsers warn
+      const { domain } = await api.createDomain(resource.id, body);
+      setData(cur => ({ ...cur, domains: [...(cur?.domains ?? []), domain] }));
+      setOpen(domain.id);
+      setDraft('');
+    } catch (err) {
+      setFormError(err.fields?.hostname ?? err.fields?.port ?? err.message);
+    }
+    setAdding(false);
   }
-  function checkDns(d) {
-    update(d.host, { state: 'dns-checking' });
-    later(() => {
-      // Demo rule: anything containing "pending" hasn't propagated yet.
-      if (d.host.includes('pending')) { update(d.host, { state: 'dns-missing' }); note(d.host, 'No record found yet at 4 of 4 resolvers. Try again in a few minutes.', 'bad'); return; }
-      update(d.host, { state: 'dns-verified' });
-      note(d.host, `${recordFor(d.host)[0].type} record found at 4 of 4 resolvers.`);
-      later(() => update(d.host, { state: 'cert-pending' }), 900);
-      later(() => { update(d.host, { state: 'active', expires: 'Jan 23, 2027' }); note(d.host, 'Certificate issued by Let\'s Encrypt (R11).'); }, 2800);
-    }, 1200);
-  }
-  function retryCert(d) {
-    update(d.host, { state: 'cert-pending' });
-    later(() => { update(d.host, { state: 'active', expires: 'Jan 23, 2027' }); note(d.host, 'Certificate renewed.'); }, 2000);
-  }
-  function testReach(d) {
-    note(d.host, 'Requesting https://' + d.host + '…', 'muted');
-    later(() => d.state === 'active' ? note(d.host, `HTTP 200 in 84ms from 3 regions · TLS 1.3`) : note(d.host, 'Connection failed: TLS handshake error', 'bad'), 1100);
-  }
-  const makePrimary = host => setDomains(list => list.map(d => ({ ...d, primary: d.host === host })));
 
   return <div className="rp-page">
-    <PageIntro>Public hostnames for {resource.name}. Certificates are issued and renewed automatically with Let's Encrypt.</PageIntro>
-    <form className="rp-inline-form" onSubmit={add}>
-      <TextInput placeholder="app.example.com" value={draft} onChange={e => { setDraft(e.target.value); setError(''); }} aria-label="Domain" aria-invalid={!!error} autoComplete="off" spellCheck={false} />
-      <Button type="submit" variant="primary" icon={PlusIcon}>Add domain</Button>
-    </form>
-    {error && <p className="rp-error">{error}</p>}
+    <PageIntro>Hostnames that open {resource.name}. Ignition's proxy routes them{proxy && <> on port {proxy.httpPort}{proxy.httpsPort ? ` (HTTPS ${proxy.httpsPort})` : ''}</>} and gets certificates automatically.</PageIntro>
+    {proxy && !proxy.running && <Notice tone="danger" title="The domain proxy isn't running">Domains can't be routed until it is. Run the installer again, or start it with: docker compose -f deploy/docker-compose.yml up -d proxy</Notice>}
+    {error && !data && <Notice tone="danger" title="Couldn't load domains">{error.message} <button type="button" className="inline-link" onClick={refetch}>Retry</button></Notice>}
+    {resource.status !== 'running' && domains.length > 0 && <Notice tone="warning" title={`${resource.name} isn't running`}>Its domains show a "not running" page until you start or deploy it.</Notice>}
 
-    <div className="rp-card">
+    {canEdit && <form className="rp-inline-form" onSubmit={add}>
+      <TextInput placeholder="app.example.com" value={draft} onChange={e => { setDraft(e.target.value); setFormError(''); }} aria-label="Domain" aria-invalid={!!formError} autoComplete="off" spellCheck={false} disabled={adding} />
+      <Button type="submit" variant="primary" icon={PlusIcon} disabled={adding}>{adding ? 'Adding…' : 'Add domain'}</Button>
+    </form>}
+    {formError && <p className="rp-error">{formError}</p>}
+    {canEdit && !domains.some(d => d.hostname === suggestion) && <p className="domain-suggest">No domain yet? <button type="button" className="inline-link" disabled={adding} onClick={() => add(null, suggestion)}>Use {suggestion}</button> — works on this machine with no DNS setup.</p>}
+
+    {domains.length > 0 && <div className="rp-card">
       {domains.map(d => {
-        const s = STATES[d.state];
-        const expanded = open === d.host;
-        const check = checks[d.host];
-        return <div key={d.host} className={cx('domain', expanded && 'open')}>
+        const s = checking.has(d.id) ? { tone: 'progress', label: 'Checking…' } : STATES[d.status] ?? STATES.pending;
+        const expanded = open === d.id;
+        const url = urlFor(d, proxy);
+        return <div key={d.id} className={cx('domain', expanded && 'open')}>
           <div className="rp-row domain-row">
-            <button type="button" className="domain-toggle" aria-expanded={expanded} aria-label={`${expanded ? 'Hide' : 'Show'} details for ${d.host}`} onClick={() => setOpen(expanded ? null : d.host)}><ChevronRightIcon /></button>
+            <button type="button" className="domain-toggle" aria-expanded={expanded} aria-label={`${expanded ? 'Hide' : 'Show'} details for ${d.hostname}`} onClick={() => setOpen(expanded ? null : d.id)}><ChevronRightIcon /></button>
             <span className="rp-row-main">
-              <strong className="domain-host"><a href={`https://${d.host}`} target="_blank" rel="noreferrer">{d.host}</a>{d.primary && <span className="rp-chip accent"><StarIcon />Primary</span>}{d.generated && <span className="rp-chip">Generated</span>}</strong>
-              <span className="domain-meta"><Status tone={s.tone}>{s.label}</Status>{d.state === 'active' && <span className="domain-ssl"><LockClosedIcon />Expires {d.expires}</span>}<span>→ port {d.port}</span></span>
+              <strong className="domain-host"><a href={url} target="_blank" rel="noreferrer">{d.hostname}</a>{d.primary && <span className="rp-chip accent"><StarIcon />Primary</span>}</strong>
+              <span className="domain-meta">
+                <Status tone={s.tone}>{s.label}</Status>
+                {d.https ? <span className="domain-ssl"><LockClosedIcon />{d.certExpiresAt ? `${d.certIssuer.includes('Caddy Local') ? 'Local certificate' : 'Certificate'} · expires ${fmtDate(d.certExpiresAt)}` : 'HTTPS'}</span> : <span className="domain-ssl"><LockOpenIcon />HTTP only</span>}
+                <span>→ port {d.port ?? resource.port}</span>
+              </span>
             </span>
-            {d.state === 'dns-missing' && <Button onClick={() => checkDns(d)} icon={ArrowPathIcon}>Check DNS</Button>}
-            {d.state === 'cert-failing' && <Button onClick={() => retryCert(d)} icon={ArrowPathIcon}>Retry certificate</Button>}
-            {!d.generated && <button type="button" className="icon-action danger" aria-label={`Remove ${d.host}`} onClick={() => setRemoving(d)}><TrashIcon /></button>}
+            <div className="domain-actions">
+            {d.status === 'active' && <a className="button" href={url} target="_blank" rel="noreferrer"><ArrowTopRightOnSquareIcon />Open</a>}
+            <Button icon={ArrowPathIcon} disabled={checking.has(d.id)} onClick={() => check(d)}>Check</Button>
+            {canEdit && <button type="button" className="icon-action danger" aria-label={`Remove ${d.hostname}`} onClick={() => setRemoving(d)}><TrashIcon /></button>}
+            </div>
           </div>
           {expanded && <div className="domain-body">
-            {!d.generated && <>
-              <h3>DNS records</h3>
+            {d.statusMessage && <p className={cx('domain-check', d.status === 'active' ? 'ok' : d.status === 'pending' ? '' : 'bad')}>{d.statusMessage}</p>}
+            {rowError[d.id] && <p className="domain-check bad">{rowError[d.id]}</p>}
+            {!isLocal(d.hostname) && <>
+              <h3>DNS record</h3>
               <Table columns={[{ label: 'Type' }, { label: 'Name' }, { label: 'Value' }, { label: '', className: 'actions' }]}>
-                {recordFor(d.host).map(r => <tr key={r.type}><td className="mono">{r.type}</td><td className="mono">{r.name}</td><td className="mono">{r.value}</td><td className="actions"><div><CopyButton value={r.value} label={`Copy ${r.type} value`} /></div></td></tr>)}
+                <tr><td className="mono">A</td><td className="mono">{recordName(d.hostname)}</td><td>This machine's public IP address</td><td className="actions"><div><CopyButton value={recordName(d.hostname)} label="Copy record name" /></div></td></tr>
               </Table>
+              <p className="domain-cert">Then forward ports {proxy?.httpPort ?? 80} and {proxy?.httpsPort ?? 443} on your router to this machine. For use on your own network only, point the record at this machine's local IP instead.{d.addresses?.length > 0 && <> Currently resolves to <span className="mono">{d.addresses.join(', ')}</span>.</>}</p>
             </>}
-            <div className="domain-settings">
-              <label>Target port<Select label={`Target port for ${d.host}`} value={d.port} onChange={port => update(d.host, { port })} options={[portOf(resource), '8080', '9000'].filter((v, i, a) => a.indexOf(v) === i).map(v => ({ value: v, label: v }))} /></label>
-              <label className="domain-switch"><Switch label={`Redirect HTTP to HTTPS for ${d.host}`} checked={d.redirect} onChange={redirect => update(d.host, { redirect })} />Redirect HTTP to HTTPS</label>
+            {canEdit && <div className="domain-settings">
+              <label>Target port<PortInput domain={d} fallback={resource.port} onSave={body => update(d, { body, optimistic: body.useResourcePort ? { port: null } : { port: body.port } })} /></label>
+              <label className="domain-switch"><Switch label={`HTTPS for ${d.hostname}`} checked={d.https} onChange={https => update(d, { body: { https }, optimistic: { https, status: 'pending' } })} />HTTPS{isLocal(d.hostname) && d.https && <span className="muted"> (local certificate)</span>}</label>
               <span className="spacer" />
-              <Button icon={SignalIcon} onClick={() => testReach(d)}>Test reachability</Button>
-              {!d.primary && d.state === 'active' && <Button icon={StarIcon} onClick={() => makePrimary(d.host)}>Make primary</Button>}
-            </div>
-            {d.state === 'active' && <p className="domain-cert">Certificate: Let's Encrypt R11 · {d.generated ? '*.ignition.app wildcard' : d.host} · auto-renews 30 days before {d.expires}</p>}
-            {check && <p className={cx('domain-check', check.tone)}>{check.text}</p>}
-            {TIPS[d.state] && <div className="domain-tips"><h3>Troubleshooting</h3><ul>{TIPS[d.state].map(t => <li key={t}>{t}</li>)}</ul></div>}
+              {!d.primary && <Button icon={StarIcon} onClick={() => update(d, { body: { primary: true }, optimistic: { primary: true } })}>Make primary</Button>}
+            </div>}
+            <p className="domain-cert">{d.lastCheckedAt ? `Checked ${timeAgo(d.lastCheckedAt)}` : 'Not checked yet'}{d.certIssuer && ` · issued by ${d.certIssuer}`}{d.primary && ' · used for "Open app" links'}</p>
           </div>}
         </div>;
       })}
-    </div>
+    </div>}
 
-    <Dialog open={!!removing} onClose={() => setRemoving(null)} title={`Remove ${removing?.host}?`} description="The domain stops routing to this resource right away. Its certificate is revoked. DNS records at your provider are left untouched."
-      footer={<><Button onClick={() => setRemoving(null)}>Cancel</Button><Button className="danger-solid" onClick={() => { setDomains(list => { const rest = list.filter(x => x.host !== removing.host); return removing.primary ? rest.map((x, i) => ({ ...x, primary: i === 0 })) : rest; }); setRemoving(null); }}>Remove domain</Button></>} />
+    <Dialog open={!!removing} onClose={() => setRemoving(null)} title={`Remove ${removing?.hostname}?`} description="The domain stops routing to this resource right away. DNS records at your provider are left untouched."
+      footer={<><Button onClick={() => setRemoving(null)}>Cancel</Button><Button className="danger-solid" onClick={async () => {
+        const d = removing;
+        setRemoving(null);
+        setData(cur => ({ ...cur, domains: cur.domains.filter(x => x.id !== d.id) }));
+        try { await api.deleteDomain(d.id); } catch (err) { setFormError(err.message); }
+        refetch();
+      }}>Remove domain</Button></>} />
   </div>;
+}
+
+// Saves on Enter or blur. Empty means "follow the resource's port".
+function PortInput({ domain, fallback, onSave }) {
+  const [value, setValue] = useState(domain.port ? String(domain.port) : '');
+  useEffect(() => setValue(domain.port ? String(domain.port) : ''), [domain.port]);
+  function commit() {
+    const v = value.trim();
+    if (v === (domain.port ? String(domain.port) : '')) return;
+    if (!v) return onSave({ useResourcePort: true });
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 1 || n > 65535) { setValue(domain.port ? String(domain.port) : ''); return; }
+    onSave({ port: n });
+  }
+  return <TextInput className="domain-port mono" inputMode="numeric" value={value} placeholder={fallback ? String(fallback) : 'port'} aria-label={`Target port for ${domain.hostname}`}
+    onChange={e => setValue(e.target.value.replace(/\D/g, ''))} onBlur={commit} onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); e.currentTarget.blur(); } }} />;
 }

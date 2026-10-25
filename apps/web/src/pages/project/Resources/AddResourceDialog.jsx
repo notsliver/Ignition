@@ -2,6 +2,8 @@ import { useState } from 'react';
 import { ArrowPathIcon, CheckIcon, ClipboardDocumentIcon, EyeIcon, EyeSlashIcon, FolderIcon, PlusIcon, XMarkIcon } from '@heroicons/react/16/solid';
 import { BranchIcon, Button, Dialog, FormField, Select, TextInput, cx } from '../../../ui';
 import { suggestName, validate } from './flows';
+import { api } from '../../../api/client';
+import { useQuery } from '../../../api/hooks';
 import './AddResourceDialog.css';
 
 const envTone = env => env === 'Production' ? 'var(--success)' : env === 'Staging' ? 'var(--warning)' : 'var(--muted)';
@@ -114,7 +116,8 @@ export function AddResourceDialog({ flow, projectName, environment, takenNames, 
           const id = `field-${field.key}`;
           const value = values[field.key];
           let control;
-          if (field.type === 'select') control = <Select id={id} value={value} label={field.label} options={field.options} onChange={v => set(field, v)} />;
+          if (field.type === 'source') control = <SourceSelect id={id} kind={field.sourceKind} value={value} onChange={v => set(field, v)} />;
+          else if (field.type === 'select') control = <Select id={id} value={value} label={field.label} options={field.options} onChange={v => set(field, v)} />;
           else if (field.type === 'secret') control = <SecretInput id={id} value={value} invalid={!!errors[field.key]} onChange={v => set(field, v)} />;
           else if (field.type === 'env') control = <EnvEditor id={id} rows={value} onChange={rows => set(field, rows)} />;
           else if (field.type === 'file') control = <input id={id} type="file" className="file-input" accept={field.accept} onChange={event => set(field, event.target.files[0]?.name ?? '')} />;
@@ -131,4 +134,13 @@ export function AddResourceDialog({ flow, projectName, environment, takenNames, 
       </div>
     </form>
   </Dialog>;
+}
+
+// Saved credentials from Infrastructure > Sources. "None" keeps the public, anonymous behaviour.
+export function SourceSelect({ id, kind, value, onChange }) {
+  const { data, error } = useQuery(() => api.sources({ kind }), [kind]);
+  const options = [{ value: '', label: kind === 'git' ? 'None (public repository)' : 'None (public image)' },
+    ...(data?.sources ?? []).map(s => ({ value: s.id, label: s.name, description: s.status === 'connected' ? s.account || 'Connected' : s.status === 'failed' ? 'Connection failing' : 'Not tested', dot: s.status === 'connected' ? 'var(--success)' : s.status === 'failed' ? 'var(--danger)' : 'var(--muted)' }))];
+  if (error) return <TextInput id={id} value="Couldn't load sources" disabled readOnly />;
+  return <Select id={id} value={value} label="Source" options={options} onChange={onChange} searchable={8} />;
 }

@@ -49,7 +49,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request, _ *store.User) e
 		"docker":      dockerErr == nil,
 		"gitBuilds":   true,
 		"builders":    []string{"dockerfile"},
-		"domains":     false,
+		"domains":     true,
 		"terminal":    false,
 		"metrics":     "live", // live container stats only; no history is stored yet
 		"publishHost": s.PublishHost,
@@ -264,6 +264,8 @@ type resourceInput struct {
 	MemoryMB      int        `json:"memoryMb"`
 	CPUs          float64    `json:"cpus"`
 	Env           []envInput `json:"env"`
+	SourceID      string     `json:"sourceId"`
+	sourceSSH     bool       // set by the handler once the linked source is known
 }
 
 func (in *resourceInput) validate() map[string]string {
@@ -289,7 +291,7 @@ func (in *resourceInput) validate() map[string]string {
 		if in.Dockerfile == "" {
 			in.Dockerfile = "Dockerfile"
 		}
-		if err := worker.ValidateGitSource(in.RepoURL, in.Branch); err != nil {
+		if err := worker.ValidateGitSourceFor(in.RepoURL, in.Branch, in.sourceSSH); err != nil {
 			f["repository"] = strings.TrimPrefix(err.Error(), jobs.ErrPermanent.Error()+": ")
 		}
 		if _, err := worker.SafeDockerfile(in.Dockerfile); err != nil {
@@ -341,6 +343,9 @@ func (s *Server) createResource(w http.ResponseWriter, r *http.Request, u *store
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
+	if err := s.checkResourceSource(r.Context(), &in); err != nil {
+		return err
+	}
 	if f := in.validate(); len(f) > 0 {
 		return httpx.Invalid(f)
 	}
@@ -363,7 +368,7 @@ func (s *Server) createResource(w http.ResponseWriter, r *http.Request, u *store
 	defer tx.Rollback(r.Context())
 	id, err := s.Store.CreateResource(r.Context(), tx, store.NewResource{
 		ProjectID: projectID, EnvironmentID: envID, Name: in.Name, Type: in.Type, SourceType: in.SourceType, Image: in.Image,
-		RepoURL: in.RepoURL, Branch: in.Branch, Dockerfile: in.Dockerfile, Command: in.Command, DataPath: in.DataPath, CreatedBy: u.ID,
+		RepoURL: in.RepoURL, Branch: in.Branch, Dockerfile: in.Dockerfile, Command: in.Command, DataPath: in.DataPath, CreatedBy: u.ID, SourceID: in.SourceID,
 		Port: in.Port, MemoryMB: in.MemoryMB, CPUs: in.CPUs,
 	})
 	if store.IsUnique(err) {
@@ -400,6 +405,26 @@ func (s *Server) createResource(w http.ResponseWriter, r *http.Request, u *store
 	return nil
 }
 
+// checkResourceSource verifies a linked source exists and matches how the resource is built.
+func (s *Server) checkResourceSource(ctx context.Context, in *resourceInput) error {
+	if in.SourceID == "" {
+		return nil
+	}
+	if !uuidRE.MatchString(in.SourceID) {
+		return httpx.Invalid(map[string]string{"sourceId": "Unknown source."})
+	}
+	src, err := s.Store.GetSource(ctx, in.SourceID)
+	if err != nil {
+		return httpx.Invalid(map[string]string{"sourceId": "Unknown source."})
+	}
+	wantKind := map[string]string{"git": "git", "image": "registry"}[in.SourceType]
+	if src.Kind != wantKind {
+		return httpx.Invalid(map[string]string{"sourceId": fmt.Sprintf("%s is a %s source; this resource needs a %s source.", src.Name, src.Kind, wantKind)})
+	}
+	in.sourceSSH = src.AuthType == "ssh"
+	return nil
+}
+
 func (s *Server) updateResource(w http.ResponseWriter, r *http.Request, u *store.User) error {
 	id, err := pathID(r, "Resource")
 	if err != nil {
@@ -429,6 +454,15 @@ func (s *Server) updateResource(w http.ResponseWriter, r *http.Request, u *store
 	}
 	if p.CPUs != nil {
 		merged.CPUs = *p.CPUs
+	}
+	if current.SourceID != nil {
+		merged.SourceID = *current.SourceID
+	}
+	if p.SourceID != nil {
+		merged.SourceID = *p.SourceID
+	}
+	if err := s.checkResourceSource(r.Context(), &merged); err != nil {
+		return err
 	}
 	if f := merged.validate(); len(f) > 0 {
 		return httpx.Invalid(f)

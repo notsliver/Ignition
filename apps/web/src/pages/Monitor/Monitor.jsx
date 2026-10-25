@@ -170,7 +170,7 @@ export function Monitor({ onOpenResource }) {
               <td><span className="resource-name" title={sourceLabel(r)}><TypeIcon />{r.name}<span>{r.projectName}{r.environment !== 'Production' ? ` · ${r.environment}` : ''}</span></span></td>
               <td className="muted">{label}</td>
               <td><Status tone={status.tone}>{status.label}</Status></td>
-              <td className="mono">{url ? <a href={url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>{url.replace('http://', '')}</a> : r.port ? `${r.name}:${r.port}` : 'internal'}</td>
+              <td className="mono">{url ? <a href={url} target="_blank" rel="noreferrer" onClick={e => e.stopPropagation()}>{url.replace(/^https?:\/\//, '')}</a> : r.port ? `${r.name}:${r.port}` : 'internal'}</td>
               <td className="num" title={live ? `of ${r.cpus} vCPU limit` : undefined}>{live ? `${r.usage.cpuPercent.toFixed(1)}%` : '—'}</td>
               <td className="num" title={live ? `of ${r.memoryMb} MB limit` : undefined}>{live ? mb(r.usage.memoryBytes) : '—'}</td>
               <td className="num muted">{r.status === 'running' ? uptime(r.runningSince) : '—'}</td>

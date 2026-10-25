@@ -33,10 +33,13 @@ services:
       IGNITION_PUBLIC_URL: ${IGNITION_PUBLIC_URL:-http://localhost:8080}
       IGNITION_SECURE_COOKIES: ${IGNITION_SECURE_COOKIES:-false}
       IGNITION_PUBLISH_HOST: ${IGNITION_PUBLISH_HOST:-localhost}
+      IGNITION_HTTP_PORT: ${IGNITION_HTTP_PORT:-80}
+      IGNITION_HTTPS_PORT: ${IGNITION_HTTPS_PORT:-443}
     ports:
       - "${IGNITION_PORT:-8080}:8080"
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - proxy-admin:/run/ignition-proxy
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:8080/api/ready"]
       interval: 10s
@@ -53,7 +56,31 @@ services:
       IGNITION_WORKER_CONCURRENCY: ${IGNITION_WORKER_CONCURRENCY:-2}
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      - proxy-admin:/run/ignition-proxy
     stop_grace_period: 40s
+
+  # Routes custom domains to resources and handles HTTPS. Ignition generates its whole config.
+  # The admin API is a unix socket shared only with api and worker: apps on the "ignition" network can't reach it.
+  proxy:
+    image: caddy:2.8.4-alpine
+    restart: unless-stopped
+    entrypoint: ["sh", "-c", "rm -f /run/ignition-proxy/admin.sock; exec caddy run --config /etc/caddy/bootstrap.json"]
+    ports:
+      - "${IGNITION_HTTP_PORT:-80}:80"
+      - "${IGNITION_HTTPS_PORT:-443}:443"
+    volumes:
+      - ./proxy-bootstrap.json:/etc/caddy/bootstrap.json:ro
+      - proxy-admin:/run/ignition-proxy
+      - proxy-data:/data
+    networks: [default, apps]
+
+networks:
+  # Deployed apps run here (created by the installer and the worker); the proxy joins it to reach them.
+  apps:
+    name: ignition
+    external: true
 
 volumes:
   db-data:
+  proxy-admin:
+  proxy-data:

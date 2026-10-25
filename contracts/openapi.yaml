@@ -283,3 +283,66 @@ paths:
       summary: Audit events, newest first (admin). Never contains secret values.
       parameters: [{ name: target, in: query, schema: { type: string } }]
       responses: { '200': { description: '{ events }' } }
+  /api/resources/{id}/source:
+    get:
+      summary: What the resource is built from - linked credentials, the remote's branches and latest commit (live, via git ls-remote), and the running deployment. A remote that can't be read is reported in `error`.
+      responses: { '200': { description: '{ source, branches, latestCommit, deployed, error }' } }
+  /api/resources/{id}/networking:
+    get:
+      summary: Saved networking (ports, extra networks, aliases) next to what Docker reports live, peers on shared networks, drift, and recent diagnostics.
+      responses: { '200': { description: '{ config, hostnames, networks, availableNetworks, live, peers, domains, tests, drift, proxy }' } }
+    put:
+      summary: Replace the networking configuration. Validated against Docker (networks, host port conflicts); applied by the next deployment.
+      responses: { '200': { description: '{ config, requiresRedeploy }' }, '422': { description: validation error } }
+  /api/resources/{id}/networking/port-check:
+    post:
+      summary: Whether a host port is free (Ignition's own ports, other resources, any container on this machine).
+      responses: { '200': { description: '{ available, message }' } }
+  /api/resources/{id}/diagnostics:
+    post:
+      summary: Run a DNS or TCP test from a temporary probe container on the resource's networks. Targets are limited to the resource itself and resources on shared networks (custom hosts for admins). One at a time per resource, rate limited.
+      responses: { '200': { description: '{ test, ranFrom }' }, '409': { description: a test is already running }, '429': { description: rate limited } }
+  /api/resources/{id}/domains:
+    get:
+      summary: Hostnames routed to the resource by the bundled proxy, with the proxy's state and ports.
+      responses: { '200': { description: '{ domains, proxy: { running, httpPort, httpsPort } }' } }
+    post:
+      summary: Add a hostname. Routing starts immediately; the response carries the first real check (DNS, reachability, certificate).
+      responses: { '201': { description: '{ domain }' }, '422': { description: validation error } }
+  /api/domains/{id}:
+    patch:
+      summary: Change HTTPS, the target port (or follow the resource's port), or make it the primary domain.
+      responses: { '200': { description: '{ domain }' } }
+    delete:
+      summary: Stop routing the hostname. DNS records are left untouched.
+      responses: { '204': { description: removed } }
+  /api/domains/{id}/check:
+    post:
+      summary: Re-run the checks now and record what was found.
+      responses: { '200': { description: '{ domain }' } }
+  /api/sources:
+    get:
+      summary: Instance-wide git providers and container registries. Secrets are never returned (only hasSecret and a masked hint).
+      parameters: [{ name: kind, in: query, schema: { type: string, enum: [git, registry] } }, { name: q, in: query, schema: { type: string } }]
+      responses: { '200': { description: '{ sources }' } }
+    post:
+      summary: Add a source (admin). The secret is encrypted at rest and the connection is tested immediately.
+      responses: { '201': { description: '{ source }' }, '422': { description: validation error } }
+  /api/sources/{id}:
+    get:
+      summary: One source with the resources that use it.
+      responses: { '200': { description: '{ source, resources }' }, '404': { description: not found } }
+    patch:
+      summary: Edit a source (admin). Sending a new secret rotates it; omitting it keeps the current one. Re-tests the connection.
+      responses: { '200': { description: '{ source }' } }
+    delete:
+      summary: Delete a source (admin). Refused with 409 while resources use it.
+      responses: { '204': { description: deleted }, '409': { description: in use } }
+  /api/sources/{id}/test:
+    post:
+      summary: Test the connection against the provider or registry and record the real result.
+      responses: { '200': { description: '{ source }' } }
+  /api/sources/{id}/repositories:
+    get:
+      summary: Up to 100 repositories visible to a GitHub, GitLab or Bitbucket token.
+      responses: { '200': { description: '{ repositories }' }, '501': { description: not supported for this source } }

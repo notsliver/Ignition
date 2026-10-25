@@ -23,20 +23,29 @@ type Config struct {
 	WorkerID      string
 	Concurrency   int
 	JobLease      time.Duration
+	// Domain proxy (Caddy): its admin socket, how containers reach it, and its published host ports.
+	ProxySocket    string
+	ProxyAddr      string
+	ProxyHTTPPort  int
+	ProxyHTTPSPort int
 }
 
 func Load() (Config, error) {
 	c := Config{
-		DatabaseURL:   os.Getenv("IGNITION_DATABASE_URL"),
-		ListenAddr:    env("IGNITION_LISTEN_ADDR", ":8080"),
-		DockerSocket:  env("IGNITION_DOCKER_SOCKET", "/var/run/docker.sock"),
-		PublicURL:     env("IGNITION_PUBLIC_URL", "http://localhost:8080"),
-		SecureCookies: env("IGNITION_SECURE_COOKIES", "false") == "true",
-		WebDir:        env("IGNITION_WEB_DIR", ""),
-		PublishHost:   env("IGNITION_PUBLISH_HOST", "localhost"),
-		WorkerID:      env("IGNITION_WORKER_ID", hostname()),
-		Concurrency:   envInt("IGNITION_WORKER_CONCURRENCY", 2),
-		JobLease:      time.Duration(envInt("IGNITION_JOB_LEASE_SECONDS", 60)) * time.Second,
+		DatabaseURL:    os.Getenv("IGNITION_DATABASE_URL"),
+		ListenAddr:     env("IGNITION_LISTEN_ADDR", ":8080"),
+		DockerSocket:   env("IGNITION_DOCKER_SOCKET", "/var/run/docker.sock"),
+		PublicURL:      env("IGNITION_PUBLIC_URL", "http://localhost:8080"),
+		SecureCookies:  env("IGNITION_SECURE_COOKIES", "false") == "true",
+		WebDir:         env("IGNITION_WEB_DIR", ""),
+		PublishHost:    env("IGNITION_PUBLISH_HOST", "localhost"),
+		WorkerID:       env("IGNITION_WORKER_ID", hostname()),
+		Concurrency:    envInt("IGNITION_WORKER_CONCURRENCY", 2),
+		JobLease:       time.Duration(envInt("IGNITION_JOB_LEASE_SECONDS", 60)) * time.Second,
+		ProxySocket:    env("IGNITION_PROXY_SOCKET", "/run/ignition-proxy/admin.sock"),
+		ProxyAddr:      env("IGNITION_PROXY_ADDR", "proxy"),
+		ProxyHTTPPort:  envInt("IGNITION_HTTP_PORT", 80),
+		ProxyHTTPSPort: envInt("IGNITION_HTTPS_PORT", 443),
 	}
 	if c.DatabaseURL == "" {
 		return c, errors.New("IGNITION_DATABASE_URL is required")

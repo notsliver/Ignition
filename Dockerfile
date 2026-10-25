@@ -17,7 +17,7 @@ RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/ignition-api ./cmd
 
 FROM alpine:3.20
 # git is used by the worker for shallow clones (invoked directly, never through a shell).
-RUN apk add --no-cache git ca-certificates tzdata
+RUN apk add --no-cache git openssh-client ca-certificates tzdata
 COPY --from=go /out/ /usr/local/bin/
 COPY --from=web /web/dist /srv/web
 ENV IGNITION_WEB_DIR=/srv/web

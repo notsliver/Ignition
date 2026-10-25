@@ -4,7 +4,7 @@
 .monitor-filter button{padding:0 10px;font-variant-numeric:tabular-nums}
 .monitor-search{width:260px}
 
-.monitor-table-wrap{overflow-x:auto;border:1px solid var(--border);border-radius:10px}
+.monitor-table-wrap{position:relative;overflow-x:auto;border:1px solid var(--border);border-radius:10px}
 .monitor-table{width:100%;min-width:720px;border-collapse:collapse;font-size:12.5px}
 .monitor-table th{height:34px;padding:0 14px;text-align:left;font-size:11.5px;font-weight:500;color:var(--muted);border-bottom:1px solid var(--border);white-space:nowrap}
 .monitor-table td{height:42px;padding:0 14px;border-bottom:1px solid var(--border);white-space:nowrap;color:var(--text)}

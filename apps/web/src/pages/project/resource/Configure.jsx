@@ -17,68 +17,6 @@ function SettingsPage({ form, children, intro }) {
   </form>;
 }
 
-/* -------------------------------- Networking -------------------------------- */
-
-export function Networking({ resource }) {
-  const internal = `${resource.name}.internal`;
-  const [ports, setPorts] = useState(() => [{ id: 1, port: portOf(resource), protocol: resource.type === 'database' ? 'tcp' : 'http', public: resource.type === 'application' }]);
-  const [tcpProxy, setTcpProxy] = useState(false);
-  const [draft, setDraft] = useState({ port: '', protocol: 'http' });
-  const [error, setError] = useState('');
-  const form = useSettingsForm({ allowlist: '', http2: true });
-
-  function add(event) {
-    event.preventDefault();
-    const port = Number(draft.port);
-    if (!Number.isInteger(port) || port < 1 || port > 65535) return setError('Ports are numbers from 1 to 65535.');
-    if (ports.some(p => Number(p.port) === port)) return setError(`Port ${port} is already exposed.`);
-    setPorts(list => [...list, { id: Date.now(), port: String(port), protocol: draft.protocol, public: false }]);
-    setDraft({ port: '', protocol: 'http' });
-    setError('');
-  }
-
-  return <form className="settings-page rp-settings" onSubmit={event => { event.preventDefault(); form.save(); }}>
-    <SettingsGroup title="Private network" description="Other resources in this project reach it over the private network. Traffic never leaves your servers.">
-      <SettingsField label="Internal hostname"><code className="readonly-value mono">{internal}:{portOf(resource)}</code><CopyButton value={`${internal}:${portOf(resource)}`} label="Copy internal hostname" /></SettingsField>
-    </SettingsGroup>
-
-    <section className="settings-group">
-      <h2>Ports</h2>
-      <Table columns={[{ label: 'Port' }, { label: 'Protocol' }, { label: 'Public' }, { label: '', className: 'actions' }]}>
-        {ports.map(p => <tr key={p.id}>
-          <td className="mono">{p.port}</td>
-          <td className="muted">{p.protocol.toUpperCase()}</td>
-          <td><Switch label={`Expose port ${p.port} publicly`} checked={p.public} onChange={value => setPorts(list => list.map(x => x.id === p.id ? { ...x, public: value } : x))} /></td>
-          <td className="actions"><div><button type="button" className="icon-action danger" aria-label={`Remove port ${p.port}`} disabled={ports.length === 1} onClick={() => setPorts(list => list.filter(x => x.id !== p.id))}><TrashIcon /></button></div></td>
-        </tr>)}
-      </Table>
-      <div className="rp-inline-form">
-        <TextInput type="number" placeholder="8080" value={draft.port} aria-label="Port" onChange={event => { setDraft(d => ({ ...d, port: event.target.value })); setError(''); }} />
-        <Select label="Protocol" value={draft.protocol} onChange={protocol => setDraft(d => ({ ...d, protocol }))} options={opts([['http', 'HTTP'], ['tcp', 'TCP'], ['udp', 'UDP']])} className="protocol-select" />
-        <Button type="button" icon={PlusIcon} onClick={add}>Expose port</Button>
-      </div>
-      {error && <p className="rp-error">{error}</p>}
-    </section>
-
-    {resource.type === 'database' && <SettingsGroup title="TCP proxy" description="Connect from outside, e.g. from a database GUI on your laptop.">
-      <SettingsField label="Enable TCP proxy" hint={tcpProxy ? 'Protect it with a strong password and an IP allowlist.' : 'Off by default for safety.'}>
-        <Switch label="Enable TCP proxy" checked={tcpProxy} onChange={setTcpProxy} />
-      </SettingsField>
-      {tcpProxy && <SettingsField label="Public address"><code className="readonly-value mono">proxy.ignition.app:41823</code><CopyButton value="proxy.ignition.app:41823" label="Copy public address" /></SettingsField>}
-    </SettingsGroup>}
-
-    <SettingsGroup title="Access">
-      <SettingsField label="IP allowlist" hint="CIDR ranges, comma-separated. Empty allows everyone." htmlFor="allowlist">
-        <TextInput className="mono" placeholder="203.0.113.0/24" {...form.bindInput('allowlist')} />
-      </SettingsField>
-      {resource.type === 'application' && <SettingsField label="HTTP/2" hint="Serve public traffic over HTTP/2.">
-        <Switch label="HTTP/2" checked={form.values.http2} onChange={form.set('http2')} />
-      </SettingsField>}
-    </SettingsGroup>
-    <SaveBar dirty={form.dirty} onDiscard={form.discard} />
-  </form>;
-}
-
 /* ---------------------------------- Storage --------------------------------- */
 
 const sizes = opts([['1', '1 GB'], ['5', '5 GB'], ['10', '10 GB'], ['25', '25 GB'], ['50', '50 GB'], ['100', '100 GB']]);

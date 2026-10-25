@@ -13,20 +13,21 @@ const name = (fallback = '') => ({ key: 'name', label: 'Name', placeholder: fall
 const envVars = { key: 'env', label: 'Environment variables', type: 'env', default: [] };
 const port = { key: 'port', label: 'Port', type: 'number', default: '3000', hint: 'The port your app listens on. Published on a free port on this machine.' };
 const dockerfile = { key: 'dockerfile', label: 'Dockerfile path', default: 'Dockerfile', hint: 'Builds use your Dockerfile. Buildpacks and Nixpacks aren\'t supported yet.' };
+const credentials = kind => ({ key: 'sourceId', label: kind === 'git' ? 'Credentials' : 'Registry credentials', type: 'source', sourceKind: kind, default: '', hint: kind === 'git' ? 'For private repositories. Add credentials under Infrastructure > Sources.' : 'For private images. Add registries under Infrastructure > Sources.' });
 const toPort = v => (v.port ? Number(v.port) : null);
 
 const gitFlow = (host, provider, icon) => ({
   icon: CubeIcon,
   context: v => ({ label: `Importing from ${provider}`, icon, text: v.repository || 'owner/repository', branch: v.branch, placeholder: !v.repository }),
   title: `Deploy from ${provider}`,
-  description: `Builds a public ${provider} repository with its Dockerfile and runs it on this machine.`,
+  description: `Builds a ${provider} repository with its Dockerfile and runs it on this machine.`,
   submit: 'Deploy',
   fields: [
     { key: 'repository', label: 'Repository', prefix: `${host}/`, placeholder: 'owner/repository', required: true, kind: 'repo' },
     { key: 'branch', label: 'Branch', default: 'main', required: true },
-    name(), dockerfile, port, envVars,
+    credentials('git'), name(), dockerfile, port, envVars,
   ],
-  build: v => ({ name: v.name, type: 'application', sourceType: 'git', repoUrl: `https://${host}/${v.repository.trim().replace(/^\/+/, '').replace(/\.git$/, '')}`, branch: v.branch.trim(), dockerfile: v.dockerfile, port: toPort(v), env: envFrom(v) }),
+  build: v => ({ name: v.name, type: 'application', sourceType: 'git', repoUrl: `https://${host}/${v.repository.trim().replace(/^\/+/, '').replace(/\.git$/, '')}`, branch: v.branch.trim(), dockerfile: v.dockerfile, port: toPort(v), env: envFrom(v), sourceId: v.sourceId || undefined }),
 });
 
 /* Databases: official images with their documented environment variables and data directories. */
@@ -97,10 +98,10 @@ export const flows = {
   'Application/From Git repository/Continue with other source': {
     ...gitFlow('', 'Git', LinkIcon),
     title: 'Deploy from a Git URL',
-    description: 'Any public https Git repository with a Dockerfile.',
+    description: 'Any https Git repository with a Dockerfile, or an SSH URL (git@host:team/app.git) with SSH-key credentials.',
     context: v => ({ label: 'Importing from Git', icon: LinkIcon, text: v.repository.replace(/^https?:\/\//, '') || 'git.example.com/team/app', branch: v.branch, placeholder: !v.repository }),
-    fields: [{ key: 'repository', label: 'Repository URL', placeholder: 'https://git.example.com/team/app.git', required: true, kind: 'repo' }, { key: 'branch', label: 'Branch', default: 'main', required: true }, name(), dockerfile, port, envVars],
-    build: v => ({ name: v.name, type: 'application', sourceType: 'git', repoUrl: v.repository.trim().replace(/\.git$/, ''), branch: v.branch.trim(), dockerfile: v.dockerfile, port: toPort(v), env: envFrom(v) }),
+    fields: [{ key: 'repository', label: 'Repository URL', placeholder: 'https://git.example.com/team/app.git', required: true, kind: 'repo' }, { key: 'branch', label: 'Branch', default: 'main', required: true }, credentials('git'), name(), dockerfile, port, envVars],
+    build: v => ({ name: v.name, type: 'application', sourceType: 'git', repoUrl: v.repository.trim().replace(/\.git$/, ''), branch: v.branch.trim(), dockerfile: v.dockerfile, port: toPort(v), env: envFrom(v), sourceId: v.sourceId || undefined }),
   },
   'Application/Start with Hello World!': {
     icon: CubeIcon, title: 'Start with Hello World!', description: 'A tiny web app that echoes request details. Deploys in seconds.', submit: 'Deploy',
@@ -109,10 +110,10 @@ export const flows = {
     build: v => ({ name: v.name, type: 'application', sourceType: 'image', image: 'traefik/whoami:v1.10', port: 80, memoryMb: 128 }),
   },
   'Application/Deploy a container image': {
-    icon: CubeIcon, title: 'Deploy a container image', description: 'Run any public image from Docker Hub or another registry.', submit: 'Deploy',
+    icon: CubeIcon, title: 'Deploy a container image', description: 'Run an image from Docker Hub or any registry; private images use saved registry credentials.', submit: 'Deploy',
     context: v => ({ label: 'Deploying image', icon: CubeIcon, text: v.image || 'nginx:1.27-alpine', placeholder: !v.image }),
-    fields: [{ key: 'image', label: 'Image', placeholder: 'nginx:1.27-alpine', required: true, mono: true }, name(), { ...port, default: '80' }, envVars],
-    build: v => ({ name: v.name, type: 'application', sourceType: 'image', image: v.image.trim(), port: toPort(v), env: envFrom(v) }),
+    fields: [{ key: 'image', label: 'Image', placeholder: 'nginx:1.27-alpine', required: true, mono: true }, credentials('registry'), name(), { ...port, default: '80' }, envVars],
+    build: v => ({ name: v.name, type: 'application', sourceType: 'image', image: v.image.trim(), port: toPort(v), env: envFrom(v), sourceId: v.sourceId || undefined }),
   },
   ...Object.fromEntries(Object.keys(engines).map(e => [`Database/Create new database/${e}`, dbFlow(e)])),
   Worker: workerFlow,

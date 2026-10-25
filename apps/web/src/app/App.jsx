@@ -4,6 +4,7 @@ import { Badge, IconButton, Notice, cx } from '../ui';
 import { ComingSoon } from '../pages/ComingSoon';
 import { Dashboard } from '../pages/Dashboard/Dashboard';
 import { Monitor } from '../pages/Monitor/Monitor';
+import { Sources } from '../pages/Sources/Sources';
 import { Projects } from '../pages/Projects/Projects';
 import { Resources } from '../pages/project/Resources/Resources';
 import { Deployments } from '../pages/project/Deployments/Deployments';
@@ -29,7 +30,7 @@ const resourcePageComponents = {
 };
 // Pages still running on sample data are labelled so nothing pretends to be live.
 const preview = node => <><PreviewBanner />{node}</>;
-const LIVE_RESOURCE_VIEWS = ['Overview', 'Deployments', 'Logs', 'Metrics', 'Environment Variables'];
+const LIVE_RESOURCE_VIEWS = ['Overview', 'Deployments', 'Logs', 'Metrics', 'Environment Variables', 'Source', 'Domains', 'Networking'];
 const pages = { Dashboard: <Dashboard />, General: <General />, 'Authentication & Security': <Security />, Updates: <Updates />, 'Users & Permissions': <Users /> };
 
 export function App() {
@@ -108,6 +109,7 @@ export function App() {
   const page = project ? projectPages[active]
     : active === 'Projects' ? <Projects onOpen={openProject} />
       : active === 'Monitor' ? <Monitor onOpenResource={openResourceFromAnywhere} />
+        : active === 'Sources' ? <Sources onOpenResource={openResourceFromAnywhere} />
         : pages[active] && preview(pages[active]);
 
   return <div ref={appRef} className={cx('app', hidden && 'sidebar-hidden', mobileOpen && 'mobile-open', sidebar.resizing && 'resizing')}>

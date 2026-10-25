@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/ignition/ignition/internal/jobs"
+	"github.com/ignition/ignition/internal/sources"
 )
 
 var (
@@ -33,16 +34,37 @@ func ValidateGitSource(repo, branch string) error {
 	return nil
 }
 
+// ValidateGitSourceFor is ValidateGitSource, but also accepts SSH repository URLs when an SSH key is used.
+func ValidateGitSourceFor(repo, branch string, ssh bool) error {
+	if ssh && sources.ValidSSHRepo(repo) {
+		return ValidateGitSource("https://placeholder/x", branch)
+	}
+	return ValidateGitSource(repo, branch)
+}
+
 // cloneRepo does a shallow clone with git invoked directly (no shell) and returns the commit SHA.
-func cloneRepo(ctx context.Context, repo, branch, dir string) (string, error) {
-	if err := ValidateGitSource(repo, branch); err != nil {
+// creds is nil for public repositories.
+func cloneRepo(ctx context.Context, repo, branch, dir string, creds *sources.Credentials) (string, error) {
+	if err := ValidateGitSourceFor(repo, branch, creds != nil && creds.AuthType == "ssh"); err != nil {
 		return "", err
 	}
-	cmd := exec.CommandContext(ctx, "git", "clone", "--depth", "1", "--single-branch", "--branch", branch, "--", repo, dir)
-	cmd.Env = append(os.Environ(), "GIT_TERMINAL_PROMPT=0") // fail instead of prompting for credentials
+	var authArgs, authEnv []string
+	if creds != nil {
+		var cleanup func()
+		var err error
+		if authArgs, authEnv, cleanup, err = sources.GitAuth(*creds); err != nil {
+			return "", err
+		}
+		defer cleanup()
+	}
+	if creds != nil {
+		repo = sources.RepoURLFor(*creds, repo)
+	}
+	cmd := exec.CommandContext(ctx, "git", append(authArgs, "clone", "--depth", "1", "--single-branch", "--branch", branch, "--", repo, dir)...)
+	cmd.Env = append(append(os.Environ(), "GIT_TERMINAL_PROMPT=0"), authEnv...) // fail instead of prompting
 	if out, err := cmd.CombinedOutput(); err != nil {
 		msg := strings.TrimSpace(string(out))
-		if strings.Contains(msg, "not found") || strings.Contains(msg, "could not read Username") || strings.Contains(msg, "Remote branch") {
+		if strings.Contains(msg, "not found") || strings.Contains(msg, "could not read Username") || strings.Contains(msg, "Remote branch") || strings.Contains(msg, "Authentication failed") || strings.Contains(msg, "Permission denied") {
 			return "", fmt.Errorf("%w: git clone failed: %s", jobs.ErrPermanent, msg)
 		}
 		return "", fmt.Errorf("git clone failed: %s", msg)

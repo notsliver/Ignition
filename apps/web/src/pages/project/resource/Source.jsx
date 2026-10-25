@@ -1,87 +1,95 @@
-import { useState } from 'react';
-import { ArrowPathIcon, ArrowTopRightOnSquareIcon, CheckCircleIcon, CodeBracketIcon, ExclamationTriangleIcon, RocketLaunchIcon, ShieldCheckIcon } from '@heroicons/react/16/solid';
-import { Avatar, BranchIcon, Button, CommitIcon, Dialog, FormField, GitHubIcon, GitLabIcon, Notice, SegmentedControl, Select, Switch, TextInput } from '../../../ui';
+import { useEffect, useState } from 'react';
+import { ArrowPathIcon, ArrowTopRightOnSquareIcon, CheckCircleIcon, CodeBracketIcon, CubeIcon, ExclamationTriangleIcon, KeyIcon, RocketLaunchIcon } from '@heroicons/react/16/solid';
+import { Button, GitHubIcon, GitLabIcon, Notice, Select, TextInput } from '../../../ui';
+import { api } from '../../../api/client';
+import { timeAgo, useQuery } from '../../../api/hooks';
+import { useSession } from '../../../app/AuthGate';
+import { SourceSelect } from '../Resources/AddResourceDialog';
 import { SaveBar, SettingsField, SettingsGroup } from '../../settings/SettingsField';
-import { PageIntro, randomId, useLater, useSettingsForm } from './shared';
+import { PageIntro } from './shared';
 
-/* Source decides what gets fetched (repository, ref, path or image). How it's built lives in Build & Deploy. */
+/*
+ * Source decides what gets fetched: a repository and branch, or an image, plus the saved credentials used to read it.
+ * Branches and the latest commit are read live from the remote (git ls-remote). How it's built lives in Build & Deploy.
+ */
 
-const providerOf = source => source?.startsWith('gitlab.com') ? { name: 'GitLab', icon: GitLabIcon } : source?.startsWith('github.com') ? { name: 'GitHub', icon: GitHubIcon } : { name: 'Git', icon: CodeBracketIcon };
-const opts = list => list.map(v => (Array.isArray(v) ? { value: v[0], label: v[1], description: v[2] } : { value: v, label: v }));
-const branches = ['main', 'develop', 'release', 'staging', 'feat/core-update-rate-limits', 'feat/primary-flow'];
-const tags = ['v2.4.1', 'v2.4.0', 'v2.3.9'];
+const hostOf = url => url.replace(/^https:\/\//, '').replace(/^ssh:\/\//, '').replace(/^git@/, '').split(/[/:]/)[0];
+const providerIcon = url => hostOf(url).includes('github') ? GitHubIcon : hostOf(url).includes('gitlab') ? GitLabIcon : CodeBracketIcon;
+// A browsable https address for the repository, also for git@host:owner/repo.git URLs.
+const webUrl = url => url.startsWith('https://') ? url.replace(/\.git$/, '')
+  : `https://${url.replace(/^ssh:\/\//, '').replace(/^git@/, '').replace(/:(?!\d)/, '/').replace(/\.git$/, '')}`;
+const short = sha => sha?.slice(0, 7);
 
-export function Source({ resource }) {
-  return resource.type === 'database' || !resource.branch ? <ImageSource resource={resource} /> : <GitSource resource={resource} />;
-}
+export function Source({ resource, onResourceChange }) {
+  const { user } = useSession();
+  const canEdit = user.role !== 'viewer';
+  const git = resource.sourceType === 'git';
+  const { data, error, loading, refetch } = useQuery(() => api.resourceSource(resource.id), [resource.id]);
+  const initial = git ? { repoUrl: resource.repoUrl, branch: resource.branch, sourceId: resource.sourceId ?? '' } : { image: resource.image, sourceId: resource.sourceId ?? '' };
+  const [saved, setSaved] = useState(initial);
+  const [values, setValues] = useState(initial);
+  const [errors, setErrors] = useState({});
+  const [feedback, setFeedback] = useState(null);
+  const [deploying, setDeploying] = useState(false);
+  const dirty = JSON.stringify(values) !== JSON.stringify(saved);
+  const set = key => value => { setValues(v => ({ ...v, [key]: value })); setErrors(({ [key]: _, ...rest }) => rest); };
+  useEffect(() => { if (!dirty) { setSaved(initial); setValues(initial); } }, [resource]); // eslint-disable-line react-hooks/exhaustive-deps
 
-function GitSource({ resource }) {
-  const later = useLater();
-  const form = useSettingsForm({ refType: 'branch', branch: resource.branch, tag: tags[0], commit: '', rootDir: '', watchPaths: '', autoDeploy: true, previews: false });
-  const { values, set, bind, bindInput } = form;
-  const [repo, setRepo] = useState(resource.source);
-  const [connection, setConnection] = useState('ok');
-  const [access, setAccess] = useState(null);
-  const [synced, setSynced] = useState('3 minutes ago');
-  const [changeOpen, setChangeOpen] = useState(false);
-  const [draftRepo, setDraftRepo] = useState(repo);
-  const [commits, setCommits] = useState(() => [
-    { sha: '9c41e0a', message: 'Tighten cart validation', author: 'lena', time: '8 min ago' },
-    { sha: '3fd28b1', message: 'Add product variant sitemap entries', author: 'tom', time: '25 min ago' },
-    { sha: 'e07a6c5', message: 'Bump stripe to 16.2', author: 'maya', time: '1h ago' },
-    { sha: resource.commit ?? '4e0b7d1', message: 'Update pricing page copy', author: 'jonas', time: '3h ago', deployed: true },
-    { sha: 'f03c6aa', message: 'Bump dependencies', author: 'admin', time: 'Yesterday' },
-    { sha: '7b1a002', message: 'Fix hydration warning on dashboard', author: 'jonas', time: 'Yesterday' },
-  ]);
-  const [events, setEvents] = useState([
-    { tone: 'ok', text: `Push to ${resource.branch} received (9c41e0a)`, time: '8 min ago' },
-    { tone: 'ok', text: 'Repository metadata refreshed', time: '3 min ago' },
-    { tone: 'ok', text: 'Webhook delivery succeeded (200 in 84ms)', time: '8 min ago' },
-  ]);
-  const provider = providerOf(repo);
-  const ProviderIcon = provider.icon;
-  const behind = commits.findIndex(c => c.deployed);
-  const ref = values.refType === 'branch' ? values.branch : values.refType === 'tag' ? values.tag : values.commit || 'a commit';
-  const log = (tone, text) => setEvents(e => [{ tone, text, time: 'Just now' }, ...e].slice(0, 6));
-
-  function testAccess() {
-    setAccess('checking');
-    later(() => {
-      if (connection === 'expired') { setAccess('failed'); log('bad', 'Access test failed: credentials expired'); return; }
-      setAccess('ok');
-      log('ok', `Access test passed: read access to ${repo}`);
-    }, 1200);
+  async function save(event) {
+    event.preventDefault();
+    setFeedback(null);
+    try {
+      const { resource: updated } = await api.updateResource(resource.id, values);
+      setSaved(values);
+      onResourceChange?.(updated);
+      setFeedback({ tone: 'success', title: 'Source saved', text: 'The next deployment uses it.', deploy: true });
+      refetch();
+    } catch (err) {
+      setErrors(err.fields ?? {});
+      setFeedback({ tone: 'danger', title: 'Couldn\'t save', text: err.message });
+    }
   }
-  function refresh() {
-    setSynced('Refreshing…');
-    later(() => {
-      setSynced('Just now');
-      setCommits(c => [{ sha: randomId(7).replace(/[^a-f0-9]/g, 'c'), message: 'Improve empty states', author: 'maya', time: 'Just now' }, ...c]);
-      log('ok', 'Repository metadata refreshed · 1 new commit');
-    }, 1000);
-  }
-  function deployLatest() {
-    setCommits(c => c.map((x, i) => ({ ...x, deployed: i === 0 })));
-    log('ok', `Deployment of ${commits[0].sha} started`);
+  async function deploy() {
+    setDeploying(true);
+    try {
+      await api.deploy(resource.id, {});
+      setFeedback({ tone: 'success', title: 'Deployment started', text: 'Follow it under Deployments.' });
+    } catch (err) {
+      setFeedback({ tone: 'danger', title: 'Couldn\'t start the deployment', text: err.message });
+    }
+    setDeploying(false);
   }
 
-  return <form className="settings-page rp-settings" onSubmit={event => { event.preventDefault(); form.save(); }}>
-    {connection === 'expired' && <Notice tone="danger" title={`${provider.name} credentials expired`}>New pushes won't deploy until you reconnect. <button type="button" className="inline-link" onClick={() => { setConnection('ok'); setAccess(null); log('ok', 'Credentials reconnected'); }}>Reconnect {provider.name}</button></Notice>}
+  const deployed = data?.deployed;
+  const latest = data?.latestCommit;
+  const switched = git && deployed && deployed.branch && deployed.branch !== resource.branch;
+  const upToDate = git && !switched && deployed?.commit && latest && latest.startsWith(deployed.commit);
+  const branchOptions = (data?.branches ?? []).map(b => ({ value: b.name, label: b.name, description: short(b.commit) }));
+  if (git && values.branch && !branchOptions.some(o => o.value === values.branch)) branchOptions.unshift({ value: values.branch, label: values.branch });
+  const ProviderIcon = git ? providerIcon(resource.repoUrl) : CubeIcon;
+  const field = (key, label, hint, control) => <SettingsField label={label} hint={errors[key] ?? hint} htmlFor={key}>{control}</SettingsField>;
+
+  return <form className="settings-page rp-settings" onSubmit={save}>
+    <PageIntro>{git ? 'Ignition clones this repository and builds it with its Dockerfile.' : 'This resource runs a container image instead of building from a repository.'}</PageIntro>
+    {feedback && <Notice tone={feedback.tone} title={feedback.title}>{feedback.text}{feedback.deploy && canEdit && <> <button type="button" className="inline-link" onClick={deploy}>Deploy now</button></>}</Notice>}
 
     <section className="settings-group">
-      <h2>Repository</h2>
+      <h2>{git ? 'Repository' : 'Image'}</h2>
       <div className="settings-card">
         <div className="source-repo">
           <ProviderIcon className="source-provider" />
-          <div className="rp-row-main"><strong>{repo}</strong><span>{connection === 'ok' ? `Connected through the ${provider.name} app · synced ${synced}` : 'Credentials expired'}</span></div>
-          <a className="button" href={`https://${repo}`} target="_blank" rel="noreferrer"><ArrowTopRightOnSquareIcon />Open</a>
-          <Button type="button" onClick={() => { setDraftRepo(repo); setChangeOpen(true); }}>Change</Button>
+          <div className="rp-row-main">
+            <strong className="mono">{git ? resource.repoUrl : resource.image}</strong>
+            <span>{data?.source ? `Using ${data.source.name}` : git ? 'Public repository, no credentials' : 'Public image, no credentials'}{git && ` · ${resource.branch}`}</span>
+          </div>
+          {git && <a className="button" href={webUrl(resource.repoUrl)} target="_blank" rel="noreferrer"><ArrowTopRightOnSquareIcon />Open</a>}
         </div>
         <div className="source-tools">
-          <Button type="button" icon={ShieldCheckIcon} onClick={testAccess} disabled={access === 'checking'}>{access === 'checking' ? 'Testing…' : 'Test access'}</Button>
-          <Button type="button" icon={ArrowPathIcon} onClick={refresh} disabled={synced === 'Refreshing…'}>Refresh</Button>
-          {access === 'ok' && <span className="source-result ok"><CheckCircleIcon />Read access confirmed · webhook active</span>}
-          {access === 'failed' && <span className="source-result bad"><ExclamationTriangleIcon />Could not read the repository</span>}
+          {git && <Button type="button" icon={ArrowPathIcon} onClick={refetch} disabled={loading}>{loading ? 'Checking…' : 'Check repository'}</Button>}
+          {data && !data.error && git && <span className="source-result ok"><CheckCircleIcon />Read access confirmed · {data.branches.length} {data.branches.length === 1 ? 'branch' : 'branches'}</span>}
+          {data?.error && <span className="source-result bad"><ExclamationTriangleIcon />{data.error}</span>}
+          {error && <span className="source-result bad"><ExclamationTriangleIcon />{error.message}</span>}
+          {data?.source?.status === 'failed' && <span className="source-result bad"><KeyIcon />{data.source.name}: {data.source.statusMessage}</span>}
         </div>
       </div>
     </section>
@@ -90,88 +98,35 @@ function GitSource({ resource }) {
       <h2>What's deployed</h2>
       <div className="settings-card source-drift">
         <div className="rp-row-main">
-          <strong>{behind > 0 ? `${behind} new ${behind === 1 ? 'commit' : 'commits'} on ${values.branch}` : `Up to date with ${values.branch}`}</strong>
-          <span>Running <code>{commits[behind]?.sha}</code> · latest is <code>{commits[0].sha}</code></span>
+          {!deployed ? <><strong>Nothing deployed yet</strong><span>Deploy to build the current source.</span></>
+            : git ? <>
+              <strong>{switched ? `Switched to ${resource.branch}, not deployed yet` : !latest ? `Running ${short(deployed.commit) || 'an unknown commit'}` : upToDate ? `Up to date with ${resource.branch}` : `${resource.branch} has newer commits`}</strong>
+              <span>Running <code>{short(deployed.commit) || '—'}</code>{deployed.branch && ` from ${deployed.branch}`}{latest && <> · latest is <code>{short(latest)}</code></>} · deployed {timeAgo(deployed.at)}</span>
+            </> : <>
+              <strong className="mono">{deployed.imageRef || resource.image}</strong>
+              <span>Deployed {timeAgo(deployed.at)}</span>
+            </>}
         </div>
-        {behind > 0 && <Button type="button" variant="primary" icon={RocketLaunchIcon} onClick={deployLatest}>Deploy latest</Button>}
+        {canEdit && (!deployed || (git && (switched || (latest && !upToDate)))) && <Button type="button" variant="primary" icon={RocketLaunchIcon} disabled={deploying || dirty} onClick={deploy}>{deployed ? 'Deploy latest' : 'Deploy'}</Button>}
       </div>
     </section>
 
-    <SettingsGroup title="Source reference">
-      <SettingsField label="Deploy from" hint={`Currently fetching ${ref}.`}>
-        <SegmentedControl label="Reference type" options={[{ value: 'branch', label: 'Branch' }, { value: 'tag', label: 'Tag' }, { value: 'commit', label: 'Commit' }]} value={values.refType} onChange={set('refType')} />
-      </SettingsField>
-      {values.refType === 'branch' && <SettingsField label="Branch" hint="Pushes to this branch can trigger deployments." htmlFor="branch"><Select {...bind('branch')} label="Branch" searchable={5} options={opts(branches)} /></SettingsField>}
-      {values.refType === 'tag' && <SettingsField label="Tag" htmlFor="tag"><Select {...bind('tag')} label="Tag" options={opts(tags)} /></SettingsField>}
-      {values.refType === 'commit' && <SettingsField label="Commit SHA" hint="Pins the resource to one commit. Auto-deploy is paused." htmlFor="commit"><TextInput className="mono" placeholder="a91f3c2" {...bindInput('commit')} /></SettingsField>}
-      <SettingsField label="Root directory" hint="Build context for monorepos. Empty uses the repository root." htmlFor="rootDir"><TextInput className="mono" prefix="/" placeholder="apps/web" {...bindInput('rootDir')} /></SettingsField>
-      <SettingsField label="Watch paths" hint="Only deploy when matching files change. Comma-separated globs." htmlFor="watchPaths"><TextInput className="mono" placeholder="src/**, package.json" {...bindInput('watchPaths')} /></SettingsField>
+    <SettingsGroup title={git ? 'Source reference' : 'Image settings'}>
+      {git ? <>
+        {field('repoUrl', 'Repository URL', 'https URL, or git@host:owner/repo.git with SSH-key credentials.',
+          <TextInput id="repoUrl" className="mono" value={values.repoUrl} disabled={!canEdit} spellCheck={false} onChange={e => set('repoUrl')(e.target.value)} />)}
+        {field('branch', 'Branch', data?.branches.length ? 'Branches are read from the repository.' : 'Type a branch name; the list appears once the repository can be read.',
+          branchOptions.length > 1
+            ? <Select id="branch" label="Branch" value={values.branch} options={branchOptions} onChange={set('branch')} searchable={6} />
+            : <TextInput id="branch" className="mono" value={values.branch} disabled={!canEdit} onChange={e => set('branch')(e.target.value)} />)}
+      </> : field('image', 'Image', 'Name and tag, e.g. nginx:1.27-alpine or ghcr.io/owner/app:1.2.',
+        <TextInput id="image" className="mono" value={values.image} disabled={!canEdit} spellCheck={false} onChange={e => set('image')(e.target.value)} />)}
+      {field('sourceId', git ? 'Credentials' : 'Pull credentials', 'Saved under Infrastructure › Sources. None means public.',
+        canEdit ? <SourceSelect id="sourceId" kind={git ? 'git' : 'registry'} value={values.sourceId} onChange={set('sourceId')} /> : <TextInput id="sourceId" value={data?.source?.name ?? 'None'} disabled readOnly />)}
     </SettingsGroup>
 
-    <SettingsGroup title="Triggers">
-      <SettingsField label="Auto-deploy on push" hint={values.refType === 'branch' ? `Deploy each push to ${values.branch}.` : 'Only available when deploying from a branch.'}>
-        <Switch label="Auto-deploy on push" checked={values.autoDeploy && values.refType === 'branch'} onChange={set('autoDeploy')} disabled={values.refType !== 'branch'} />
-      </SettingsField>
-      <SettingsField label="Preview deployments" hint="Deploy each pull request to a temporary environment.">
-        <Switch label="Preview deployments" checked={values.previews} onChange={set('previews')} />
-      </SettingsField>
-    </SettingsGroup>
+    {git && <p className="rp-footnote">Deploys run when you start them. Auto-deploy on push needs webhooks from your Git host, which can't reach a self-hosted Ignition unless it's exposed to the internet, so it isn't supported yet. Tags and pinned commits aren't supported yet either.</p>}
 
-    <section className="settings-group">
-      <h2>Recent commits on {values.branch}</h2>
-      <div className="settings-card">
-        {commits.map((c, i) => <div key={c.sha} className="rp-row source-commit">
-          <CommitIcon className="source-commit-icon" />
-          <span className="rp-row-main"><strong>{c.message}</strong><span><code>{c.sha}</code> · {c.author} · {c.time}</span></span>
-          {c.deployed ? <span className="rp-chip success">Deployed</span> : i < behind ? <span className="rp-chip accent">Not deployed</span> : null}
-          <Avatar name={c.author} />
-        </div>)}
-      </div>
-    </section>
-
-    <section className="settings-group">
-      <h2>Webhook and sync events</h2>
-      <div className="settings-card">
-        {events.map((e, i) => <div key={i} className="rp-row source-event">
-          {e.tone === 'ok' ? <CheckCircleIcon className="ok" /> : <ExclamationTriangleIcon className="bad" />}
-          <span className="rp-row-main"><span className="source-event-text">{e.text}</span></span>
-          <span className="rp-row-meta">{e.time}</span>
-        </div>)}
-      </div>
-    </section>
-
-    <SaveBar dirty={form.dirty} onDiscard={form.discard} summary="Source changes apply to the next deployment" />
-
-    <Dialog open={changeOpen} onClose={() => setChangeOpen(false)} title="Change repository" description="The next deployment builds from the new repository. History is kept."
-      footer={<><Button type="button" onClick={() => setChangeOpen(false)}>Cancel</Button><Button type="button" variant="primary" disabled={!/^[\w.-]+\/[\w.-]+\/[\w.-]+$/.test(draftRepo.trim())} onClick={() => { setRepo(draftRepo.trim()); setChangeOpen(false); setAccess(null); log('ok', `Repository changed to ${draftRepo.trim()}`); }}>Change</Button></>}>
-      <FormField label="Repository" hint="host/owner/name, e.g. github.com/acme/web" htmlFor="new-repo"><TextInput id="new-repo" className="mono" value={draftRepo} onChange={e => setDraftRepo(e.target.value)} /></FormField>
-    </Dialog>
-  </form>;
-}
-
-function ImageSource({ resource }) {
-  const later = useLater();
-  const [name, tag] = resource.source.includes(' ') ? [resource.source.split(' ')[0].toLowerCase(), resource.source.split(' ')[1]] : resource.source.split(':');
-  const form = useSettingsForm({ image: name, tag: tag ?? 'latest', credentials: 'none', autoUpdate: 'off' });
-  const { values, bind, bindInput } = form;
-  const [check, setCheck] = useState(null);
-  const digest = 'sha256:3b1f0c8e9a4d72f5e61c0b9a2d8e47f1c6a5b3d9e2f8a7c4b1d0e9f6a3c2b5d8';
-
-  return <form className="settings-page rp-settings" onSubmit={event => { event.preventDefault(); form.save(); }}>
-    <PageIntro>This resource runs a container image instead of building from a repository.</PageIntro>
-    <SettingsGroup title="Image">
-      <SettingsField label="Image" hint="Docker Hub name, or a full registry path." htmlFor="image"><TextInput className="mono" {...bindInput('image')} /></SettingsField>
-      <SettingsField label="Tag" htmlFor="tag"><TextInput className="mono" {...bindInput('tag')} /></SettingsField>
-      <SettingsField label="Digest" hint="The exact image currently running."><code className="readonly-value mono source-digest">{digest.slice(0, 19)}…</code></SettingsField>
-      <SettingsField label="Pull credentials" htmlFor="credentials"><Select {...bind('credentials')} label="Pull credentials" options={opts([['none', 'None (public image)'], ['dockerhub', 'Docker Hub · acme-bot'], ['ghcr', 'GitHub Container Registry']])} /></SettingsField>
-    </SettingsGroup>
-    <SettingsGroup title="Updates">
-      <SettingsField label="Automatic updates" htmlFor="autoUpdate"><Select {...bind('autoUpdate')} label="Automatic updates" options={opts([['off', 'Off', 'Only when you update manually'], ['patch', 'Patch versions', 'e.g. 16.4.1 → 16.4.2'], ['minor', 'Minor versions', 'e.g. 16.4 → 16.5']])} /></SettingsField>
-      <SettingsField label="Check for a newer tag" hint={check?.text ?? 'Compares against the registry.'}>
-        {check?.newer && <Button type="button" variant="primary" onClick={() => { form.set('tag')(check.newer); setCheck(null); }}>Use {check.newer}</Button>}
-        <Button type="button" icon={ArrowPathIcon} disabled={check?.state === 'checking'} onClick={() => { setCheck({ state: 'checking', text: 'Checking…' }); later(() => setCheck({ state: 'done', newer: `${values.tag}.1`.replace(/\.1\.1$/, '.2'), text: `A newer patch release is available.` }), 1000); }}>Check</Button>
-      </SettingsField>
-    </SettingsGroup>
-    <SaveBar dirty={form.dirty} onDiscard={form.discard} summary={form.dirty ? 'Changing the image restarts the resource' : undefined} />
+    <SaveBar dirty={dirty} onDiscard={() => { setValues(saved); setErrors({}); }} summary="Source changes apply to the next deployment" />
   </form>;
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/ignition/ignition/internal/api"
 	"github.com/ignition/ignition/internal/config"
 	"github.com/ignition/ignition/internal/database"
+	"github.com/ignition/ignition/internal/proxy"
 	"github.com/ignition/ignition/internal/runtime"
 	"github.com/ignition/ignition/internal/secrets"
 	"github.com/ignition/ignition/internal/store"
@@ -50,7 +51,9 @@ func run() error {
 	srv := &api.Server{
 		Store: &store.Store{DB: pool}, Runtime: runtime.NewDocker(cfg.DockerSocket), Secrets: box,
 		PublicURL: cfg.PublicURL, SecureCookies: cfg.SecureCookies, WebDir: cfg.WebDir, PublishHost: cfg.PublishHost,
+		Proxy: proxy.New(cfg.ProxySocket, cfg.ProxyAddr, cfg.ProxyHTTPPort, cfg.ProxyHTTPSPort),
 	}
+	store.ProxyHTTPPort, store.ProxyHTTPSPort = cfg.ProxyHTTPPort, cfg.ProxyHTTPSPort
 	if err := srv.PrepareSetup(ctx); err != nil {
 		return err
 	}

@@ -1,4 +1,4 @@
-import { ArrowLeftIcon, PlusIcon, BoltIcon, ChevronDownIcon, MoonIcon, SunIcon, ViewColumnsIcon } from '@heroicons/react/20/solid';
+import { ArrowLeftIcon, PlusIcon, ChevronDownIcon, MoonIcon, SunIcon, ViewColumnsIcon } from '@heroicons/react/20/solid';
 import { IconButton, Menu, Select, Status, SegmentedControl, Sidebar, SidebarFooter, SidebarGroup, SidebarHeader, SidebarItem, SidebarNav, SidebarSeparator, SidebarSubItem } from '../ui';
 import { useTheme } from '../hooks/useTheme';
 import { useSession } from './AuthGate';
@@ -71,7 +71,7 @@ export function AppSidebar({ active, project, environment, onEnvironmentChange, 
         { label: `Signed in as ${user.email} (${user.role})`, icon: UserCircleIcon, onSelect: () => {} },
         'separator',
         { label: 'Sign out', icon: ArrowRightStartOnRectangleIcon, onSelect: signOut },
-      ]}><span className="brand-mark"><BoltIcon /></span><span>Ignition</span><ChevronDownIcon className="workspace-caret" /></Menu>
+      ]}><span className="brand-mark"><img src="/ignition-logo.svg" alt="" /></span><span>Ignition</span><ChevronDownIcon className="workspace-caret" /></Menu>
       <IconButton icon={ViewColumnsIcon} label="Hide sidebar" onClick={onHide} />
     </SidebarHeader>
     <SidebarNav>

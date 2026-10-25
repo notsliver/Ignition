@@ -1,7 +1,7 @@
 .app{display:flex;min-height:100svh}
 .workspace{display:flex;align-items:center;gap:9px;height:30px;font-size:15px;font-weight:600;letter-spacing:-.2px;color:var(--text)}
 .brand-mark{width:16px;height:16px;border-radius:4px;background:var(--brand);color:#fff;display:grid;place-items:center}
-.brand-mark svg{width:10px}
+.brand-mark img{width:100%;height:100%;display:block}
 .back-to-app{display:flex;align-items:center;gap:7px;height:28px;padding:0 8px 0 6px;margin-left:-8px;border-radius:6px;font-size:13px;font-weight:500;color:var(--text-2)}
 .back-to-app:hover{background:var(--hover);color:var(--text)}
 .back-to-app svg{width:15px;color:var(--icon)}
@@ -44,6 +44,9 @@
   .container,.sidebar-hidden .container{margin:0;border:0;border-radius:0;min-height:100svh}
   .page-header{padding:20px 16px 0}
   .page-header h1,.page-crumb{font-size:22px}
+  /* Only the current page fits; the sidebar has the way back. */
+  .page-crumb,.page-crumb-sep{display:none}
+  .page-header h1{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .show-sidebar.icon-button{display:grid}
   .sidebar-resizer{display:none}
   .sidebar{width:232px}

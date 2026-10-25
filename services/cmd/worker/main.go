@@ -11,6 +11,7 @@ import (
 	"github.com/ignition/ignition/internal/config"
 	"github.com/ignition/ignition/internal/database"
 	"github.com/ignition/ignition/internal/jobs"
+	"github.com/ignition/ignition/internal/proxy"
 	"github.com/ignition/ignition/internal/runtime"
 	"github.com/ignition/ignition/internal/secrets"
 	"github.com/ignition/ignition/internal/store"
@@ -52,7 +53,9 @@ func run() error {
 	w := &worker.Worker{
 		ID: cfg.WorkerID, Queue: &jobs.Queue{DB: pool}, Store: &store.Store{DB: pool}, Runtime: docker,
 		Secrets: box, Concurrency: cfg.Concurrency, Lease: cfg.JobLease,
+		Proxy: proxy.New(cfg.ProxySocket, cfg.ProxyAddr, cfg.ProxyHTTPPort, cfg.ProxyHTTPSPort),
 	}
+	go w.ProxyLoop(ctx)
 	slog.Info("worker started", "id", cfg.WorkerID, "concurrency", cfg.Concurrency)
 	w.Run(ctx)
 	slog.Info("worker stopped cleanly")

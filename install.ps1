@@ -34,7 +34,9 @@ if (-not (Test-Path .env)) {
 $port = ((Get-Content .env | Where-Object { $_ -match '^IGNITION_PORT=' }) -replace '^IGNITION_PORT=', '')
 if (-not $port) { $port = '8080' }
 
-# 3. Build and start.
+# 3. Build and start. Deployed apps share the "ignition" network with the domain proxy.
+docker network inspect ignition *> $null
+if ($LASTEXITCODE -ne 0) { docker network create ignition | Out-Null }
 Write-Host 'Building and starting IGNITION (the first build takes a few minutes)...'
 docker @compose up -d --build
 if ($LASTEXITCODE -ne 0) { Fail 'docker compose failed.' }

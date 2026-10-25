@@ -301,3 +301,20 @@
 .env-lock{width:11px;margin-left:6px;vertical-align:-1px;color:var(--muted)}
 .env-hidden{display:flex;align-items:center;gap:8px;height:30px;padding:0 9px;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;letter-spacing:1px;color:var(--muted)}
 .env-hidden .inline-link{letter-spacing:0;font-family:inherit}
+.rp-footnote{margin:0;font-size:12px;color:var(--muted)}
+.source-repo .rp-row-main strong.mono{font-size:12.5px}
+.domain-suggest{margin:-4px 0 0;font-size:12px;color:var(--muted)}
+.domain-suggest .inline-link{margin-left:0}
+.domain-port{width:84px}
+.domain-row .button{text-decoration:none}
+.domain-switch .muted{color:var(--muted)}
+@media(max-width:720px){
+  .domain-row{flex-wrap:wrap;row-gap:6px}
+  .domain-row .rp-row-main{flex:1 1 calc(100% - 40px)}
+  .domain-actions{margin-left:30px}
+  .domain-meta{flex-wrap:wrap;row-gap:2px}
+  .domain-body{padding-left:16px}
+  .domain-host a{overflow:hidden;text-overflow:ellipsis}
+}
+.domain-actions{display:flex;align-items:center;gap:8px}
+.domain-actions a.button{text-decoration:none}

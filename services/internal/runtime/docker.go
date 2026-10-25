@@ -12,8 +12,11 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
+	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -22,6 +25,9 @@ import (
 type Docker struct {
 	client *http.Client
 	base   string
+
+	instanceOnce sync.Once
+	instance     string
 }
 
 // apiVersion is the oldest Engine API we rely on. Docker 29 requires >= 1.44.
@@ -71,6 +77,44 @@ func (d *Docker) do(ctx context.Context, method, path string, query url.Values, 
 		return nil, &apiError{Status: resp.StatusCode, Message: msg.Message}
 	}
 	return resp, nil
+}
+
+// doWithHeaders is do() plus extra request headers (empty values are skipped).
+func (d *Docker) doWithHeaders(ctx context.Context, method, path string, query url.Values, headers map[string]string) (*http.Response, error) {
+	u := d.base + path
+	if len(query) > 0 {
+		u += "?" + query.Encode()
+	}
+	req, err := http.NewRequestWithContext(ctx, method, u, nil)
+	if err != nil {
+		return nil, err
+	}
+	for k, v := range headers {
+		if v != "" {
+			req.Header.Set(k, v)
+		}
+	}
+	resp, err := d.client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("docker unreachable: %w", err)
+	}
+	if resp.StatusCode >= 300 {
+		defer resp.Body.Close()
+		var msg struct{ Message string }
+		json.NewDecoder(resp.Body).Decode(&msg)
+		return nil, &apiError{Status: resp.StatusCode, Message: msg.Message}
+	}
+	return resp, nil
+}
+
+// RegistryLogin asks the Docker Engine to verify registry credentials (POST /auth). Nothing is stored by Docker.
+func (d *Docker) RegistryLogin(ctx context.Context, username, password, server string) error {
+	err := d.doJSON(ctx, "POST", "/auth", nil, map[string]string{"username": username, "password": password, "serveraddress": server}, nil)
+	var e *apiError
+	if errors.As(err, &e) && (e.Status == 401 || e.Status == 403 || e.Status == 500) {
+		return fmt.Errorf("registry rejected the credentials: %s", strings.TrimSpace(e.Message))
+	}
+	return err
 }
 
 func (d *Docker) doJSON(ctx context.Context, method, path string, query url.Values, in, out any) error {
@@ -142,9 +186,9 @@ func splitRef(ref string) (string, string) {
 	return ref, "latest"
 }
 
-func (d *Docker) PullImage(ctx context.Context, ref string, log Logf) error {
+func (d *Docker) PullImage(ctx context.Context, ref, auth string, log Logf) error {
 	name, tag := splitRef(ref)
-	resp, err := d.do(ctx, "POST", "/images/create", url.Values{"fromImage": {name}, "tag": {tag}}, nil, "")
+	resp, err := d.doWithHeaders(ctx, "POST", "/images/create", url.Values{"fromImage": {name}, "tag": {tag}}, map[string]string{"X-Registry-Auth": auth})
 	if err != nil {
 		return err
 	}
@@ -192,14 +236,27 @@ func (d *Docker) CreateContainer(ctx context.Context, s ContainerSpec) (string, 
 	if len(s.Cmd) > 0 {
 		body["Cmd"] = s.Cmd
 	}
-	if s.Network != "" && len(s.Aliases) > 0 {
-		body["NetworkingConfig"] = map[string]any{"EndpointsConfig": map[string]any{s.Network: map[string]any{"Aliases": s.Aliases}}}
+	if s.Network != "" {
+		// API 1.44+ accepts every network at create time, each with the same aliases.
+		endpoints := map[string]any{s.Network: map[string]any{"Aliases": s.Aliases}}
+		for _, n := range s.Networks {
+			endpoints[n] = map[string]any{"Aliases": s.Aliases}
+		}
+		body["NetworkingConfig"] = map[string]any{"EndpointsConfig": endpoints}
 	}
-	if s.Port > 0 {
-		p := fmt.Sprintf("%d/tcp", s.Port)
-		body["ExposedPorts"] = map[string]any{p: struct{}{}}
-		// Empty HostPort lets Docker choose a free port on the host, avoiding conflicts.
-		hostConfig["PortBindings"] = map[string]any{p: []map[string]string{{"HostIp": "0.0.0.0", "HostPort": ""}}}
+	if len(s.Ports) > 0 {
+		exposed, bindings := map[string]any{}, map[string][]map[string]string{}
+		for _, m := range s.Ports {
+			key := fmt.Sprintf("%d/%s", m.ContainerPort, protocolOr(m.Protocol))
+			exposed[key] = struct{}{}
+			host := ""
+			if m.HostPort > 0 {
+				host = strconv.Itoa(m.HostPort)
+			} // empty: Docker picks a free port
+			bindings[key] = append(bindings[key], map[string]string{"HostIp": m.HostIP, "HostPort": host})
+		}
+		body["ExposedPorts"] = exposed
+		hostConfig["PortBindings"] = bindings
 	}
 	var out struct{ Id string }
 	err := d.doJSON(ctx, "POST", "/containers/create", url.Values{"name": {s.Name}}, body, &out)
@@ -251,7 +308,12 @@ func (d *Docker) Inspect(ctx context.Context, id string) (State, error) {
 		}
 		Config          struct{ Image string }
 		NetworkSettings struct {
-			Ports map[string][]struct{ HostIp, HostPort string }
+			Ports    map[string][]struct{ HostIp, HostPort string }
+			Networks map[string]struct {
+				IPAddress string
+				Aliases   []string
+				DNSNames  []string
+			}
 		}
 	}
 	err := d.doJSON(ctx, "GET", "/containers/"+url.PathEscape(id)+"/json", nil, nil, &out)
@@ -263,13 +325,27 @@ func (d *Docker) Inspect(ctx context.Context, id string) (State, error) {
 	}
 	st := State{Exists: true, Running: out.State.Running, Status: out.State.Status, ExitCode: out.State.ExitCode, StartedAt: out.State.StartedAt,
 		Image: out.Config.Image, Restarting: out.State.Restarting, OOMKilled: out.State.OOMKilled}
-	for _, bindings := range out.NetworkSettings.Ports {
+	for key, bindings := range out.NetworkSettings.Ports {
+		port, proto, _ := strings.Cut(key, "/")
+		cport, _ := strconv.Atoi(port)
 		for _, b := range bindings {
 			if p, err := strconv.Atoi(b.HostPort); err == nil {
-				st.HostPort = p
+				st.Ports = append(st.Ports, PortMapping{HostIP: b.HostIp, HostPort: p, ContainerPort: cport, Protocol: proto})
+				if st.HostPort == 0 {
+					st.HostPort = p
+				}
 			}
 		}
 	}
+	sort.Slice(st.Ports, func(i, j int) bool { return st.Ports[i].ContainerPort < st.Ports[j].ContainerPort })
+	for name, n := range out.NetworkSettings.Networks {
+		aliases := n.DNSNames
+		if len(aliases) == 0 {
+			aliases = n.Aliases
+		}
+		st.Networks = append(st.Networks, Attachment{Network: name, IP: n.IPAddress, Aliases: aliases})
+	}
+	sort.Slice(st.Networks, func(i, j int) bool { return st.Networks[i].Network < st.Networks[j].Network })
 	return st, nil
 }
 
@@ -354,4 +430,202 @@ func (d *Docker) Stats(ctx context.Context, id string) (Stats, error) {
 		out.NetworkTxB += n.TxBytes
 	}
 	return out, nil
+}
+
+func protocolOr(p string) string {
+	if p == "" {
+		return "tcp"
+	}
+	return p
+}
+
+func (d *Docker) Networks(ctx context.Context) ([]Network, error) {
+	var raw []struct {
+		Name, Driver, Scope string
+		Internal            bool
+		Labels              map[string]string
+	}
+	if err := d.doJSON(ctx, "GET", "/networks", nil, nil, &raw); err != nil {
+		return nil, err
+	}
+	out := make([]Network, 0, len(raw))
+	for _, n := range raw {
+		out = append(out, Network{Name: n.Name, Driver: n.Driver, Scope: n.Scope, Internal: n.Internal, Labels: n.Labels})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out, nil
+}
+
+// HostBindings lists every host port published by any running container, for conflict checks.
+func (d *Docker) HostBindings(ctx context.Context) ([]HostBinding, error) {
+	var raw []struct {
+		Names  []string
+		Labels map[string]string
+		Ports  []struct {
+			IP         string
+			PublicPort int
+			Type       string
+		}
+	}
+	if err := d.doJSON(ctx, "GET", "/containers/json", nil, nil, &raw); err != nil {
+		return nil, err
+	}
+	var out []HostBinding
+	for _, c := range raw {
+		name := ""
+		if len(c.Names) > 0 {
+			name = strings.TrimPrefix(c.Names[0], "/")
+		}
+		for _, p := range c.Ports {
+			if p.PublicPort > 0 {
+				out = append(out, HostBinding{HostIP: p.IP, HostPort: p.PublicPort, Protocol: p.Type, Container: name, Resource: c.Labels["ignition.resource"]})
+			}
+		}
+	}
+	return out, nil
+}
+
+// ProbeImage is small, has nslookup and nc, and is pulled on first use.
+const ProbeImage = "busybox:1.36"
+
+func (d *Docker) RunProbe(ctx context.Context, p Probe) (int, string, error) {
+	if p.Timeout == 0 {
+		p.Timeout = 15 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(ctx, p.Timeout+30*time.Second) // room for a first-time pull
+	defer cancel()
+	if err := d.doJSON(ctx, "GET", "/images/"+url.PathEscape(ProbeImage)+"/json", nil, nil, nil); IsNotFound(err) {
+		if err := d.PullImage(ctx, ProbeImage, "", func(string, string) {}); err != nil {
+			return 0, "", fmt.Errorf("pull %s: %w", ProbeImage, err)
+		}
+	}
+	if len(p.Networks) == 0 {
+		return 0, "", errors.New("no network to probe from")
+	}
+	endpoints := map[string]any{}
+	for _, n := range p.Networks { // every network, including NetworkMode: Docker treats this as the full set
+		endpoints[n] = map[string]any{}
+	}
+	body := map[string]any{
+		"Image": ProbeImage, "Cmd": p.Cmd, "Labels": map[string]string{"ignition.managed": "true", "ignition.probe": "true"},
+		"HostConfig":       map[string]any{"NetworkMode": p.Networks[0], "Memory": 32 << 20, "NanoCpus": int64(0.25 * 1e9), "AutoRemove": false},
+		"NetworkingConfig": map[string]any{"EndpointsConfig": endpoints},
+	}
+	var created struct{ Id string }
+	if err := d.doJSON(ctx, "POST", "/containers/create", nil, body, &created); err != nil {
+		return 0, "", err
+	}
+	defer d.Remove(context.WithoutCancel(ctx), created.Id, false)
+	if err := d.Start(ctx, created.Id); err != nil {
+		return 0, "", err
+	}
+	waitCtx, stop := context.WithTimeout(ctx, p.Timeout)
+	defer stop()
+	var waited struct{ StatusCode int }
+	if err := d.doJSON(waitCtx, "POST", "/containers/"+created.Id+"/wait", nil, nil, &waited); err != nil {
+		return 0, "", errors.New("the test timed out")
+	}
+	lines, _ := d.Logs(ctx, created.Id, 200, time.Time{})
+	var b strings.Builder
+	for _, l := range lines {
+		b.WriteString(l.Message)
+		b.WriteByte('\n')
+	}
+	return waited.StatusCode, strings.TrimSpace(b.String()), nil
+}
+
+// EnsureNetworkExists fails when the network is gone; unlike EnsureNetwork it never creates one.
+func (d *Docker) EnsureNetworkExists(ctx context.Context, name string) error {
+	err := d.doJSON(ctx, "GET", "/networks/"+url.PathEscape(name), nil, nil, nil)
+	if IsNotFound(err) {
+		return errors.New("it no longer exists in Docker")
+	}
+	return err
+}
+
+// Ignition's own networks. Names are derived from IDs so renames never orphan a network.
+func EnvNetwork(environmentID string) string {
+	id := strings.ReplaceAll(environmentID, "-", "")
+	if len(id) > 12 {
+		id = id[:12]
+	}
+	return "ign-env-" + id
+}
+
+func SharedNetwork(name string) string { return "ign-net-" + name }
+
+func (d *Docker) EnsureManagedNetwork(ctx context.Context, name string, labels map[string]string) error {
+	err := d.doJSON(ctx, "GET", "/networks/"+url.PathEscape(name), nil, nil, nil)
+	if err == nil || !IsNotFound(err) {
+		return err
+	}
+	all := map[string]string{"ignition.managed": "true", "ignition.instance": d.Instance(ctx)}
+	for k, v := range labels {
+		all[k] = v
+	}
+	err = d.doJSON(ctx, "POST", "/networks/create", nil, map[string]any{"Name": name, "Driver": "bridge", "Labels": all}, nil)
+	if err != nil && strings.Contains(err.Error(), "already exists") {
+		return nil // created concurrently by the api or worker
+	}
+	return err
+}
+
+func (d *Docker) RemoveNetwork(ctx context.Context, name string) error {
+	err := d.doJSON(ctx, "DELETE", "/networks/"+url.PathEscape(name), nil, nil, nil)
+	if IsNotFound(err) {
+		return nil
+	}
+	return err
+}
+
+func (d *Docker) ConnectNetwork(ctx context.Context, network, container string, aliases []string) error {
+	err := d.doJSON(ctx, "POST", "/networks/"+url.PathEscape(network)+"/connect", nil,
+		map[string]any{"Container": container, "EndpointConfig": map[string]any{"Aliases": aliases}}, nil)
+	if err != nil && (strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "already attached")) {
+		return nil
+	}
+	return err
+}
+
+func (d *Docker) DisconnectNetwork(ctx context.Context, network, container string) error {
+	err := d.doJSON(ctx, "POST", "/networks/"+url.PathEscape(network)+"/disconnect", nil, map[string]any{"Container": container}, nil)
+	if IsNotFound(err) || (err != nil && strings.Contains(err.Error(), "is not connected")) {
+		return nil
+	}
+	return err
+}
+
+func (d *Docker) ContainerLabels(ctx context.Context, id string) (map[string]string, error) {
+	var out struct {
+		Config struct{ Labels map[string]string }
+	}
+	if err := d.doJSON(ctx, "GET", "/containers/"+url.PathEscape(id)+"/json", nil, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Config.Labels, nil
+}
+
+func (d *Docker) FindContainer(ctx context.Context, labels map[string]string) (string, error) {
+	var filter []string
+	for k, v := range labels {
+		filter = append(filter, k+"="+v)
+	}
+	f, _ := json.Marshal(map[string][]string{"label": filter})
+	var out []struct{ Id string }
+	if err := d.doJSON(ctx, "GET", "/containers/json", url.Values{"filters": {string(f)}}, nil, &out); err != nil || len(out) == 0 {
+		return "", err
+	}
+	return out[0].Id, nil
+}
+
+// Instance names this Ignition install (its compose project), so installs sharing one Docker
+// never clean up each other's networks. Empty when not running under compose.
+func (d *Docker) Instance(ctx context.Context) string {
+	d.instanceOnce.Do(func() {
+		self, _ := os.Hostname()
+		if labels, err := d.ContainerLabels(ctx, self); err == nil {
+			d.instance = labels["com.docker.compose.project"]
+		}
+	})
+	return d.instance
 }
