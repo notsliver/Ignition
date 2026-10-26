@@ -292,18 +292,18 @@ paths:
       responses: { '200': { description: '{ instance, defaults }' }, '422': { description: validation error } }
   /api/settings/updates:
     get:
-      summary: The installed build (version, commit, build time) and update settings (repository, branch, credentials), with the last check.
+      summary: The installed build (version, commit, build time, image) and update settings (Docker Hub image, channel), with the last check and update run.
       responses: { '200': { description: '{ installed, config, lastCheck }' } }
     put:
-      summary: Set the repository, branch and optional credentials (a Git source) to check for updates.
+      summary: 'Set the Docker Hub image (default notsliver/ignition) and channel: stable, beta or edge.'
       responses: { '200': { description: '{ config }' } }
   /api/settings/updates/check:
     post:
-      summary: Compare the installed commit with the channel's latest release (stable = newest semver tag, prerelease = branch head; with a GitHub token also the commits you're missing).
+      summary: Read the image's tags on Docker Hub and compare the installed version with the channel's newest (stable = newest release, beta = newest release or pre-release, edge = built from main).
       responses: { '200': { description: '{ lastCheck, installed }' } }
   /api/settings/updates/apply:
     post:
-      summary: Start the updater container - pulls the checked release into the install folder (refuses if it has uncommitted changes) and rebuilds api and worker. Apps, database and proxy keep running.
+      summary: Start the updater container - pulls the checked image, records it as IGNITION_IMAGE in .env and recreates api and worker. Apps, database and proxy keep running.
       responses: { '202': { description: '{ run }' }, '409': { description: Already running or nothing newer }, '501': { description: Install folder unknown } }
   /api/settings/updates/dismiss:
     post:

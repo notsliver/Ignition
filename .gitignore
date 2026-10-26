@@ -3,5 +3,11 @@ dist/
 .vite/
 *.log
 .env
+.env.*
+!.env.example
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
 
 e2e/screenshots/

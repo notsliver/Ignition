@@ -1,0 +1,100 @@
+name: Bug report
+description: Something in IGNITION doesn't work as it should
+title: "[Bug]: "
+labels: [bug, triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Please search [existing issues](https://github.com/notsliver/Ignition/issues) first.
+        **Security vulnerabilities:** don't file them here. Use [private reporting](https://github.com/notsliver/Ignition/security/advisories/new).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What went wrong, and what did you expect instead?
+      placeholder: When I redeploy an app with a custom domain, the domain shows "502" for about a minute…
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Create an application from image nginx:alpine
+        2. Add the domain app.example.com
+        3. Click Redeploy
+        4. Open the domain
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Install or update
+        - Deployments and builds
+        - Databases
+        - Domains, HTTPS and networking
+        - Logs and metrics
+        - Servers
+        - Projects and resources
+        - Users, sign-in and permissions
+        - Dashboard UI
+        - API
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: IGNITION version
+      description: Settings › Updates shows it (e.g. 0.1.0-beta, or edge with a commit).
+      placeholder: 0.1.0-beta
+    validations:
+      required: true
+  - type: dropdown
+    id: install
+    attributes:
+      label: How is it installed?
+      options:
+        - Install script on a server (published image)
+        - Built from source (git checkout)
+        - Other / custom compose
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Server and Docker
+      description: OS, CPU architecture and Docker version (`docker version --format '{{.Server.Version}}'`).
+      placeholder: Ubuntu 24.04, amd64, Docker 27.3.1
+    validations:
+      required: true
+  - type: dropdown
+    id: browser
+    attributes:
+      label: Browser (for dashboard issues)
+      options: [Not relevant, Chrome / Edge, Firefox, Safari, Other]
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        From the install folder: `docker compose --env-file .env -f deploy/docker-compose.yml logs --tail 200 api worker`.
+        Remove passwords, tokens, keys and domains you don't want public first.
+      render: shell
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else?
+      description: Screenshots, workarounds you found, when it started happening.
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Before submitting
+      options:
+        - label: I searched existing issues and this isn't a duplicate.
+          required: true
+        - label: I removed secrets (passwords, tokens, keys, `.env` values) from everything above.
+          required: true

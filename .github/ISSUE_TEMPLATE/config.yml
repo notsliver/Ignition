@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/notsliver/Ignition/security/advisories/new
+    about: Report vulnerabilities privately, never in a public issue.
+  - name: Questions and help
+    url: https://github.com/notsliver/Ignition/discussions
+    about: Ask how to do something or share what you've built.
+  - name: Installation guide
+    url: https://github.com/notsliver/Ignition#quick-start
+    about: Installing on a server, updating, and securing the dashboard.

@@ -1,0 +1,61 @@
+name: Feature request
+description: Suggest something IGNITION should do
+title: "[Feature]: "
+labels: [enhancement, triage]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for the idea. Describing the problem you're solving helps more than a specific design.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What are you trying to do?
+      description: The problem or workflow, in your own words.
+      placeholder: I run a staging and a production copy of each app and want to promote a release from one to the other…
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would help?
+      description: How you imagine it working. Rough is fine.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives and workarounds
+      description: What you do today, or how other tools (Coolify, Dokploy, EasyPanel…) handle it.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Install or update
+        - Deployments and builds
+        - Databases and backups
+        - Domains, HTTPS and networking
+        - Logs and metrics
+        - Servers
+        - Users and permissions
+        - Dashboard UI
+        - API and automation
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: importance
+    attributes:
+      label: How much does this matter to you?
+      options:
+        - Nice to have
+        - Important for how I use IGNITION
+        - Blocking me from using IGNITION
+    validations:
+      required: true
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I'd like to help build this.

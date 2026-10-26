@@ -52,4 +52,4 @@ web-dev: ## Run the dashboard with hot reload on :5173 (API must be running on :
 	cd apps/web && npm install && npm run dev
 
 build: ## Build the production image
-	docker build -t ignition:local .
+	docker build -t notsliver/ignition:local .

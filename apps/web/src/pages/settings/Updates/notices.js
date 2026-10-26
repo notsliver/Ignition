@@ -17,23 +17,18 @@ export function activeNotices({ installed, config, check, lastCheck, run, docker
   if (run?.state === 'failed' && !run.dismissed) list.push({
     id: 'last-update-failed', server: true, tone: 'danger',
     title: 'Last update failed',
-    text: `Updating to ${v(run.version)} didn't finish. Ignition is still on ${v(installed.version)}.`,
+    text: `Updating to ${v(run.version)} didn't finish. IGNITION is still on ${v(installed.version)}.`,
     action: 'View logs', onAction: viewLogs,
   });
-  if (check?.behind >= 3) list.push({
-    id: 'outdated', tone: 'warning',
-    title: `Ignition is ${check.behind} commits behind`,
-    text: 'Staying up to date gives you the latest fixes and features.',
-  });
-  if (installed.dirty) list.push({
-    id: 'local-changes', tone: 'warning',
+  if (installed.fromSource && installed.dirty) list.push({
+    id: 'local-changes', tone: 'info',
     title: 'This build has local changes',
-    text: "It was built from an install folder with uncommitted changes. Updates won't overwrite them, so commit or stash them before updating.",
+    text: 'It was built from a checkout with uncommitted changes. Updating replaces it with the published image; your checkout itself is left as it is.',
   });
   if (dockerMajor && dockerMajor < 24) list.push({
     id: 'docker-incompatible', tone: 'warning',
     title: 'Docker version not supported',
-    text: `Ignition needs Docker 24.0 or newer. This machine is running Docker ${docker}.`,
+    text: `IGNITION needs Docker 24.0 or newer. This machine is running Docker ${docker}.`,
   });
   const failedCheck = lastCheck?.channel === config.channel || !lastCheck?.channel ? lastCheck?.error : '';
   if (failedCheck) list.push({
@@ -41,10 +36,10 @@ export function activeNotices({ installed, config, check, lastCheck, run, docker
     title: "Couldn't check for updates", text: failedCheck,
     action: 'Retry', onAction: retry,
   });
-  if (config.channel === 'prerelease') list.push({
+  if (config.channel !== 'stable') list.push({
     id: 'prerelease-channel', tone: 'info',
-    title: "You're on the prerelease channel",
-    text: 'Prereleases may contain bugs. Switch to Stable for production workloads.',
+    title: `You're on the ${config.channel} channel`,
+    text: config.channel === 'edge' ? 'Edge builds come straight from the main branch and can break. Switch to Stable for production.' : 'Beta releases may contain bugs. Switch to Stable for production workloads.',
   });
   if (run?.state === 'succeeded' && !run.dismissed) list.push({
     id: 'update-complete', server: true, tone: 'success',

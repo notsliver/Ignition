@@ -23,9 +23,3 @@ func TestCSVSafe(t *testing.T) {
 		}
 	}
 }
-
-func TestGitHubRepo(t *testing.T) {
-	if githubRepo("https://github.com/notsliver/Ignition") != "notsliver/Ignition" || githubRepo("https://gitlab.com/a/b") != "" {
-		t.Error("owner/repo from github.com URLs only")
-	}
-}
