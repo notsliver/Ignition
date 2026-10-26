@@ -22,6 +22,7 @@ import (
 	"github.com/notsliver/Ignition/services/internal/proxy"
 	"github.com/notsliver/Ignition/services/internal/runtime"
 	"github.com/notsliver/Ignition/services/internal/secrets"
+	"github.com/notsliver/Ignition/services/internal/servers"
 	"github.com/notsliver/Ignition/services/internal/store"
 )
 
@@ -37,6 +38,7 @@ type Server struct {
 	WebDir        string
 	PublishHost   string
 	Proxy         *proxy.Client
+	Servers       *servers.Registry // Docker clients per server; Local is the socket client
 
 	dashboardURL atomic.Pointer[string] // set in Settings › General; overrides PublicURL
 	dashboardOne sync.Once
@@ -63,9 +65,11 @@ func (s *Server) PrepareSetup(ctx context.Context) error {
 func (s *Server) Handler() http.Handler {
 	s.limiter = newLimiter(10, time.Minute)
 	mux := http.NewServeMux()
-	h := func(pattern string, fn httpx.Handler) { mux.Handle(pattern, fn) }
+	h := func(pattern string, fn httpx.Handler) {
+		mux.Handle(pattern, httpx.Handler(func(w http.ResponseWriter, r *http.Request) error { return domainError(fn(w, r)) }))
+	}
 	authed := func(pattern, minRole string, fn func(http.ResponseWriter, *http.Request, *store.User) error) {
-		mux.Handle(pattern, s.requireUser(minRole, fn))
+		mux.Handle(pattern, s.requireUser(minRole, func(w http.ResponseWriter, r *http.Request, u *store.User) error { return domainError(fn(w, r, u)) }))
 	}
 
 	h("GET /api/health", func(w http.ResponseWriter, r *http.Request) error {
@@ -179,11 +183,70 @@ func (s *Server) Handler() http.Handler {
 	authed("POST /api/resources/{id}/images/purge", "admin", s.purgeImages)
 	authed("POST /api/resources/{id}/move", "admin", s.moveResource)
 
+	// Infrastructure › Servers
+	authed("GET /api/servers", "viewer", s.listServers)
+	authed("POST /api/servers", "admin", s.createServer)
+	authed("POST /api/servers/verify", "admin", s.verifyServer)
+	authed("POST /api/servers/bulk", "admin", s.bulkServers)
+	authed("GET /api/servers/bundle", "admin", s.serversBundle)
+	authed("GET /api/servers/{id}", "viewer", s.getServer)
+	authed("PATCH /api/servers/{id}", "admin", s.updateServer)
+	authed("DELETE /api/servers/{id}", "admin", s.deleteServer)
+	authed("GET /api/servers/{id}/removal", "admin", s.serverRemovalPreview)
+	authed("POST /api/servers/{id}/test", "developer", s.testServer)
+	authed("POST /api/servers/{id}/refresh", "developer", s.refreshServer)
+	authed("PUT /api/servers/{id}/deployments", "admin", s.setServerDeployments)
+	authed("GET /api/servers/{id}/maintenance", "viewer", s.getMaintenance)
+	authed("POST /api/servers/{id}/maintenance", "admin", s.setServerMaintenance)
+	authed("PUT /api/servers/{id}/maintenance/note", "admin", s.putMaintenanceNote)
+	authed("GET /api/servers/{id}/events", "viewer", s.listServerEvents)
+	authed("GET /api/servers/{id}/jobs", "viewer", s.listServerJobs)
+	authed("GET /api/servers/{id}/metrics", "viewer", s.serverMetrics)
+	authed("GET /api/servers/{id}/resources", "viewer", s.listServerResources)
+	authed("GET /api/servers/{id}/deployments", "viewer", s.listServerDeployments)
+	authed("GET /api/servers/{id}/logs", "viewer", s.serverLogs)
+	authed("GET /api/servers/{id}/diagnostics", "viewer", s.getServerDiagnostics)
+	authed("POST /api/servers/{id}/diagnostics", "developer", s.runServerDiagnostics)
+	authed("GET /api/servers/{id}/diagnostics/bundle", "admin", s.serverBundle)
+	authed("GET /api/diagnostic-runs/{id}", "viewer", s.getDiagnosticRun)
+	authed("GET /api/servers/{id}/docker", "viewer", s.getServerDocker)
+	authed("GET /api/servers/{id}/docker/containers", "viewer", s.listServerContainers)
+	authed("GET /api/servers/{id}/docker/images", "viewer", s.listServerImages)
+	authed("GET /api/servers/{id}/docker/networks", "viewer", s.listServerNetworks)
+	authed("GET /api/servers/{id}/docker/volumes", "viewer", s.listServerVolumes)
+	authed("GET /api/servers/{id}/docker/inspect", "admin", s.inspectServerObject)
+	authed("POST /api/servers/{id}/docker/containers/{cid}/actions", "developer", s.serverContainerAction)
+	authed("POST /api/servers/{id}/cleanup/preview", "admin", s.previewServerCleanup)
+	authed("POST /api/servers/{id}/cleanup", "admin", s.runServerCleanup)
+	authed("GET /api/servers/{id}/storage", "viewer", s.getServerStorage)
+	authed("GET /api/servers/{id}/networking", "viewer", s.getServerNetworking)
+	authed("GET /api/servers/{id}/tasks", "viewer", s.listServerTasks)
+	authed("POST /api/servers/{id}/tasks", "admin", s.createServerTask)
+	authed("PATCH /api/server-tasks/{id}", "admin", s.updateServerTask)
+	authed("DELETE /api/server-tasks/{id}", "admin", s.deleteServerTask)
+	authed("POST /api/server-tasks/{id}/run", "admin", s.runServerTask)
+	authed("GET /api/server-tasks/{id}/runs", "viewer", s.listServerTaskRuns)
+	authed("GET /api/server-jobs/{id}", "viewer", s.getServerJob)
+	authed("POST /api/server-jobs/{id}/cancel", "admin", s.cancelServerJob)
+	authed("GET /api/servers/{id}/access", "viewer", s.getServerAccess)
+	authed("PUT /api/servers/{id}/credentials", "admin", s.rotateServerCredentials)
+	authed("DELETE /api/servers/{id}/credentials", "admin", s.revokeServerCredentials)
+	authed("PUT /api/servers/{id}/endpoint", "admin", s.changeServerEndpoint)
+
 	mux.Handle("/api/", httpx.Handler(func(w http.ResponseWriter, r *http.Request) error { return httpx.NotFound("Endpoint") }))
 	if s.WebDir != "" {
 		mux.Handle("/", s.spa())
 	}
 	return httpx.WithRequestID(httpx.Recover(securityHeaders(s.checkOrigin(mux))))
+}
+
+// domainError turns store-level rule violations into the matching API error.
+func domainError(err error) error {
+	var blocked *store.DeploymentsBlocked
+	if errors.As(err, &blocked) {
+		return httpx.Conflict(blocked.Error())
+	}
+	return err
 }
 
 func securityHeaders(next http.Handler) http.Handler {

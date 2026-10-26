@@ -21,6 +21,7 @@ const (
 	KindAction = "action" // start / stop / restart a resource
 	KindRemove = "remove" // delete a resource's containers (and optionally volumes)
 	KindHealth = "health" // run one health check with the given settings (Health Checks, Test)
+	KindServer = "server" // a server operation: refresh, diagnostics, cleanup, scheduled server task
 )
 
 type Job struct {
@@ -29,6 +30,7 @@ type Job struct {
 	Payload      json.RawMessage
 	ResourceID   *string
 	DeploymentID *string
+	ServerID     *string
 	Attempts     int
 	MaxAttempts  int
 }
@@ -40,6 +42,7 @@ type NewJob struct {
 	Payload      any
 	ResourceID   string
 	DeploymentID string
+	ServerID     string
 	CreatedBy    string
 	MaxAttempts  int
 }
@@ -64,9 +67,9 @@ func Enqueue(ctx context.Context, q interface {
 	}
 	var id string
 	err = q.QueryRow(ctx, `
-		INSERT INTO jobs (kind, payload, resource_id, deployment_id, created_by, max_attempts)
-		VALUES ($1, $2, $3, $4, $5, $6) RETURNING id`,
-		j.Kind, payload, nullable(j.ResourceID), nullable(j.DeploymentID), nullable(j.CreatedBy), j.MaxAttempts).Scan(&id)
+		INSERT INTO jobs (kind, payload, resource_id, deployment_id, server_id, created_by, max_attempts)
+		VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+		j.Kind, payload, nullable(j.ResourceID), nullable(j.DeploymentID), nullable(j.ServerID), nullable(j.CreatedBy), j.MaxAttempts).Scan(&id)
 	return id, err
 }
 
@@ -89,9 +92,9 @@ func (q *Queue) Claim(ctx context.Context, owner string, lease time.Duration) (*
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
 		)
-		RETURNING id, kind, payload, resource_id, deployment_id, attempts, max_attempts`,
+		RETURNING id, kind, payload, resource_id, deployment_id, server_id, attempts, max_attempts`,
 		owner, fmt.Sprintf("%d seconds", int(lease.Seconds()))).
-		Scan(&j.ID, &j.Kind, &j.Payload, &j.ResourceID, &j.DeploymentID, &j.Attempts, &j.MaxAttempts)
+		Scan(&j.ID, &j.Kind, &j.Payload, &j.ResourceID, &j.DeploymentID, &j.ServerID, &j.Attempts, &j.MaxAttempts)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}

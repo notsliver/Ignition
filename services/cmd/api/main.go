@@ -18,6 +18,7 @@ import (
 	"github.com/notsliver/Ignition/services/internal/proxy"
 	"github.com/notsliver/Ignition/services/internal/runtime"
 	"github.com/notsliver/Ignition/services/internal/secrets"
+	"github.com/notsliver/Ignition/services/internal/servers"
 	"github.com/notsliver/Ignition/services/internal/store"
 )
 
@@ -49,8 +50,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	docker := runtime.NewDocker(cfg.DockerSocket)
+	st := &store.Store{DB: pool}
 	srv := &api.Server{
-		Store: &store.Store{DB: pool}, Runtime: runtime.NewDocker(cfg.DockerSocket), Secrets: box,
+		Store: st, Runtime: docker, Secrets: box, Servers: &servers.Registry{Store: st, Secrets: box, Local: docker},
 		PublicURL: cfg.PublicURL, SecureCookies: cfg.SecureCookies, WebDir: cfg.WebDir, PublishHost: cfg.PublishHost,
 		Proxy: proxy.New(cfg.ProxySocket, cfg.ProxyAddr, cfg.ProxyHTTPPort, cfg.ProxyHTTPSPort),
 	}

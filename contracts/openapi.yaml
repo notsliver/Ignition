@@ -555,3 +555,167 @@ paths:
     post:
       summary: Move to another environment (any project) and redeploy the same release there. Domains, variables, volumes and history go with it.
       responses: { '200': { description: '{ resource, projectId, projectName, environmentName, deploymentId? }' }, '422': { description: name taken there } }
+
+  # ----------------------------- Infrastructure › Servers -----------------------------
+  # Status model: connectionState (pending, connecting, online, degraded, offline, unknown — unknown means the
+  # last check is older than staleAfterSeconds), runtimeState (ready, not_installed, unavailable, incompatible,
+  # unknown) and operator flags (deploymentsEnabled, maintenance, removing) are independent. Remote servers are
+  # Docker Engines reached over mutual TLS; only the local server receives deployments.
+  /api/servers:
+    get:
+      summary: Server inventory, filtered, sorted and paged in the database, with overview counts.
+      parameters:
+        - { name: q, in: query, schema: { type: string }, description: Name, hostname, endpoint, environment, description or labels }
+        - { name: filter, in: query, schema: { type: string, enum: [all, online, offline, degraded, pending, unknown, maintenance, deployable, blocked, attention] } }
+        - { name: sort, in: query, schema: { type: string, enum: [name, status, lastSeen, workloads, cpu, memory, disk] } }
+        - { name: dir, in: query, schema: { type: string, enum: [asc, desc] } }
+        - { name: limit, in: query, schema: { type: integer, maximum: 200 } }
+        - { name: offset, in: query, schema: { type: integer } }
+      responses: { '200': { description: '{ servers: ServerView[], total, summary: { total, available, attention }, staleAfterSeconds, checkIntervalSeconds }' } }
+    post:
+      summary: Register a remote Docker Engine (admin). Re-verifies the connection and requires the engine to present expectedFingerprint. The client key is sealed and never returned.
+      responses: { '201': { description: '{ server }' }, '409': { $ref: '#/components/responses/Error' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/servers/verify:
+    post:
+      summary: Run the enrollment checks (network, TLS identity, authentication, engine, platform, permissions) without saving anything (admin, rate limited). Loopback, link-local and metadata addresses are refused.
+      responses: { '200': { description: '{ ok, endpoint, steps: [{ id, title, status, detail, ms }], fingerprint, engine, capabilities, clientCertificate }' } }
+  /api/servers/bulk:
+    post:
+      summary: 'Bulk action on servers (admin): test, refresh, diagnostics, enable_deployments, disable_deployments, enter_maintenance. Each target is validated on its own; preview=true only reports eligibility.'
+      responses: { '200': { description: '{ action, label, targets: [{ id, name, eligible, reason, status, jobId?, error? }] }' } }
+  /api/servers/bundle:
+    get:
+      summary: Diagnostic bundles for several servers as one JSON download (admin, audited). Never contains credentials, keys, environment values or log contents.
+      parameters: [{ name: ids, in: query, required: true, schema: { type: string }, description: Comma-separated server IDs }]
+      responses: { '200': { description: JSON file } }
+  /api/servers/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: One server with settings, engine info, verified capabilities, warnings and deployment eligibility, responses: { '200': { description: '{ server: ServerView }' } } }
+    patch:
+      summary: Update name, hostname, description, environment, labels, notes or settings (admin).
+      responses: { '200': { description: '{ server }' }, '422': { $ref: '#/components/responses/Error' } }
+    delete:
+      summary: Remove the registration (admin, ?confirm=<name>). Refused while resources or work remain. Nothing on the host is stopped or deleted.
+      responses: { '204': { description: Removed }, '409': { $ref: '#/components/responses/Error' } }
+  /api/servers/{id}/removal:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: What removing the server would and wouldn't do and what blocks it (admin), responses: { '200': { description: '{ server, resources, activity, volumes, tasks, blockers, effects, notDone, reachable }' } } }
+  /api/servers/{id}/test:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post: { summary: Check the connection now and record the result (developer), responses: { '200': { description: '{ result: { reached, runtime, error, errorKind, latencyMs, docker? }, server }' } } }
+  /api/servers/{id}/refresh:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post: { summary: Queue a runtime refresh that also reconciles workload status (developer), responses: { '202': { description: '{ jobId }' } } }
+  /api/servers/{id}/deployments:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      summary: Deployments of resources on this server, newest first.
+      parameters: [{ name: q, in: query, schema: { type: string } }, { name: status, in: query, schema: { type: string, enum: [active, successful, failed, cancelled] } }, { name: limit, in: query, schema: { type: integer } }, { name: offset, in: query, schema: { type: integer } }]
+      responses: { '200': { description: '{ deployments: (Deployment & { resourceName, resourceType, projectId, projectName, environment })[], total }' } }
+    put:
+      summary: Enable or disable new deployments (admin). Remote servers can't be enabled.
+      responses: { '200': { description: '{ server }' }, '409': { $ref: '#/components/responses/Error' } }
+  /api/servers/{id}/maintenance:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Maintenance policy, in-flight work, workloads, volumes, tasks and history, responses: { '200': { description: '{ server, activity, workloads, running, volumes, tasks, history, policy }' } } }
+    post: { summary: 'Enter or exit maintenance (admin): { enabled, note }', responses: { '200': { description: '{ server, changed }' } } }
+  /api/servers/{id}/maintenance/note:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    put: { summary: Update the note of the active maintenance window (admin), responses: { '204': { description: Saved } } }
+  /api/servers/{id}/events:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Server events (kind filter, q, before cursor), responses: { '200': { description: '{ events }' } } }
+  /api/servers/{id}/jobs:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Recent server jobs, responses: { '200': { description: '{ jobs }' } } }
+  /api/servers/{id}/metrics:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      summary: Host samples every 15 s, kept 7 days. NULL means not measured; support says which metrics this server's collector can measure.
+      parameters: [{ name: range, in: query, schema: { type: string, enum: ['15m', '1h', '6h', '24h', '7d'] } }]
+      responses: { '200': { description: '{ range, stepSeconds, buckets, latest, support, reasons, collector, collectorState, retentionDays, intervalSeconds, capacity }' } }
+  /api/servers/{id}/resources:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Workloads assigned to the server with desired and observed state, responses: { '200': { description: '{ resources, health, observedAt, server }' } } }
+  /api/servers/{id}/logs:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      summary: Unified, redacted logs. Sources events, jobs, container (unmanaged containers need admin); daemon and agent report why they're unavailable.
+      parameters: [{ name: source, in: query, schema: { type: string } }, { name: container, in: query, schema: { type: string } }, { name: q, in: query, schema: { type: string } }, { name: level, in: query, schema: { type: string } }, { name: range, in: query, schema: { type: string }, description: 'Go duration, e.g. 1h' }, { name: stream, in: query, schema: { type: string, enum: [stdout, stderr] } }, { name: resource, in: query, schema: { type: string } }, { name: limit, in: query, schema: { type: integer } }]
+      responses: { '200': { description: '{ lines: [{ time, level, source, stream?, message, fields?, cursor }], available, reason?, sources, since, timezone, limit, truncated }' } }
+  /api/servers/{id}/diagnostics:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Check catalogue, latest result per check, recent runs and the active run, responses: { '200': { description: '{ checks, latest, runs, active, server }' } } }
+    post: { summary: 'Run checks (developer): { checks? } — all when omitted. Targets are fixed per check; none accept user-supplied destinations.', responses: { '202': { description: '{ runId, jobId }' }, '409': { $ref: '#/components/responses/Error' } } }
+  /api/servers/{id}/diagnostics/bundle:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Safe diagnostic bundle as a JSON download (admin, audited), responses: { '200': { description: JSON file } } }
+  /api/diagnostic-runs/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: A diagnostic run with its results, responses: { '200': { description: '{ run }' } } }
+  /api/servers/{id}/docker:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Engine facts, compatibility, object counts and Docker disk usage, responses: { '200': { description: '{ engine, compatible, minApiVersion, counts, disk, dataRoot? }' }, '503': { $ref: '#/components/responses/Error' } } }
+  /api/servers/{id}/docker/containers:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Every container with its owner (resource, helper, ignition, unmanaged), responses: { '200': { description: '{ containers, observedAt }' } } }
+  /api/servers/{id}/docker/containers/{cid}/actions:
+    parameters: [{ $ref: '#/components/parameters/id' }, { name: cid, in: path, required: true, schema: { type: string } }]
+    post: { summary: Start, stop or restart the current container of an IGNITION resource on this server (developer). Unmanaged containers are refused., responses: { '202': { description: '{ jobId, resourceId }' }, '403': { $ref: '#/components/responses/Error' } } }
+  /api/servers/{id}/docker/images:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Images with tags, digests, sizes, users, and whether a deployment retains them, responses: { '200': { description: '{ images, layersSize, buildCache }' } } }
+  /api/servers/{id}/docker/networks:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Networks with attached containers, responses: { '200': { description: '{ networks }' } } }
+  /api/servers/{id}/docker/volumes:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Volumes with ownership, users and measured size (-1 when unknown), responses: { '200': { description: '{ volumes }' } } }
+  /api/servers/{id}/docker/inspect:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      summary: Raw inspect document (admin, audited). Container environment values are masked.
+      parameters: [{ name: kind, in: query, schema: { type: string, enum: [container, image, network, volume] } }, { name: id, in: query, schema: { type: string } }]
+      responses: { '200': { description: '{ kind, document, redacted }' } }
+  /api/servers/{id}/cleanup/preview:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post: { summary: 'Plan a Docker cleanup (admin): { containers, dangling, unusedImages, networks, buildCache }. Volumes are never included.', responses: { '200': { description: '{ items, protected, bytes, volumes }' } } }
+  /api/servers/{id}/cleanup:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post: { summary: Remove the confirmed items that are still eligible as a job (admin, audited). Removals never force., responses: { '202': { description: '{ jobId }' } } }
+  /api/servers/{id}/storage:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Volumes, mounts, bind mounts and configured-but-missing volumes, responses: { '200': { description: '{ volumes, mounts, binds, missing, backups, hostPaths }' } } }
+  /api/servers/{id}/networking:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Published ports with exposure, Docker networks, domains, proxy, and what isn't observable, responses: { '200': { description: '{ ports, networks, domains, proxy, hostInterfaces, firewall }' } } }
+  /api/servers/{id}/tasks:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Scheduled server tasks and the available task kinds, responses: { '200': { description: '{ tasks, kinds }' } } }
+    post: { summary: Create a scheduled task of a built-in kind (admin). No arbitrary commands., responses: { '201': { description: '{ task }' }, '422': { $ref: '#/components/responses/Error' } } }
+  /api/server-tasks/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    patch: { summary: Update a server task (admin), responses: { '200': { description: '{ task }' } } }
+    delete: { summary: Delete a server task (admin), responses: { '204': { description: Deleted } } }
+  /api/server-tasks/{id}/run:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post: { summary: Run a server task now (admin), responses: { '202': { description: '{ runId }' }, '409': { $ref: '#/components/responses/Error' } } }
+  /api/server-tasks/{id}/runs:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Recent runs of a server task, responses: { '200': { description: '{ runs }' } } }
+  /api/server-jobs/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: A server job with its result and logs, responses: { '200': { description: '{ job, logs }' } } }
+  /api/server-jobs/{id}/cancel:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post: { summary: Cancel a queued or running server job (admin), responses: { '202': { description: '{ status }' }, '409': { $ref: '#/components/responses/Error' } } }
+  /api/servers/{id}/access:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Connection method, identity, trust, credential metadata (never the key), role permissions and security events, responses: { '200': { description: '{ server, access }' } } }
+  /api/servers/{id}/credentials:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    put: { summary: 'Rotate the client certificate and key (admin). The new pair is verified against the engine before the old one is replaced; a changed host certificate returns 409 identity_changed with the presented fingerprint unless acceptFingerprint is set.', responses: { '200': { description: '{ server }' }, '409': { $ref: '#/components/responses/Error' } } }
+    delete: { summary: Revoke stored credentials (admin, ?confirm=<name>). The registration stays., responses: { '200': { description: '{ server }' } } }
+  /api/servers/{id}/endpoint:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    put: { summary: Move a remote server to a new address that presents the same host identity (admin), responses: { '200': { description: '{ server }' }, '409': { $ref: '#/components/responses/Error' } } }

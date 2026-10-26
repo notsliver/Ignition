@@ -15,6 +15,8 @@ import { Security } from '../pages/settings/Security/Security';
 import { Updates } from '../pages/settings/Updates/Updates';
 import { Users } from '../pages/settings/Users/Users';
 import { AuditLog } from '../pages/settings/Audit/AuditLog';
+import { Servers } from '../pages/servers/Servers';
+import { ServerWorkspace } from '../pages/servers/Workspace';
 import { useInstanceName } from './instance';
 import { useSidebarWidth, SIDEBAR_MAX, SIDEBAR_MIN } from '../hooks/useSidebarWidth';
 import { AppSidebar } from './AppSidebar';
@@ -50,7 +52,11 @@ export function App() {
   const [resourceView, setResourceView] = useState('Overview');
   const setResource = (r, view = 'Overview') => { if (!confirmLeave()) return; setResourceState(r); setResourceView(view); setMobileOpen(false); };
   const showResourceView = view => { if (view === resourceView || !confirmLeave()) return; setResourceView(view); setMobileOpen(false); };
-  const navigate = title => { if (!confirmLeave()) return; setActive(title); setResourceState(null); setMissing(''); setMobileOpen(false); };
+  const [server, setServerState] = useState(null);
+  const [serverView, setServerView] = useState('Overview');
+  const openServer = (s, view = 'Overview') => { if (!confirmLeave()) return; setServerState(s); setServerView(view); setActive('Servers'); setMobileOpen(false); };
+  const showServerView = view => { if (view === serverView || !confirmLeave()) return; setServerView(view); setMobileOpen(false); };
+  const navigate = title => { if (!confirmLeave()) return; setActive(title); setResourceState(null); setServerState(null); setMissing(''); setMobileOpen(false); };
   const [environment, setEnvironment] = useState(null);
   const openProject = p => { setProject(p); setEnvironment(p.environments[0]?.name ?? 'Production'); navigate('Resources'); };
   const environmentId = project?.environments.find(e => e.name === environment)?.id;
@@ -64,18 +70,23 @@ export function App() {
     try {
       const p = target.projectId ? (await api.project(target.projectId)).project : null;
       const r = target.resourceId ? (await api.resource(target.resourceId)).resource : null;
+      const srv = target.serverId ? (await api.server(target.serverId)).server : null;
       if (r && r.projectId !== p?.id) throw new Error('mismatch');
       setProject(p);
       setEnvironment(p ? (p.environments.some(e => e.name === target.env) ? target.env : p.environments[0]?.name ?? 'Production') : null);
       setResourceState(r);
       setResourceView(target.resourceView ?? 'Overview');
+      setServerState(srv);
+      setServerView(target.serverView ?? 'Overview');
       setActive(target.active);
     } catch (e) {
       // A link to something deleted (or never visible to you): land on Projects with an explanation.
       setProject(null);
       setResourceState(null);
+      setServerState(null);
       setActive(target.projectId ? 'Projects' : target.active);
       if (target.projectId) setMissing(e.status === 404 || e.message === 'mismatch' ? 'That project or resource no longer exists.' : e.message);
+      if (target.serverId) setMissing(e.status === 404 ? 'That server no longer exists. It may have been removed.' : e.message);
     } finally {
       setRestoring(false);
     }
@@ -86,15 +97,16 @@ export function App() {
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
-  const url = toUrl({ active, project, resource, resourceView, environment });
+  const url = toUrl({ active, project, resource, resourceView, environment, server, serverView });
   useEffect(() => {
     if (restoring || url === location.pathname + location.search) return;
     history.pushState(null, '', url);
   }, [url, restoring]);
   useEffect(() => {
-    const where = resource ? `${resourceView === 'Overview' ? resource.name : `${resourceView} · ${resource.name}`}` : project ? `${active} · ${project.name}` : active;
+    const where = resource ? `${resourceView === 'Overview' ? resource.name : `${resourceView} · ${resource.name}`}` : project ? `${active} · ${project.name}`
+      : server ? (serverView === 'Overview' ? server.name : `${serverView} · ${server.name}`) : active;
     document.title = `${where} · ${instanceName}`;
-  }, [active, project, resource, resourceView, instanceName]);
+  }, [active, project, resource, resourceView, server, serverView, instanceName]);
 
   const projectPages = project && { Resources: resource
     ? renderResourcePage()
@@ -114,7 +126,10 @@ export function App() {
   };
   const page = project ? projectPages[active]
     : active === 'Projects' ? <Projects onOpen={openProject} />
-      : active === 'Monitor' ? <Monitor onOpenResource={openResourceFromAnywhere} />
+        : active === 'Servers' ? (server
+          ? <ServerWorkspace key={server.id} server={server} view={serverView} onNavigate={showServerView} onServerChange={setServerState} onRemoved={() => { setServerState(null); setServerView('Overview'); }} onOpenResource={openResourceFromAnywhere} />
+          : <Servers onOpen={openServer} />)
+        : active === 'Monitor' ? <Monitor onOpenResource={openResourceFromAnywhere} />
         : active === 'Sources' ? <Sources onOpenResource={openResourceFromAnywhere} />
           : active === 'Audit Log' ? <AuditLog onOpenResource={openResourceFromAnywhere} />
             : LIVE_PAGES.includes(active) ? pages[active] : pages[active] && preview(pages[active]);
@@ -122,7 +137,8 @@ export function App() {
   return <div ref={appRef} className={cx('app', hidden && 'sidebar-hidden', mobileOpen && 'mobile-open', sidebar.resizing && 'resizing')}>
     {mobileOpen && <button className="backdrop" aria-label="Close navigation" onClick={() => setMobileOpen(false)} />}
     <AppSidebar active={active} project={project} environment={environment} onEnvironmentChange={setEnvironment} onNavigate={navigate} onCloseProject={closeProject} resource={resource} resourceView={resourceView}
-      onResourceNavigate={showResourceView} onCloseResource={() => setResource(null)} onHide={() => setHidden(true)} />
+      onResourceNavigate={showResourceView} onCloseResource={() => setResource(null)} onHide={() => setHidden(true)}
+      server={server} serverView={serverView} onServerNavigate={showServerView} onCloseServer={() => { if (confirmLeave()) { setServerState(null); setMobileOpen(false); } }} />
     <div className="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" aria-valuemin={SIDEBAR_MIN} aria-valuemax={SIDEBAR_MAX} aria-valuenow={sidebar.width} tabIndex={0} title="Drag to resize · double-click to reset"
       onPointerDown={sidebar.startResize} onKeyDown={sidebar.onKeyDown} onDoubleClick={sidebar.reset} />
     <main className="container">
@@ -131,7 +147,9 @@ export function App() {
         {project && <><button className="page-crumb" onClick={closeProject}>{project.name}</button><span className="page-crumb-sep">/</span></>}
         {resource && <><button className="page-crumb" onClick={() => setResource(null)}>{active}</button><span className="page-crumb-sep">/</span></>}
         {resource && resourceView !== 'Overview' && <><button className="page-crumb" onClick={() => showResourceView('Overview')}>{resource.name}</button><span className="page-crumb-sep">/</span></>}
-        <h1>{resource ? (resourceView === 'Overview' ? resource.name : resourceView) : active}</h1>{project ? <Badge className={cx('env-badge', environment === 'Production' && 'production')}>{environment}</Badge> : null}
+        {server && <><button className="page-crumb" onClick={() => { if (confirmLeave()) setServerState(null); }}>Servers</button><span className="page-crumb-sep">/</span></>}
+        {server && serverView !== 'Overview' && <><button className="page-crumb" onClick={() => showServerView('Overview')}>{server.name}</button><span className="page-crumb-sep">/</span></>}
+        <h1>{resource ? (resourceView === 'Overview' ? resource.name : resourceView) : server ? (serverView === 'Overview' ? server.name : serverView) : active}</h1>{project ? <Badge className={cx('env-badge', environment === 'Production' && 'production')}>{environment}</Badge> : null}
       </header>
       {missing && <div className="preview-banner"><Notice tone="warning" title="Link not found">{missing}</Notice></div>}
       {restoring ? null : page || <ComingSoon title={active} />}

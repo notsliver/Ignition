@@ -24,8 +24,9 @@ import (
 // No shell commands are assembled, so user input can't inject arguments.
 type Docker struct {
 	client *http.Client
-	base   string
-	socket string
+	base   string // versioned API root
+	root   string // unversioned root, for /version and /_ping on engines of any age
+	socket string // "" for remote engines
 
 	instanceOnce sync.Once
 	instance     string
@@ -40,7 +41,7 @@ func NewDocker(socket string) *Docker {
 			return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 		},
 	}
-	return &Docker{client: &http.Client{Transport: transport}, base: "http://docker/" + apiVersion, socket: socket}
+	return &Docker{client: &http.Client{Transport: transport}, base: "http://docker/" + apiVersion, root: "http://docker", socket: socket}
 }
 
 type apiError struct {

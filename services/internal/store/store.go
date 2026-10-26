@@ -299,6 +299,7 @@ type Resource struct {
 	ProjectName         string     `json:"projectName,omitempty"`
 	Usage               *Usage     `json:"usage,omitempty"`
 	LastDeployAt        *time.Time `json:"lastDeployAt"`
+	ServerID            string     `json:"serverId"`
 	CreatedAt           time.Time  `json:"createdAt"`
 	UpdatedAt           time.Time  `json:"updatedAt"`
 }
@@ -323,14 +324,14 @@ const resourceSelect = `
 	       r.port, r.command, r.data_path, r.memory_mb, r.cpus::float8, r.desired_state, r.status, r.container_id, r.host_port, r.current_deployment_id, r.running_since, r.source_id,
 	       (SELECT CASE WHEN d.https THEN 'https://' ELSE 'http://' END || d.hostname FROM domains d WHERE d.resource_id = r.id AND d.status = 'active' ORDER BY d.is_primary DESC, d.created_at LIMIT 1),
 	       COALESCE((SELECT array_agg(v.mount_path ORDER BY v.created_at, v.name) FROM resource_volumes v WHERE v.resource_id = r.id), '{}'),
-	       (SELECT max(d.created_at) FROM deployments d WHERE d.resource_id = r.id), r.created_at, r.updated_at
+	       (SELECT max(d.created_at) FROM deployments d WHERE d.resource_id = r.id), r.server_id, r.created_at, r.updated_at
 	FROM resources r JOIN environments e ON e.id = r.environment_id`
 
 func scanResource(row pgx.Row) (*Resource, error) {
 	var r Resource
 	var domain *string
 	err := row.Scan(&r.ID, &r.ProjectID, &r.EnvironmentID, &r.Environment, &r.Name, &r.Type, &r.SourceType, &r.Image, &r.RepoURL, &r.Branch, &r.Dockerfile,
-		&r.Port, &r.Command, &r.DataPath, &r.MemoryMB, &r.CPUs, &r.DesiredState, &r.Status, &r.ContainerID, &r.HostPort, &r.CurrentDeploymentID, &r.RunningSince, &r.SourceID, &domain, &r.Volumes, &r.LastDeployAt, &r.CreatedAt, &r.UpdatedAt)
+		&r.Port, &r.Command, &r.DataPath, &r.MemoryMB, &r.CPUs, &r.DesiredState, &r.Status, &r.ContainerID, &r.HostPort, &r.CurrentDeploymentID, &r.RunningSince, &r.SourceID, &domain, &r.Volumes, &r.LastDeployAt, &r.ServerID, &r.CreatedAt, &r.UpdatedAt)
 	r.Domain = withPort(domain)
 	return &r, noRows(err)
 }
@@ -441,6 +442,15 @@ type Usage struct {
 
 // ListAllResources is the cross-project inventory used by Monitor, with live usage attached.
 func (s *Store) ListAllResources(ctx context.Context, query, typ string) ([]Resource, error) {
+	return s.listResourcesWithUsage(ctx, query, typ, "")
+}
+
+// ListServerResources is every workload assigned to a server, archived projects included.
+func (s *Store) ListServerResources(ctx context.Context, serverID string) ([]Resource, error) {
+	return s.listResourcesWithUsage(ctx, "", "", serverID)
+}
+
+func (s *Store) listResourcesWithUsage(ctx context.Context, query, typ, serverID string) ([]Resource, error) {
 	// Same columns as resourceSelect, plus the project name and the newest sample.
 	sql := strings.Replace(resourceSelect, "\n\tFROM resources r", ", p.name, m.cpu_percent, m.memory_bytes, m.at\n\tFROM resources r", 1) + `
 		JOIN projects p ON p.id = r.project_id
@@ -448,11 +458,11 @@ func (s *Store) ListAllResources(ctx context.Context, query, typ string) ([]Reso
 			SELECT cpu_percent, memory_bytes, at FROM metric_samples
 			WHERE resource_id = r.id AND at > now() - interval '60 seconds' ORDER BY at DESC LIMIT 1
 		) m ON true
-		WHERE p.archived_at IS NULL
+		WHERE (($3 = '' AND p.archived_at IS NULL) OR r.server_id::text = $3)
 		  AND ($1 = '' OR r.name ILIKE '%' || $1 || '%' OR r.image ILIKE '%' || $1 || '%' OR r.repo_url ILIKE '%' || $1 || '%')
 		  AND ($2 = '' OR r.type = $2)
 		ORDER BY p.name, r.type, r.name`
-	rows, err := s.DB.Query(ctx, sql, query, typ)
+	rows, err := s.DB.Query(ctx, sql, query, typ, serverID)
 	if err != nil {
 		return nil, err
 	}
@@ -465,7 +475,7 @@ func (s *Store) ListAllResources(ctx context.Context, query, typ string) ([]Reso
 		var at *time.Time
 		var domain *string
 		err := rows.Scan(&r.ID, &r.ProjectID, &r.EnvironmentID, &r.Environment, &r.Name, &r.Type, &r.SourceType, &r.Image, &r.RepoURL, &r.Branch, &r.Dockerfile,
-			&r.Port, &r.Command, &r.DataPath, &r.MemoryMB, &r.CPUs, &r.DesiredState, &r.Status, &r.ContainerID, &r.HostPort, &r.CurrentDeploymentID, &r.RunningSince, &r.SourceID, &domain, &r.Volumes, &r.LastDeployAt, &r.CreatedAt, &r.UpdatedAt,
+			&r.Port, &r.Command, &r.DataPath, &r.MemoryMB, &r.CPUs, &r.DesiredState, &r.Status, &r.ContainerID, &r.HostPort, &r.CurrentDeploymentID, &r.RunningSince, &r.SourceID, &domain, &r.Volumes, &r.LastDeployAt, &r.ServerID, &r.CreatedAt, &r.UpdatedAt,
 			&r.ProjectName, &cpu, &mem, &at)
 		if err != nil {
 			return nil, err
@@ -603,13 +613,37 @@ func (s *Store) CreateDeployment(ctx context.Context, tx pgx.Tx, resourceID, tri
 	if _, err := tx.Exec(ctx, `SELECT 1 FROM resources WHERE id = $1 FOR UPDATE`, resourceID); err != nil {
 		return "", err
 	}
+	// Every path that deploys goes through here, so this is where a server's deployment policy is enforced.
+	// The server row is locked too, so a deployment can't slip in while maintenance is being entered.
+	var name string
+	var enabled, maintenance, removing bool
+	err := tx.QueryRow(ctx, `SELECT s.name, s.deployments_enabled, s.maintenance, s.removing FROM servers s JOIN resources r ON r.server_id = s.id WHERE r.id = $1 FOR SHARE OF s`, resourceID).
+		Scan(&name, &enabled, &maintenance, &removing)
+	if err != nil {
+		return "", noRows(err)
+	}
+	switch {
+	case removing:
+		return "", &DeploymentsBlocked{Server: name, Reason: "is being removed"}
+	case maintenance:
+		return "", &DeploymentsBlocked{Server: name, Reason: "is in maintenance mode"}
+	case !enabled:
+		return "", &DeploymentsBlocked{Server: name, Reason: "has new deployments disabled"}
+	}
 	var id string
-	err := tx.QueryRow(ctx, `
+	err = tx.QueryRow(ctx, `
 		INSERT INTO deployments (resource_id, number, trigger, image_ref, branch, reason, created_by, previous_deployment_id)
 		VALUES ($1, COALESCE((SELECT max(number) FROM deployments WHERE resource_id = $1), 0) + 1, $2, $3, $4, $5, $6,
 		        (SELECT current_deployment_id FROM resources WHERE id = $1))
 		RETURNING id`, resourceID, trigger, imageRef, branch, reason, nullable(userID)).Scan(&id)
 	return id, err
+}
+
+// DeploymentsBlocked is returned when the resource's server isn't accepting new deployments.
+type DeploymentsBlocked struct{ Server, Reason string }
+
+func (e *DeploymentsBlocked) Error() string {
+	return fmt.Sprintf("Server %s %s, so new deployments are paused. Change this on the server's Maintenance or Settings page.", e.Server, e.Reason)
 }
 
 func nullable(s string) *string {

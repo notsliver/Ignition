@@ -45,8 +45,17 @@ See `services/internal/database/migrations`. Highlights:
 - `env_vars.value_enc` is AES-256-GCM ciphertext bound to `resource_id:key`, so a value copied to another row fails to decrypt.
 - `sessions.token_hash` stores SHA-256 of the cookie token, never the token.
 
+## Servers
+
+Infrastructure › Servers (`services/internal/servers`) manages the Docker hosts IGNITION knows about. The local server (this machine, reached through the mounted socket) is created by migration 0015 and is where every resource runs. Remote servers are Docker Engines reached over mutual TLS: the CA pins the engine's identity, the engine's certificate fingerprint is pinned at enrollment, and the client key is sealed with `IGNITION_SECRET_KEY`. Remote servers are monitored, inspected, diagnosed and cleaned up, but the deploy engine doesn't target them.
+
+- **Status** has three independent dimensions: connection (pending, online, degraded, offline; reported as unknown when the last check is older than 60 s), runtime (ready, not installed, unavailable, incompatible) and operator flags (deployments enabled, maintenance, removing). The worker checks every server every 15 s; see the transition rules in `servers/model.go`.
+- **Deployment policy** is enforced in `store.CreateDeployment`, the single path for every kind of deploy, so maintenance or disabled deployments refuse manual deploys, hooks, tokens and rollbacks alike.
+- **Host metrics** come from `/proc` for the local server (host-wide figures) and from the Engine API only for remote servers; unmeasurable values are stored as NULL, never zero.
+- **Server work** (refresh, diagnostics, cleanup, scheduled server tasks) runs as `server` jobs on the same durable queue. Cleanups are previewed first, re-planned at execution, never force, and never touch volumes.
+
 ## What's next
 
 These pages exist in the dashboard but still show sample data, labelled "Preview with sample data": Dashboard, Monitor, project-level Deployments, Metrics history, Terminal, Domains, Networking, Storage, Health Checks, Resource Limits, Rollback History, Scheduled Tasks, Access & Secrets, Advanced Settings, and the instance settings pages. Suggested order: resource limits (the API already accepts `memoryMb`/`cpus`), domains with a reverse proxy, scheduled tasks, metrics history, users and API tokens, terminal over a websocket.
 
-Not supported yet, and the UI says so where it comes up: Buildpacks/Nixpacks builds, private repositories and registries, templates, file uploads, database import and backups, remote servers.
+Not supported yet, and the UI says so where it comes up: Buildpacks/Nixpacks builds, private repositories and registries, templates, file uploads, database import and backups, deploying to remote servers.

@@ -2,6 +2,7 @@ import {
   AdjustmentsHorizontalIcon, ArrowUturnLeftIcon, CalendarDaysIcon, CircleStackIcon, CpuChipIcon, DocumentTextIcon, HeartIcon, HomeIcon,
   CodeBracketIcon, LockClosedIcon, ServerStackIcon, VariableIcon, CommandLineIcon, CubeIcon, GlobeAltIcon, RocketLaunchIcon, ArchiveBoxIcon, ArrowPathIcon, BellIcon, ChartBarIcon, ClipboardDocumentListIcon, Cog6ToothIcon,
   KeyIcon, RectangleStackIcon, ShieldCheckIcon, Squares2X2Icon, UserCircleIcon, UsersIcon, WrenchScrewdriverIcon,
+  BeakerIcon, ClockIcon, PresentationChartLineIcon, ShareIcon, Square3Stack3DIcon,
 } from '@heroicons/react/20/solid';
 
 export const topItems = [
@@ -81,3 +82,31 @@ const hiddenByType = {
   cron: ['Domains', 'Networking', 'Health Checks', 'Scheduled Tasks'],
 };
 export const resourceSectionsFor = type => resourceSections.map(section => section.filter(item => !hiddenByType[type]?.includes(item.title)));
+
+// A server's workspace, grouped so the list stays short. Titles double as URL slugs.
+export const serverSections = [
+  { label: 'General', items: [
+    { title: 'Overview', icon: HomeIcon },
+    { title: 'Resources', icon: CubeIcon },
+    { title: 'Deployments', icon: RocketLaunchIcon },
+  ] },
+  { label: 'Observability', items: [
+    { title: 'Monitoring', icon: PresentationChartLineIcon },
+    { title: 'Logs', icon: DocumentTextIcon },
+    { title: 'Diagnostics', icon: BeakerIcon },
+  ] },
+  { label: 'Runtime', items: [
+    { title: 'Docker', icon: Square3Stack3DIcon },
+    { title: 'Storage', icon: CircleStackIcon },
+    { title: 'Networking', icon: ShareIcon },
+  ] },
+  { label: 'Operations', items: [
+    { title: 'Maintenance', icon: WrenchScrewdriverIcon },
+    { title: 'Tasks & Automation', icon: ClockIcon },
+  ] },
+  { label: 'Administration', items: [
+    { title: 'Access & Security', icon: ShieldCheckIcon },
+    { title: 'Settings', icon: Cog6ToothIcon },
+  ] },
+];
+export const serverViews = serverSections.flatMap(s => s.items.map(i => i.title));

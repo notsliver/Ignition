@@ -52,7 +52,7 @@ func run() error {
 		slog.Warn("docker is not reachable; jobs will fail and retry until it is", "socket", cfg.DockerSocket, "error", err)
 	}
 	w := &worker.Worker{
-		ID: cfg.WorkerID, Queue: &jobs.Queue{DB: pool}, Store: &store.Store{DB: pool}, Runtime: docker,
+		ID: cfg.WorkerID, Queue: &jobs.Queue{DB: pool}, Store: &store.Store{DB: pool}, Runtime: docker, Docker: docker,
 		Secrets: box, Concurrency: cfg.Concurrency, Lease: cfg.JobLease,
 		Proxy: proxy.New(cfg.ProxySocket, cfg.ProxyAddr, cfg.ProxyHTTPPort, cfg.ProxyHTTPSPort),
 	}

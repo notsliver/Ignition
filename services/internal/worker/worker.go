@@ -18,6 +18,7 @@ import (
 	"github.com/notsliver/Ignition/services/internal/proxy"
 	"github.com/notsliver/Ignition/services/internal/runtime"
 	"github.com/notsliver/Ignition/services/internal/secrets"
+	"github.com/notsliver/Ignition/services/internal/servers"
 	"github.com/notsliver/Ignition/services/internal/sources"
 	"github.com/notsliver/Ignition/services/internal/store"
 )
@@ -34,7 +35,10 @@ type Worker struct {
 	Concurrency int
 	Lease       time.Duration
 	Proxy       *proxy.Client
+	Docker      *runtime.Docker   // the concrete local client, for server inventory and checks
+	Servers     *servers.Registry // built from Docker on first use when nil
 
+	regOnce  sync.Once
 	selfOnce sync.Once
 	self     string // the worker's own container, for joining app networks
 	joinedMu sync.Mutex
@@ -77,6 +81,11 @@ func (w *Worker) Run(ctx context.Context) {
 	go func() { defer wg.Done(); w.HealthLoop(ctx) }()
 	wg.Add(1)
 	go func() { defer wg.Done(); w.TaskLoop(ctx) }()
+	if w.Docker != nil {
+		wg.Add(2)
+		go func() { defer wg.Done(); w.ServerLoop(ctx) }()
+		go func() { defer wg.Done(); w.ServerTaskLoop(ctx) }()
+	}
 	wg.Wait()
 }
 
@@ -116,6 +125,8 @@ func (w *Worker) execute(parent context.Context, owner string, job *jobs.Job) {
 		err = w.remove(ctx, job)
 	case jobs.KindHealth:
 		err = w.healthTest(ctx, job)
+	case jobs.KindServer:
+		err = w.serverJob(ctx, job)
 	default:
 		err = fmt.Errorf("%w: unknown job kind %q", jobs.ErrPermanent, job.Kind)
 	}
@@ -133,6 +144,9 @@ func (w *Worker) execute(parent context.Context, owner string, job *jobs.Job) {
 	case errors.Is(err, errCancelled):
 		w.Queue.Log(bg, job.ID, "warn", "", "Cancelled by request.")
 		w.Queue.Cancelled(bg, job.ID)
+		if job.Kind == jobs.KindServer {
+			w.serverJobEnded(bg, job, "cancelled", nil)
+		}
 		if job.DeploymentID != nil {
 			w.Store.SetDeploymentStatus(bg, *job.DeploymentID, "cancelled", "")
 		}
@@ -154,6 +168,9 @@ func (w *Worker) execute(parent context.Context, owner string, job *jobs.Job) {
 		}
 		if final {
 			w.refreshStatus(bg, job.ResourceID)
+			if job.Kind == jobs.KindServer {
+				w.serverJobEnded(bg, job, "failed", err)
+			}
 		}
 		log.Warn("job failed", "error", err, "final", final)
 	}
