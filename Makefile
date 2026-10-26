@@ -51,5 +51,8 @@ e2e: ## Browser end-to-end test against the running stack. Needs IGNITION_EMAIL 
 web-dev: ## Run the dashboard with hot reload on :5173 (API must be running on :8080)
 	cd apps/web && npm install && npm run dev
 
+release: ## Publish notsliver/ignition from this machine: make release VERSION=0.1.0-beta (or VERSION=edge)
+	scripts/release.sh $(VERSION)
+
 build: ## Build the production image
 	docker build -t notsliver/ignition:local .
