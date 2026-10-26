@@ -64,6 +64,22 @@ docker compose --env-file .env -f deploy/docker-compose.yml down                
 docker compose --env-file .env -f deploy/docker-compose.yml up -d                 # start
 ```
 
+### Uninstalling
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/notsliver/Ignition/main/uninstall.sh | sudo bash
+```
+
+This removes IGNITION's own containers and keeps your data (database, certificates, `.env`) and the apps you deployed, so you can reinstall later. It asks before changing anything. Options go after `bash -s --`:
+
+| Option | What |
+| --- | --- |
+| `--remove-apps` | Also stop and remove the apps IGNITION deployed |
+| `--purge` | Also delete IGNITION's database, certificates, app data volumes, networks, images and `/opt/ignition`. Can't be undone |
+| `--yes` | Don't ask (for scripts) |
+
+For example: `curl -fsSL …/uninstall.sh | sudo bash -s -- --purge`. Docker itself is left installed.
+
 ## Features
 
 - **Deploy** from a container image or a Git repository (public or private via deploy keys and registry credentials), with Dockerfile or auto-detected Node and Python builds.
