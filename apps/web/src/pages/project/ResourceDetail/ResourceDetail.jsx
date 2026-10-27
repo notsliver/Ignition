@@ -9,6 +9,7 @@ import { duration, timeAgo, useQuery } from '../../../api/hooks';
 import { useSession } from '../../../app/AuthGate';
 import { publicUrl, resourceStatus, sourceLabel } from '../Resources/Resources';
 import { CopyButton } from '../resource/shared';
+import { ConnectionCard, ImportDataDialog, ImportHistory } from '../Resources/DatabaseDialogs';
 import './ResourceDetail.css';
 
 /*
@@ -16,7 +17,7 @@ import './ResourceDetail.css';
  * Everything here comes from the API and Docker; values Ignition doesn't measure say so.
  */
 
-const typeLabels = { application: 'Application', database: 'Database', worker: 'Worker' };
+const typeLabels = { application: 'Application', database: 'Database', worker: 'Worker', function: 'Function' };
 const deployTone = { queued: 'neutral', building: 'warning', deploying: 'progress', successful: 'success', failed: 'danger', cancelled: 'neutral' };
 const deployLabel = { queued: 'Queued', building: 'Building', deploying: 'Deploying', successful: 'Deployment successful', failed: 'Deployment failed', cancelled: 'Deployment cancelled' };
 const bytes = n => n >= 1 << 30 ? `${(n / (1 << 30)).toFixed(2)} GB` : n >= 1 << 20 ? `${(n / (1 << 20)).toFixed(0)} MB` : `${(n / 1024).toFixed(0)} KB`;
@@ -27,7 +28,53 @@ const eventText = { 'resource.create': 'Resource created', 'resource.start': 'St
   'resource.hook_create': 'Deploy hook created', 'resource.hook_reveal': 'Deploy hook shown', 'resource.hook_delete': 'Deploy hook removed', 'resource.token_create': 'Token created', 'resource.token_revoke': 'Token revoked',
   'task.create': 'Task created', 'task.update': 'Task changed', 'task.delete': 'Task deleted', 'task.run': 'Task run', 'resource.purge_images': 'Old images removed' };
 
-export function ResourceDetail({ project, environment, resource: initial, onNavigate, onResourceChange }) {
+export function ResourceDetail(props) {
+  return props.resource.sourceType === 'external' ? <ExternalOverview {...props} /> : <ContainerOverview {...props} />;
+}
+
+// An external database: IGNITION only knows whether it answers and how to connect to it.
+function ExternalOverview({ project, environment, resource: initial, onNavigate, onResourceChange }) {
+  const res = useQuery(() => api.resource(initial.id), [initial.id], { pollMs: 10000 });
+  const resource = res.data?.resource ?? initial;
+  useEffect(() => { if (res.data?.resource) onResourceChange?.(res.data.resource); }, [res.data]); // eslint-disable-line react-hooks/exhaustive-deps
+  const reachable = resource.status === 'running';
+  return <div className="resource-overview">
+    {resource.status === 'failed' && <ul className="ov-warnings"><li className="danger"><ExclamationTriangleIcon />This machine can't reach the database. Check its address, firewall and allow-list.</li></ul>}
+    <section className="ov-hero">
+      <div className="ov-status">
+        <span className="ov-label">External database</span>
+        <Status tone={reachable ? 'success' : resource.status === 'failed' ? 'danger' : 'neutral'}>{reachable ? 'Reachable' : resource.status === 'failed' ? 'Unreachable' : 'Not checked yet'}</Status>
+        <dl>
+          <div><dt>Runs</dt><dd>Outside IGNITION</dd></div>
+          <div><dt>Checked</dt><dd>Every minute from this machine</dd></div>
+          <div><dt>Last change</dt><dd>{timeAgo(resource.updatedAt)}</dd></div>
+        </dl>
+      </div>
+      <div className="ov-actions">
+        <span className="ov-label">What IGNITION does with it</span>
+        <p className="ov-ext-note">Keeps its credentials encrypted, checks it's reachable, and gives its connection URL to your apps. Backups, upgrades and scaling stay with whoever runs it.</p>
+      </div>
+    </section>
+    <div className="ov-columns">
+      <ConnectionCard resource={resource} onNavigate={onNavigate} />
+      <section className="ov-card">
+        <header><h2>Details</h2></header>
+        <dl className="ov-identity">
+          <div><dt>Engine</dt><dd>{resource.engine}</dd></div>
+          <div><dt>Project</dt><dd>{project.name} · {environment}</dd></div>
+          <div><dt>Resource ID</dt><dd className="mono">{resource.id.slice(0, 8)}<CopyButton value={resource.id} label="Copy resource ID" /></dd></div>
+          <div><dt>Added</dt><dd>{new Date(resource.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</dd></div>
+        </dl>
+        <nav className="ov-shortcuts" aria-label="Shortcuts">
+          <button type="button" onClick={() => onNavigate('Environment Variables')}>Credentials (Environment Variables)<ArrowRightIcon /></button>
+        </nav>
+      </section>
+    </div>
+  </div>;
+}
+
+function ContainerOverview({ project, environment, resource: initial, onNavigate, onResourceChange }) {
+  const [importing, setImporting] = useState(false);
   const { user } = useSession();
   const isAdmin = user.role === 'admin' || user.role === 'owner';
   const [confirmStop, setConfirmStop] = useState(false);
@@ -156,10 +203,15 @@ export function ResourceDetail({ project, environment, resource: initial, onNavi
           <div><dt>Created</dt><dd>{new Date(resource.createdAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}</dd></div>
         </dl>
         <nav className="ov-shortcuts" aria-label="Shortcuts">
-          {['Logs', 'Deployments', 'Environment Variables'].map(page => <button key={page} type="button" onClick={() => onNavigate(page)}>{page}<ArrowRightIcon /></button>)}
+          {[...(resource.type === 'function' ? ['Code'] : []), 'Logs', 'Deployments', 'Environment Variables'].map(page => <button key={page} type="button" onClick={() => onNavigate(page)}>{page}<ArrowRightIcon /></button>)}
         </nav>
       </section>
     </div>
+    {resource.type === 'database' && <div className="ov-columns">
+      <ConnectionCard resource={resource} onImport={() => setImporting(true)} onNavigate={onNavigate} />
+      <ImportHistory resource={resource} />
+    </div>}
+    {importing && <ImportDataDialog project={project} environmentId={resource.environmentId} databases={[resource]} target={resource} onClose={() => setImporting(false)} />}
 
     <Dialog open={confirmStop} onClose={() => setConfirmStop(false)} title={`Stop ${resource.name}?`}
       description={resource.type === 'application' ? 'It stops serving traffic until you start it again. Volume data is kept.' : 'It stops until you start it again. Volume data is kept.'}

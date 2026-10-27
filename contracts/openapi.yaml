@@ -784,3 +784,69 @@ paths:
     get:
       summary: Counts, what needs attention (each linking to where it's fixed) and the latest deployments across all resources.
       responses: { '200': { description: '{ stats, alerts, deployments, localServer? }' } }
+  /api/projects/import/git/inspect:
+    post:
+      summary: Clone a branch (shallow) and report what an import would create - a compose file's services, a Dockerfile or the detected stack.
+      responses: { '200': { description: '{ commit, suggestedName, composeFile?, plan?, dockerfile, stack?, port? }' }, '422': { description: repository unreachable } }
+  /api/projects/import/compose/preview:
+    post:
+      summary: Parse a pasted compose file (and optional .env) into the resources it would create, with warnings for what doesn't translate.
+      responses: { '200': { description: '{ plan }' }, '422': { description: invalid compose file } }
+  /api/projects/import:
+    post:
+      summary: Create a project from a Git repository (compose services or one application) or a compose file, in one transaction.
+      responses: { '201': { description: '{ project, resources }' }, '422': { description: validation error } }
+  /api/projects/{id}/duplicate:
+    post:
+      summary: Copy a project's environments and resources with their settings (optionally secret values, optionally deploy). Volume data, domains, history, tokens and automations stay.
+      responses: { '201': { description: '{ project, resources, deployed, notes }' } }
+  /api/databases/engines:
+    get:
+      summary: Database engines with accepted dump formats, how live migration and replace work; function runtimes.
+      responses: { '200': { description: '{ engines, runtimes }' } }
+  /api/databases/check-source:
+    post:
+      summary: Validate a live database URL for an engine and check the server answers from this machine.
+      responses: { '200': { description: '{ ok, address, latencyMs?, error? }' } }
+  /api/resources/{id}/imports:
+    post:
+      summary: Import data into a database - multipart upload (file, replace) or JSON { source url|s3|live, ... }. Runs as a job.
+      responses: { '202': { description: '{ import }' }, '409': { description: not a running database } }
+    get:
+      summary: The database's last 20 imports.
+      responses: { '200': { description: '{ imports }' } }
+  /api/data-imports/{id}:
+    get:
+      summary: One import with its log (?after= for new lines).
+      responses: { '200': { description: '{ import, logs }' } }
+  /api/data-imports/{id}/cancel:
+    post:
+      summary: Cancel a queued or running import.
+      responses: { '202': { description: '{ status }' } }
+  /api/projects/{id}/external-databases:
+    post:
+      summary: Register a database running elsewhere. IGNITION checks it's reachable and shares its connection URL with apps; it doesn't run it.
+      responses: { '201': { description: '{ resource }' }, '422': { description: validation error } }
+  /api/resources/{id}/connection:
+    get:
+      summary: How apps connect to a database (private name or external address); the full URL only for admins.
+      responses: { '200': { description: '{ engine, host, port, user, database, maskedUrl, url? }' } }
+  /api/resources/{id}/connection/share:
+    post:
+      summary: Store the database's connection URL as a secret variable on another resource of the project.
+      responses: { '200': { description: '{ target, key, requiresRedeploy }' } }
+  /api/resources/{id}/connection/test:
+    post:
+      summary: Check an external database accepts connections from this machine.
+      responses: { '200': { description: '{ ok, address, latencyMs, error? }' } }
+  /api/resources/{id}/function:
+    get:
+      summary: A function's runtime and handler code.
+      responses: { '200': { description: '{ runtime, code, template, file }' } }
+    put:
+      summary: Save the handler (and the built-in server) and optionally redeploy.
+      responses: { '200': { description: '{ deploymentId }' }, '422': { description: too large } }
+  /api/resources/{id}/function/invoke:
+    post:
+      summary: Send one request to the function from inside its network and return status, headers and body.
+      responses: { '200': { description: '{ result }' } }

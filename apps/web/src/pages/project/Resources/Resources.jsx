@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
-  ArrowPathIcon, ArrowTopRightOnSquareIcon, CircleStackIcon, ClockIcon, CogIcon, CubeIcon,
+  ArrowPathIcon, ArrowTopRightOnSquareIcon, CircleStackIcon, CodeBracketIcon, CogIcon, CubeIcon,
   DocumentTextIcon, EllipsisHorizontalIcon, PlayIcon, PlusIcon, StopIcon, TrashIcon,
 } from '@heroicons/react/16/solid';
 import { Button, Checkbox, Dialog, Menu, Notice, SearchField, SegmentedControl, Status, TextInput, cx } from '../../../ui';
@@ -10,12 +10,15 @@ import { databaseOptions, deployOptions } from '../../../app/createMenus';
 import { Unsupported } from '../../../app/Unsupported';
 import { flows, unsupported } from './flows';
 import { AddResourceDialog } from './AddResourceDialog';
+import { ExternalDatabaseDialog, ImportDataDialog } from './DatabaseDialogs';
+import { FunctionDialog } from '../resource/Function';
 import './Resources.css';
 
 const groups = [
   { type: 'application', label: 'Applications', icon: CubeIcon },
   { type: 'database', label: 'Databases', icon: CircleStackIcon },
   { type: 'worker', label: 'Workers', icon: CogIcon },
+  { type: 'function', label: 'Functions', icon: CodeBracketIcon },
 ];
 export const resourceStatus = {
   created: { tone: 'neutral', label: 'Created' },
@@ -26,7 +29,7 @@ export const resourceStatus = {
   removing: { tone: 'warning', label: 'Removing' },
   paused: { tone: 'warning', label: 'Paused' },
 };
-export const sourceLabel = r => r.sourceType === 'git' ? r.repoUrl.replace(/^https:\/\//, '') : r.image;
+export const sourceLabel = r => r.sourceType === 'git' ? r.repoUrl.replace(/^https:\/\//, '') : r.sourceType === 'external' ? `${r.engine || 'database'} · external` : r.type === 'function' ? `${r.engine === 'python' ? 'Python' : 'Node.js'} function` : r.image;
 // A working domain wins over the published host port.
 export const publicUrl = (r, host = 'localhost') => r.domain || (r.hostPort ? `http://${host}:${r.hostPort}` : null);
 
@@ -34,13 +37,14 @@ export const publicUrl = (r, host = 'localhost') => r.domain || (r.hostPort ? `h
 const withPaths = (items, onPick, prefix = '') => items.map(item => item === 'separator' ? item
   : item.items ? { ...item, items: withPaths(item.items, onPick, `${prefix}${item.label}/`) }
     : { ...item, onSelect: () => onPick(`${prefix}${item.label}`, item.label) });
-// Database engines stay nested; "Import existing data" becomes one entry that explains it's unsupported.
+// Database engines and import sources stay nested.
 const addMenu = [
   { label: 'Application', icon: CubeIcon, items: deployOptions },
-  { label: 'Database', icon: CircleStackIcon, items: databaseOptions.map(o => o === 'separator' || o.label === 'Create new database' ? o : { ...o, items: undefined }) },
+  { label: 'Database', icon: CircleStackIcon, items: databaseOptions },
   { label: 'Worker', icon: CogIcon },
-  { label: 'Scheduled job', icon: ClockIcon },
+  { label: 'Function', icon: CodeBracketIcon },
 ];
+const importSources = { 'Upload a dump file': 'upload', 'From S3-compatible storage': 's3', 'Migrate from a live database': 'live' };
 
 export function Resources({ project, environment, environmentId, onOpen }) {
   const [flowKey, setFlowKey] = useState(null);
@@ -50,6 +54,9 @@ export function Resources({ project, environment, environmentId, onOpen }) {
   const [deleting, setDeleting] = useState(null);
   const [actionError, setActionError] = useState('');
   const [highlight, setHighlight] = useState(null);
+  const [importing, setImporting] = useState(null); // { source }
+  const [external, setExternal] = useState(false);
+  const [functionOpen, setFunctionOpen] = useState(false);
 
   const { data, error, loading, refetch } = useQuery(() => api.resources(project.id, { environment: environmentId }), [project.id, environmentId], { pollMs: 3000 });
   const all = data?.resources ?? [];
@@ -62,7 +69,10 @@ export function Resources({ project, environment, environmentId, onOpen }) {
   }, [all, filter, query]);
 
   const addOptions = useMemo(() => withPaths(addMenu, (path, label) => {
-    if (flows[path]) setFlowKey(path);
+    if (path.startsWith('Database/Import existing data/')) setImporting({ source: importSources[label] ?? 'upload' });
+    else if (path === 'Database/Connect external database') setExternal(true);
+    else if (path === 'Function') setFunctionOpen(true);
+    else if (flows[path]) setFlowKey(path);
     else setNotice({ title: `${label} isn't available yet`, body: unsupported[label] ?? 'This option isn\'t supported in this version.' });
   }), []);
   const add = <Menu className="button primary" label="Add resource" items={addOptions}><PlusIcon />Add resource</Menu>;
@@ -101,6 +111,12 @@ export function Resources({ project, environment, environmentId, onOpen }) {
   const shared = <>
     {dialog}
     <Unsupported info={notice} onClose={() => setNotice(null)} />
+    {importing && <ImportDataDialog project={project} environmentId={environmentId} databases={all.filter(r => r.type === 'database')} source={importing.source}
+      onClose={() => setImporting(null)} onDone={refetch} onOpen={id => { setImporting(null); const r = all.find(x => x.id === id); if (r) onOpen(r); else refetch(); }} />}
+    {external && <ExternalDatabaseDialog project={project} environmentId={environmentId} takenNames={all.map(r => r.name)} onClose={() => setExternal(false)}
+      onCreated={r => { setExternal(false); setFilter('all'); setHighlight(r.id); refetch(); }} />}
+    {functionOpen && <FunctionDialog projectName={project.name} environment={environment} takenNames={all.map(r => r.name)} onClose={() => setFunctionOpen(false)}
+      onCreate={async payload => { await create(payload); setFunctionOpen(false); }} />}
     {deleting && <DeleteDialog resource={deleting} onClose={() => setDeleting(null)} onDeleted={() => { setDeleting(null); refetch(); }} />}
   </>;
 

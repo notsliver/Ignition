@@ -300,6 +300,7 @@ type Resource struct {
 	Usage               *Usage     `json:"usage,omitempty"`
 	LastDeployAt        *time.Time `json:"lastDeployAt"`
 	ServerID            string     `json:"serverId"`
+	Engine              string     `json:"engine"` // database engine or function runtime
 	CreatedAt           time.Time  `json:"createdAt"`
 	UpdatedAt           time.Time  `json:"updatedAt"`
 }
@@ -324,14 +325,14 @@ const resourceSelect = `
 	       r.port, r.command, r.data_path, r.memory_mb, r.cpus::float8, r.desired_state, r.status, r.container_id, r.host_port, r.current_deployment_id, r.running_since, r.source_id,
 	       (SELECT CASE WHEN d.https THEN 'https://' ELSE 'http://' END || d.hostname FROM domains d WHERE d.resource_id = r.id AND d.status = 'active' ORDER BY d.is_primary DESC, d.created_at LIMIT 1),
 	       COALESCE((SELECT array_agg(v.mount_path ORDER BY v.created_at, v.name) FROM resource_volumes v WHERE v.resource_id = r.id), '{}'),
-	       (SELECT max(d.created_at) FROM deployments d WHERE d.resource_id = r.id), r.server_id, r.created_at, r.updated_at
+	       (SELECT max(d.created_at) FROM deployments d WHERE d.resource_id = r.id), r.server_id, r.engine, r.created_at, r.updated_at
 	FROM resources r JOIN environments e ON e.id = r.environment_id`
 
 func scanResource(row pgx.Row) (*Resource, error) {
 	var r Resource
 	var domain *string
 	err := row.Scan(&r.ID, &r.ProjectID, &r.EnvironmentID, &r.Environment, &r.Name, &r.Type, &r.SourceType, &r.Image, &r.RepoURL, &r.Branch, &r.Dockerfile,
-		&r.Port, &r.Command, &r.DataPath, &r.MemoryMB, &r.CPUs, &r.DesiredState, &r.Status, &r.ContainerID, &r.HostPort, &r.CurrentDeploymentID, &r.RunningSince, &r.SourceID, &domain, &r.Volumes, &r.LastDeployAt, &r.ServerID, &r.CreatedAt, &r.UpdatedAt)
+		&r.Port, &r.Command, &r.DataPath, &r.MemoryMB, &r.CPUs, &r.DesiredState, &r.Status, &r.ContainerID, &r.HostPort, &r.CurrentDeploymentID, &r.RunningSince, &r.SourceID, &domain, &r.Volumes, &r.LastDeployAt, &r.ServerID, &r.Engine, &r.CreatedAt, &r.UpdatedAt)
 	r.Domain = withPort(domain)
 	return &r, noRows(err)
 }
@@ -361,7 +362,7 @@ func (s *Store) GetResource(ctx context.Context, id string) (*Resource, error) {
 }
 
 type NewResource struct {
-	ProjectID, EnvironmentID, Name, Type, SourceType, Image, RepoURL, Branch, Dockerfile, Command, DataPath, CreatedBy, SourceID string
+	ProjectID, EnvironmentID, Name, Type, SourceType, Image, RepoURL, Branch, Dockerfile, Command, DataPath, CreatedBy, SourceID, Engine string
 	Port                                                                                                                         *int
 	MemoryMB                                                                                                                     int
 	CPUs                                                                                                                         float64
@@ -371,9 +372,9 @@ type NewResource struct {
 func (s *Store) CreateResource(ctx context.Context, tx pgx.Tx, r NewResource) (string, error) {
 	var id string
 	err := tx.QueryRow(ctx, `
-		INSERT INTO resources (project_id, environment_id, name, type, source_type, image, repo_url, branch, dockerfile, port, command, data_path, memory_mb, cpus, created_by, source_id)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16) RETURNING id`,
-		r.ProjectID, r.EnvironmentID, r.Name, r.Type, r.SourceType, r.Image, r.RepoURL, r.Branch, r.Dockerfile, r.Port, r.Command, r.DataPath, r.MemoryMB, r.CPUs, nullable(r.CreatedBy), nullable(r.SourceID)).Scan(&id)
+		INSERT INTO resources (project_id, environment_id, name, type, source_type, image, repo_url, branch, dockerfile, port, command, data_path, memory_mb, cpus, created_by, source_id, engine)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`,
+		r.ProjectID, r.EnvironmentID, r.Name, r.Type, r.SourceType, r.Image, r.RepoURL, r.Branch, r.Dockerfile, r.Port, r.Command, r.DataPath, r.MemoryMB, r.CPUs, nullable(r.CreatedBy), nullable(r.SourceID), r.Engine).Scan(&id)
 	if err == nil && r.Defaults != nil {
 		d := r.Defaults
 		_, err = tx.Exec(ctx, `UPDATE resources SET health_seconds = $2, stop_grace_seconds = $3, restart_policy = $4, build_mode = $5 WHERE id = $1`,
@@ -382,7 +383,7 @@ func (s *Store) CreateResource(ctx context.Context, tx pgx.Tx, r NewResource) (s
 	if err == nil && r.DataPath != "" {
 		_, err = tx.Exec(ctx, `INSERT INTO resource_volumes (resource_id, name, mount_path) VALUES ($1, 'data', $2)`, id, r.DataPath)
 	}
-	if err == nil && r.Type == "application" && r.Port != nil {
+	if err == nil && (r.Type == "application" || r.Type == "function") && r.Port != nil {
 		// Private by default: applications get a random host port on this machine only; databases and workers get none.
 		_, err = tx.Exec(ctx, `INSERT INTO resource_ports (resource_id, container_port, bind_address) VALUES ($1, $2, '127.0.0.1')`, id, *r.Port)
 	}
@@ -475,7 +476,7 @@ func (s *Store) listResourcesWithUsage(ctx context.Context, query, typ, serverID
 		var at *time.Time
 		var domain *string
 		err := rows.Scan(&r.ID, &r.ProjectID, &r.EnvironmentID, &r.Environment, &r.Name, &r.Type, &r.SourceType, &r.Image, &r.RepoURL, &r.Branch, &r.Dockerfile,
-			&r.Port, &r.Command, &r.DataPath, &r.MemoryMB, &r.CPUs, &r.DesiredState, &r.Status, &r.ContainerID, &r.HostPort, &r.CurrentDeploymentID, &r.RunningSince, &r.SourceID, &domain, &r.Volumes, &r.LastDeployAt, &r.ServerID, &r.CreatedAt, &r.UpdatedAt,
+			&r.Port, &r.Command, &r.DataPath, &r.MemoryMB, &r.CPUs, &r.DesiredState, &r.Status, &r.ContainerID, &r.HostPort, &r.CurrentDeploymentID, &r.RunningSince, &r.SourceID, &domain, &r.Volumes, &r.LastDeployAt, &r.ServerID, &r.Engine, &r.CreatedAt, &r.UpdatedAt,
 			&r.ProjectName, &cpu, &mem, &at)
 		if err != nil {
 			return nil, err

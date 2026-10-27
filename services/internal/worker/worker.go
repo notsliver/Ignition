@@ -83,6 +83,8 @@ func (w *Worker) Run(ctx context.Context) {
 	go func() { defer wg.Done(); w.TaskLoop(ctx) }()
 	wg.Add(1)
 	go func() { defer wg.Done(); w.AutomationLoop(ctx) }()
+	wg.Add(1)
+	go func() { defer wg.Done(); w.ExternalLoop(ctx) }()
 	if w.Docker != nil {
 		wg.Add(2)
 		go func() { defer wg.Done(); w.ServerLoop(ctx) }()
@@ -92,7 +94,11 @@ func (w *Worker) Run(ctx context.Context) {
 }
 
 func (w *Worker) execute(parent context.Context, owner string, job *jobs.Job) {
-	ctx, cancel := context.WithTimeout(parent, 30*time.Minute)
+	limit := 30 * time.Minute
+	if job.Kind == jobs.KindImport {
+		limit = 6 * time.Hour // large dumps take a while
+	}
+	ctx, cancel := context.WithTimeout(parent, limit)
 	defer cancel()
 	log := slog.With("job", job.ID, "kind", job.Kind, "attempt", job.Attempts)
 	log.Info("job started")
@@ -127,6 +133,10 @@ func (w *Worker) execute(parent context.Context, owner string, job *jobs.Job) {
 		err = w.remove(ctx, job)
 	case jobs.KindHealth:
 		err = w.healthTest(ctx, job)
+	case jobs.KindImport:
+		err = w.dataImport(ctx, job)
+	case jobs.KindInvoke:
+		err = w.invokeFunction(ctx, job)
 	case jobs.KindServer:
 		err = w.serverJob(ctx, job)
 	default:
@@ -213,6 +223,9 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 	}
 	if dep.Status == "cancelled" {
 		return errCancelled
+	}
+	if res.SourceType == "external" {
+		return fmt.Errorf("%w: %s is an external database; there's nothing to deploy", jobs.ErrPermanent, res.Name)
 	}
 	w.Store.SetStatus(ctx, res.ID, "deploying")
 

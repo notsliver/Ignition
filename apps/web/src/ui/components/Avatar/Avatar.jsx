@@ -3,7 +3,7 @@ import { cx } from '../../utils/cx';
 import './Avatar.css';
 
 // Used for every user until real profile pictures come from the API.
-export const PLACEHOLDER_AVATAR = 'https://cdn.devme.app/profile-pictures/cbb82c41-9fdc-4372-aae2-2e4f8a597825.webp';
+export const PLACEHOLDER_AVATAR = 'https://upload.wikimedia.org/wikipedia/commons/7/7c/Profile_avatar_placeholder_large.png';
 
 /** Round user avatar. Falls back to the name's first letter if the image fails to load. */
 export function Avatar({ name, src = PLACEHOLDER_AVATAR, size = 20, className }) {

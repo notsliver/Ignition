@@ -31,7 +31,7 @@ const gitFlow = (host, provider, icon) => ({
 });
 
 /* Databases: official images with their documented environment variables and data directories. */
-const engines = {
+export const engines = {
   PostgreSQL: { image: v => `postgres:${v}`, versions: ['17', '16', '15'], port: 5432, data: '/var/lib/postgresql/data',
     env: v => [['POSTGRES_DB', v.database], ['POSTGRES_USER', v.user], ['POSTGRES_PASSWORD', v.password]] },
   MySQL: { image: v => `mysql:${v}`, versions: ['8.4', '8.0'], port: 3306, data: '/var/lib/mysql',
@@ -48,7 +48,7 @@ const engines = {
     env: v => [['CLICKHOUSE_DB', v.database], ['CLICKHOUSE_USER', v.user], ['CLICKHOUSE_PASSWORD', v.password], ['CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT', '1']] },
 };
 
-const dbFlow = engineName => {
+export const dbFlow = engineName => {
   const e = engines[engineName];
   return {
     icon: CircleStackIcon,
@@ -151,3 +151,7 @@ export function validate(flow, values, takenNames) {
 }
 
 export const suggestName = value => slug(value);
+
+// API engine ids ↔ the names used in menus and flows.
+export const engineNames = { postgresql: 'PostgreSQL', mysql: 'MySQL', mariadb: 'MariaDB', mongodb: 'MongoDB', redis: 'Redis', dragonfly: 'Dragonfly', clickhouse: 'ClickHouse' };
+export const engineIds = Object.fromEntries(Object.entries(engineNames).map(([id, name]) => [name, id]));

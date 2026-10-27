@@ -318,3 +318,29 @@
 }
 .domain-actions{display:flex;align-items:center;gap:8px}
 .domain-actions a.button{text-decoration:none}
+
+.env-engine{display:flex;flex-direction:column;gap:8px}
+.env-engine-head{display:flex;align-items:baseline;gap:10px;align-self:flex-start;text-align:left}
+.env-engine-head .rp-heading{margin:0}
+.env-engine-head span{font-size:12px;color:var(--muted)}
+.env-engine-list{padding:0}
+.env-engine-row{display:grid;grid-template-columns:minmax(200px,1.1fr) minmax(0,1.6fr) minmax(160px,1fr);align-items:center;gap:12px;padding:9px 12px 9px 16px}
+.env-engine-row+.env-engine-row{border-top:1px solid var(--border)}
+.env-engine-row:not(.is-set) .env-engine-name code{color:var(--text-2)}
+.env-engine-row.missing{box-shadow:inset 2px 0 0 var(--danger)}
+.env-engine-name{display:flex;flex-direction:column;gap:3px;min-width:0}
+.env-engine-name code{overflow:hidden;font:12px ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:500;text-overflow:ellipsis}
+.env-engine-tags{display:flex;flex-wrap:wrap;gap:4px}
+.env-engine-tags .tag{padding:0 5px;border-radius:4px;font-size:10.5px;font-style:normal;font-weight:500;line-height:16px;color:var(--muted);background:var(--hover)}
+.env-engine-tags .tag.bad{color:var(--danger);background:color-mix(in srgb,var(--danger) 12%,transparent)}
+.env-engine-tags .tag.warn{color:var(--warning);background:color-mix(in srgb,var(--warning) 14%,transparent)}
+.env-engine-does{margin:0;font-size:12px;line-height:1.45;color:var(--muted)}
+.env-engine-value{display:flex;align-items:center;justify-content:flex-end;gap:8px;min-width:0}
+.env-engine-current{min-width:0;max-width:100%;overflow:hidden;padding:2px 6px;border-radius:5px;font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace;text-overflow:ellipsis;white-space:nowrap;color:var(--text);background:var(--hover)}
+.env-engine-current:hover{box-shadow:0 0 0 1px var(--border)}
+.env-engine-default{min-width:0;overflow:hidden;font-size:12px;color:var(--muted);text-overflow:ellipsis;white-space:nowrap}
+.env-engine-default code{font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text-2)}
+.env-engine-note{display:flex;align-items:flex-start;gap:6px;margin:0;padding:9px 16px;border-top:1px solid var(--border);font-size:12px;line-height:1.5;color:var(--muted)}
+.env-engine-note svg{flex:none;width:14px;margin-top:2px}
+.env-fix code{font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace}
+@media(max-width:820px){.env-engine-row{grid-template-columns:minmax(0,1fr)}.env-engine-value{justify-content:flex-start}}

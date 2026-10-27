@@ -58,6 +58,7 @@ export const resourceSections = [
     { title: 'Terminal', icon: CommandLineIcon },
   ],
   [
+    { title: 'Code', icon: CodeBracketIcon },
     { title: 'Source', icon: CodeBracketIcon },
     { title: 'Build & Deploy', icon: CubeIcon },
     { title: 'Environment Variables', icon: VariableIcon },
@@ -78,11 +79,17 @@ export const resourceSections = [
 
 // Hide sections that don't apply to a resource type instead of showing empty pages.
 const hiddenByType = {
-  database: ['Build & Deploy', 'Domains'],
-  worker: ['Domains'],
-  cron: ['Domains', 'Networking', 'Health Checks', 'Scheduled Tasks'],
+  application: ['Code'],
+  database: ['Code', 'Build & Deploy', 'Domains'],
+  worker: ['Code', 'Domains'],
+  cron: ['Code', 'Domains', 'Networking', 'Health Checks', 'Scheduled Tasks'],
+  function: ['Source', 'Build & Deploy', 'Storage'],
 };
-export const resourceSectionsFor = type => resourceSections.map(section => section.filter(item => !hiddenByType[type]?.includes(item.title)));
+// External databases run elsewhere: only what IGNITION does with them applies.
+const externalSections = ['Overview', 'Environment Variables', 'Automations'];
+export const resourceSectionsFor = (type, sourceType) => resourceSections
+  .map(section => section.filter(item => sourceType === 'external' ? externalSections.includes(item.title) : !hiddenByType[type]?.includes(item.title)))
+  .filter(section => section.length > 0);
 
 // A server's workspace, grouped so the list stays short. Titles double as URL slugs.
 export const serverSections = [

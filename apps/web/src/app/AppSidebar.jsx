@@ -48,7 +48,7 @@ export function AppSidebar({ active, project, environment, onEnvironmentChange, 
       <span className="sidebar-resource-meta">{environment}</span>
     </div>
     <SidebarNav>
-      {resourceSectionsFor(resource.type).map((section, i) => <div key={i}>
+      {resourceSectionsFor(resource.type, resource.sourceType).map((section, i) => <div key={i}>
         {i > 0 && <SidebarSeparator />}
         {section.map(({ title, icon }) => <SidebarItem key={title} icon={icon} active={resourceView === title} onClick={() => onResourceNavigate(title)}>{title}</SidebarItem>)}
       </div>)}

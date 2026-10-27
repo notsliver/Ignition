@@ -1,0 +1,49 @@
+.pi-dialog{width:min(680px,calc(100vw - 32px))}
+.pi-form{display:flex;flex-direction:column;gap:12px}
+.pi-row{display:flex;align-items:flex-end;gap:10px}
+.pi-grow{flex:1}
+.pi-branch{width:170px}
+.pi-port{width:110px;margin-left:auto}
+.pi-label{display:flex;flex-direction:column;gap:5px;min-width:0;font-size:12px;font-weight:500;color:var(--text-2)}
+.pi-muted{margin:0;font-size:12px;line-height:1.5;color:var(--muted)}
+.pi-muted code,.pi-found code{font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text-2)}
+.pi-error{min-width:0;margin-right:auto;overflow:hidden;font-size:12px;color:var(--danger);text-overflow:ellipsis;white-space:nowrap}
+.pi-error-line{display:flex;align-items:flex-start;gap:6px;margin:0;font-size:12px;color:var(--danger)}
+.pi-error-line svg{flex:none;width:14px;margin-top:2px}
+.pi-deploy{flex:none;padding-bottom:8px;font-size:12px}
+.pi-found{display:flex;flex-direction:column;gap:10px;padding-top:4px;border-top:1px solid var(--border)}
+.pi-found-head{display:flex;align-items:center;flex-wrap:wrap;gap:4px;margin:8px 0 0;font-size:12.5px;color:var(--text-2)}
+.pi-found-head svg{width:14px;color:var(--success)}
+.pi-choice{display:flex;flex-direction:column;gap:4px;font-size:12.5px}
+.pi-single{display:flex;align-items:center;gap:10px;padding:10px 12px;border:1px solid var(--border);border-radius:9px}
+.pi-single>svg{flex:none;width:16px;color:var(--muted)}
+.pi-single div{display:flex;flex-direction:column;gap:2px;min-width:0}
+.pi-single strong{font-size:12.5px;font-weight:500}
+.pi-single span{font-size:12px;color:var(--muted)}
+.pi-services{display:flex;flex-direction:column;gap:8px}
+.pi-services>ul{margin:0;padding:0;list-style:none;border:1px solid var(--border);border-radius:9px;max-height:300px;overflow-y:auto}
+.pi-services>ul>li+li{border-top:1px solid var(--border)}
+.pi-services>ul>li.off .pi-svc-main{opacity:.55}
+.pi-svc{display:flex;align-items:center;gap:9px;padding:8px 12px}
+.pi-svc-icon{flex:none;width:14px;color:var(--muted)}
+.pi-svc-main{display:flex;flex:1;flex-direction:column;gap:1px;min-width:0}
+.pi-svc-main strong{font-size:12.5px;font-weight:500}
+.pi-svc-main span{overflow:hidden;font-size:11.5px;color:var(--muted);text-overflow:ellipsis;white-space:nowrap}
+.pi-warn{display:inline-flex;align-items:center;gap:3px;padding:2px 6px;border-radius:5px;font-size:11.5px;font-weight:500;color:var(--warning);background:color-mix(in srgb,var(--warning) 12%,transparent)}
+.pi-warn svg{width:12px}
+.pi-svc-note{margin:0;padding:0 12px 8px 46px;font-size:11.5px;color:var(--danger)}
+.pi-svc-warnings{display:flex;flex-direction:column;gap:3px;margin:0;padding:0 12px 10px 60px;font-size:11.5px;line-height:1.45;color:var(--text-2)}
+.pi-yaml{overflow:hidden;border-radius:9px;box-shadow:0 0 0 1px var(--border);background:#141517}
+.pi-yaml.invalid{box-shadow:0 0 0 1px var(--danger)}
+.pi-yaml:focus-within{box-shadow:0 0 0 1px var(--accent),0 0 0 3px color-mix(in srgb,var(--accent) 18%,transparent)}
+.pi-yaml-bar{display:flex;align-items:center;gap:6px;padding:6px 10px;font-size:11.5px;color:#9ca0a8;border-bottom:1px solid #26282c}
+.pi-yaml-bar svg{width:13px}
+.pi-yaml-bar .inline-link{margin-left:auto;color:#9cb8ff}
+.pi-yaml textarea{display:block;width:100%;min-height:200px;max-height:40vh;padding:10px 12px;border:0;outline:0;resize:vertical;font:12px/1.6 ui-monospace,SFMono-Regular,Menlo,monospace;white-space:pre;color:#e6e6e8;background:transparent;tab-size:2}
+.pi-yaml textarea::placeholder{color:#5b5f66}
+.pi-toggle{display:inline-flex;align-items:center;gap:4px;align-self:flex-start;font-size:12px;font-weight:500;color:var(--text-2)}
+.pi-toggle svg{width:12px;color:var(--muted)}
+.pi-env{width:100%;padding:8px 10px;border:0;border-radius:8px;outline:0;resize:vertical;font:12px/1.55 ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text);background:var(--surface);box-shadow:0 0 0 1px var(--border)}
+.pi-notes{display:flex;flex-direction:column;gap:6px;margin:0;padding-left:18px;font-size:12.5px;line-height:1.5;color:var(--text-2)}
+@media(max-width:620px){.pi-row{flex-direction:column;align-items:stretch}.pi-branch,.pi-port{width:auto;margin-left:0}}
+.pi-dialog .segmented button{padding:0 12px;white-space:nowrap}

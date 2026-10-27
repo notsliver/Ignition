@@ -16,3 +16,4 @@ export { ScheduledTasks } from './Tasks';
 export { AccessSecrets } from './Access';
 export { AdvancedSettings } from './Advanced';
 export { ResourceAutomations } from './Automations';
+export { FunctionCode } from './Function';

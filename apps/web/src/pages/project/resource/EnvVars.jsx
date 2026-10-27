@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowDownTrayIcon, ArrowUpTrayIcon, DocumentDuplicateIcon, EllipsisHorizontalIcon, EyeIcon, EyeSlashIcon, LockClosedIcon, PlusIcon, RocketLaunchIcon, TrashIcon } from '@heroicons/react/16/solid';
+import { ArrowDownTrayIcon, ArrowUpTrayIcon, InformationCircleIcon, DocumentDuplicateIcon, EllipsisHorizontalIcon, EyeIcon, EyeSlashIcon, LockClosedIcon, PlusIcon, RocketLaunchIcon, TrashIcon } from '@heroicons/react/16/solid';
 import { Avatar, Button, Menu, Notice, SearchField, TextInput, cx } from '../../../ui';
 import { api } from '../../../api/client';
 import { timeAgo, useQuery } from '../../../api/hooks';
 import { useSession } from '../../../app/AuthGate';
 import { SaveBar } from '../../settings/SettingsField';
 import { CopyButton, PageIntro } from './shared';
+import { engineEnv, generatePassword } from '../Resources/engineEnv';
+import { engineOf } from '../Resources/DatabaseDialogs';
 
 /*
  * Variables are encrypted at rest. Secret values are never sent to the browser unless an admin
@@ -40,6 +42,8 @@ export function EnvironmentVariables({ resource, environment }) {
   const [justSaved, setJustSaved] = useState(false);
   const [deploying, setDeploying] = useState(false);
   const fileRef = useRef(null);
+  const catalog = resource.type === 'database' ? engineEnv[resource.sourceType === 'external' ? 'external' : engineOf(resource)] : null;
+  const known = useMemo(() => Object.fromEntries((catalog?.vars ?? []).map(c => [c.key, c])), [catalog]);
 
   const visible = vars.filter(v => !query || v.key.toLowerCase().includes(query.toLowerCase()) || (!v.secret && v.value.toLowerCase().includes(query.toLowerCase())));
   const diff = useMemo(() => {
@@ -51,6 +55,8 @@ export function EnvironmentVariables({ resource, environment }) {
       ...saved.filter(v => !after.has(v.key)).map(v => ({ type: 'removed', v })),
     ];
   }, [saved, vars]);
+  // First-start-only settings changed after the database already initialised its data.
+  const lateInit = resource.lastDeployAt && catalog ? diff.filter(d => d.type !== 'added' && known[d.v.key]?.init).map(d => d.v.key) : [];
   const problems = useMemo(() => {
     const names = vars.map(v => v.key);
     return [...vars.filter(v => !NAME_RE.test(v.key)).map(v => `"${v.key}" isn't a valid name.`), ...[...new Set(names.filter((n, i) => names.indexOf(n) !== i))].map(n => `${n} is defined twice.`)];
@@ -131,7 +137,7 @@ export function EnvironmentVariables({ resource, environment }) {
       : <div className="rp-card env-table">
         <div className="env-head env-head-api" aria-hidden="true"><span>Name</span><span>Value</span><span>Last change</span><span /></div>
         {visible.map(v => <div key={v.key} className={cx('env-line env-line-api', !v.original && 'unsaved')}>
-          <code className="env-var-name" title={v.key}>{v.key}{v.secret && <LockClosedIcon className="env-lock" aria-label="Secret" />}</code>
+          <code className="env-var-name" title={known[v.key] ? `${v.key}: ${known[v.key].does}` : v.key}>{v.key}{v.secret && <LockClosedIcon className="env-lock" aria-label="Secret" />}</code>
           <span className="env-value-cell">
             {v.hidden
               ? <span className="env-hidden">•••••••••••• {canEdit && <button type="button" className="inline-link" onClick={() => update(v.key, { hidden: false, value: '' })}>Replace</button>}</span>
@@ -160,6 +166,13 @@ export function EnvironmentVariables({ resource, environment }) {
         </div>}
       </div>}
     {error2 && <p className="rp-error">{error2}</p>}
+    {lateInit.length > 0 && <Notice tone="warning" title={`${lateInit.join(', ')} ${lateInit.length === 1 ? 'is' : 'are'} only read on the first start`}>
+      {resource.name} already created its users and data, so saving this changes the variable, not the database.
+      {lateInit.map(k => catalog.change?.[k] && <span key={k} className="env-fix"> To really change it, run in the Terminal: <code>{catalog.change[k]}</code> then save the same value here.</span>)}
+    </Notice>}
+    {catalog && raw === null && <EngineSettings catalog={catalog} vars={vars} canEdit={canEdit}
+      onSet={c => { add(c.key, c.generate ? generatePassword() : /^=|\(/.test(c.default) ? '' : c.default); setTimeout(() => document.querySelector(`[aria-label="${c.key} value"]`)?.focus(), 50); }}
+      onFocus={key => document.querySelector(`[aria-label="${key} value"]`)?.focus()} />}
     {problems.length > 0 && <Notice tone="danger" title="Fix these before saving">{problems.join(' ')}</Notice>}
 
     {diff.length > 0 && <section>
@@ -171,4 +184,40 @@ export function EnvironmentVariables({ resource, environment }) {
 
     <SaveBar dirty={(diff.length > 0 || raw !== null) && !saving} onDiscard={() => { setVars(saved); setRaw(null); }} summary={`${diff.length} ${diff.length === 1 ? 'change' : 'changes'} · applies on the next deployment`} />
   </form>;
+}
+
+// Every variable the database image understands: what's set, what it falls back to, and what it does.
+function EngineSettings({ catalog, vars, canEdit, onSet, onFocus }) {
+  const [open, setOpen] = useState(true);
+  const set = Object.fromEntries(vars.map(v => [v.key, v]));
+  const count = catalog.vars.filter(c => set[c.key]).length;
+  return <section className="env-engine">
+    <button type="button" className="env-engine-head" aria-expanded={open} onClick={() => setOpen(o => !o)}>
+      <h2 className="rp-heading">{catalog.label} settings</h2><span>{count} of {catalog.vars.length} set · the rest use their defaults</span>
+    </button>
+    {open && <div className="rp-card env-engine-list">
+      {catalog.vars.map(c => {
+        const v = set[c.key];
+        const missing = c.required && (!v || (!v.hidden && v.value === ''));
+        return <div key={c.key} className={cx('env-engine-row', v && 'is-set', missing && 'missing')}>
+          <div className="env-engine-name">
+            <code>{c.key}</code>
+            <span className="env-engine-tags">
+              {c.required && <em className={cx('tag', missing && 'bad')}>Required</em>}
+              {c.init && <em className="tag" title="Only read when the data directory is created">First start</em>}
+              {c.danger && <em className="tag warn">Careful</em>}
+            </span>
+          </div>
+          <p className="env-engine-does">{c.does}</p>
+          <div className="env-engine-value">
+            {v ? <button type="button" className="env-engine-current" onClick={() => onFocus(c.key)} title="Edit it in the table above">
+              {v.secret ? '••••••••' : v.value === '' ? <i>empty</i> : v.value}</button>
+              : <span className="env-engine-default">{c.default ? <>Default <code>{c.default}</code></> : <i>Not set</i>}</span>}
+            {!v && canEdit && <Button type="button" onClick={() => onSet(c)}>{c.generate ? 'Generate' : 'Set'}</Button>}
+          </div>
+        </div>;
+      })}
+      {catalog.note && <p className="env-engine-note"><InformationCircleIcon />{catalog.note}</p>}
+    </div>}
+  </section>;
 }

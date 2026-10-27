@@ -231,6 +231,9 @@ type Runtime interface {
 	// label (key=value), including ones a later build of the same tag left untagged.
 	Images(ctx context.Context, repo, label string) ([]Image, error)
 	RemoveImage(ctx context.Context, id string) error
+	// CopyFileTo streams a file into a container as dir/name; CopyBetween copies a path between containers.
+	CopyFileTo(ctx context.Context, container, dir, name string, r io.Reader, size int64) error
+	CopyBetween(ctx context.Context, from, src, to, dstDir string) error
 	Remove(ctx context.Context, id string, removeVolumes bool) error
 	RemoveVolume(ctx context.Context, name string) error
 	Inspect(ctx context.Context, id string) (State, error)

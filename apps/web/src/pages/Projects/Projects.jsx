@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react';
-import { ArchiveBoxIcon, ArrowUturnLeftIcon, EllipsisHorizontalIcon, ListBulletIcon, PencilSquareIcon, PlusIcon, Squares2X2Icon, StarIcon, TrashIcon, UserGroupIcon } from '@heroicons/react/16/solid';
+import { ArchiveBoxIcon, ArrowUturnLeftIcon, DocumentDuplicateIcon, EllipsisHorizontalIcon, ListBulletIcon, PencilSquareIcon, PlusIcon, Squares2X2Icon, StarIcon, TrashIcon, UserGroupIcon } from '@heroicons/react/16/solid';
 import { Badge, Button, Dialog, FormField, Menu, Notice, SearchField, SegmentedControl, Select, Status, TextInput, cx } from '../../ui';
 import { api } from '../../api/client';
 import { timeAgo, useQuery } from '../../api/hooks';
 import { projectOptions } from '../../app/createMenus';
 import { Unsupported } from '../../app/Unsupported';
+import { DuplicateProjectDialog, ImportComposeDialog, ImportGitDialog } from './ImportDialogs';
 import './Projects.css';
 
 const views = [
@@ -42,6 +43,7 @@ export function Projects({ onOpen }) {
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
   const [unsupported, setUnsupported] = useState(null);
+  const [importing, setImporting] = useState(null); // { kind: 'git'|'compose'|'duplicate', provider?, project? }
   const [actionError, setActionError] = useState('');
   useEffect(() => { const t = setTimeout(() => setDebounced(query.trim()), 250); return () => clearTimeout(t); }, [query]);
 
@@ -57,6 +59,7 @@ export function Projects({ onOpen }) {
     { label: p.favorite ? 'Remove from favorites' : 'Set as favorite', icon: StarIcon, onSelect: () => run(() => api.setFavorite(p.id, !p.favorite)) },
     'separator',
     { label: 'Edit project', icon: PencilSquareIcon, onSelect: () => setEditing(p) },
+    { label: 'Duplicate project', icon: DocumentDuplicateIcon, onSelect: () => setImporting({ kind: 'duplicate', project: p }) },
     { label: 'Manage access', icon: UserGroupIcon, onSelect: () => setUnsupported({ title: 'Per-project access isn\'t available yet', body: 'Today every signed-in user can see all projects, limited by their instance role (viewer, developer, admin, owner).' }) },
     'separator',
     p.archived
@@ -65,10 +68,22 @@ export function Projects({ onOpen }) {
     { label: 'Delete project', icon: TrashIcon, danger: true, onSelect: () => setDeleting(p) },
   ];
 
-  // Only "Empty project" is backed by the API so far; the rest explain why they're unavailable.
-  const newProjectMenu = projectOptions.map(item => item === 'separator' ? item : item.label === 'Empty project'
-    ? { ...item, onSelect: () => setEditing({}) }
-    : { ...item, items: undefined, onSelect: () => setUnsupported({ title: `${item.label} isn't available yet`, body: 'Create an empty project, then add resources from a Git repository or a container image.' }) });
+  // Empty, Git, Compose and Duplicate are backed by the API; the rest explain why they're unavailable.
+  const providerOf = { 'Continue with GitHub': 'github', 'Continue with GitLab': 'gitlab', 'Continue with other source': 'other' };
+  const notYet = item => ({ ...item, items: undefined, onSelect: () => setUnsupported({ title: `${item.label} isn't available yet`, body: 'Create an empty project, then add resources from a Git repository or a container image.' }) });
+  const newProjectMenu = projectOptions.map(item => {
+    if (item === 'separator') return item;
+    switch (item.label) {
+      case 'Empty project': return { ...item, onSelect: () => setEditing({}) };
+      case 'Import from Git repository': return { ...item, items: item.items.map(g => g === 'separator' ? g : providerOf[g.label]
+        ? { ...g, onSelect: () => setImporting({ kind: 'git', provider: providerOf[g.label] }) }
+        : { ...g, onSelect: () => setUnsupported({ title: `${g.label.replace('Continue with ', '')} isn't supported yet`, body: 'Import from GitHub, GitLab or any https/SSH Git URL instead.' }) }) };
+      case 'From a Docker Compose file': return { ...item, onSelect: () => setImporting({ kind: 'compose' }) };
+      case 'Duplicate an existing project': return { ...item, onSelect: () => setImporting({ kind: 'duplicate' }) };
+      default: return notYet(item);
+    }
+  });
+  const created = p => { setImporting(null); refetch(); onOpen(p); };
 
   function changeView(value) {
     setView(value);
@@ -132,6 +147,9 @@ export function Projects({ onOpen }) {
       description={deleting?.resourceCount ? `It still has ${deleting.resourceCount} resources. Delete them first so their containers and data aren't left running.` : 'This removes the project and its environments. It can\'t be undone.'}
       footer={<><Button onClick={() => setDeleting(null)}>Cancel</Button><Button className="danger-solid" disabled={!!deleting?.resourceCount} onClick={() => { const p = deleting; setDeleting(null); run(() => api.deleteProject(p.id)); }}>Delete project</Button></>} />
     <Unsupported info={unsupported} onClose={() => setUnsupported(null)} />
+    {importing?.kind === 'git' && <ImportGitDialog provider={importing.provider} onClose={() => setImporting(null)} onCreated={created} />}
+    {importing?.kind === 'compose' && <ImportComposeDialog onClose={() => setImporting(null)} onCreated={created} />}
+    {importing?.kind === 'duplicate' && <DuplicateProjectDialog projects={rows.length || !archived ? rows : []} project={importing.project} onClose={() => setImporting(null)} onCreated={created} />}
   </div>;
 }
 

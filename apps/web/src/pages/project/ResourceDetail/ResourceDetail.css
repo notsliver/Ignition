@@ -84,3 +84,4 @@
   .ov-usage button:nth-child(n+3){border-top:1px solid var(--border)}
 }
 @media(max-width:720px){.resource-overview{padding:12px 16px 32px}}
+.ov-ext-note{margin:4px 0 0;font-size:12.5px;line-height:1.55;color:var(--text-2)}

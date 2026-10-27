@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/notsliver/Ignition/services/internal/httpx"
+	"github.com/notsliver/Ignition/services/internal/functions"
 	"github.com/notsliver/Ignition/services/internal/jobs"
 	"github.com/notsliver/Ignition/services/internal/store"
 	"github.com/notsliver/Ignition/services/internal/version"
@@ -268,6 +269,8 @@ type resourceInput struct {
 	CPUs          float64    `json:"cpus"`
 	Env           []envInput `json:"env"`
 	SourceID      string     `json:"sourceId"`
+	Engine        string     `json:"engine"` // database engine, or a function's runtime
+	Code          string     `json:"code"`   // a function's handler
 	sourceSSH     bool       // set by the handler once the linked source is known
 }
 
@@ -278,6 +281,13 @@ func (in *resourceInput) validate() map[string]string {
 	}
 	if in.Type == "" {
 		in.Type = "application"
+	}
+	if in.Type == "function" {
+		if in.Engine == "" {
+			in.Engine = "node"
+		}
+		in.SourceType, in.Image = "image", "placeholder:function" // filled in by functions.Prepare
+		return f
 	}
 	if in.Type != "application" && in.Type != "database" && in.Type != "worker" {
 		f["type"] = "Unsupported resource type."
@@ -377,32 +387,26 @@ func (s *Server) createResource(w http.ResponseWriter, r *http.Request, u *store
 		return err
 	}
 	defer tx.Rollback(r.Context())
-	id, err := s.Store.CreateResource(r.Context(), tx, store.NewResource{
-		ProjectID: projectID, EnvironmentID: envID, Name: in.Name, Type: in.Type, SourceType: in.SourceType, Image: in.Image,
-		RepoURL: in.RepoURL, Branch: in.Branch, Dockerfile: in.Dockerfile, Command: in.Command, DataPath: in.DataPath, CreatedBy: u.ID, SourceID: in.SourceID,
-		Defaults: &store.ResourceDefaults{HealthSeconds: defs.HealthSeconds, StopGrace: defs.StopGrace, RestartPolicy: defs.RestartPolicy, BuildMode: defs.BuildMode},
-		Port:     in.Port, MemoryMB: in.MemoryMB, CPUs: in.CPUs,
-	})
+	x := provisionExtras{Engine: in.Engine}
+	if in.Type == "database" && x.Engine == "" {
+		x.Engine = engineOf(in.Image)
+	}
+	if in.Type == "function" {
+		fn, err := functions.Prepare(in.Engine, in.Code)
+		if err != nil {
+			return httpx.Invalid(map[string]string{"code": err.Error()})
+		}
+		in.Image, in.Command, in.Port = fn.Image, fn.Command, &fn.Port
+		for _, v := range fn.Vars {
+			in.Env = append(in.Env, envInput{Key: v[0], Value: v[1]})
+		}
+		x.Engine = in.Engine
+	}
+	id, depID, err := s.provision(r.Context(), tx, u, projectID, envID, in, x)
 	if store.IsUnique(err) {
 		return httpx.Invalid(map[string]string{"name": "A resource with this name already exists in this environment."})
 	}
 	if err != nil {
-		return err
-	}
-	for _, e := range in.Env {
-		sealed, err := s.Secrets.Seal(e.Value, id+":"+e.Key)
-		if err != nil {
-			return err
-		}
-		if _, err := tx.Exec(r.Context(), `INSERT INTO env_vars (resource_id, key, value_enc, secret, updated_by) VALUES ($1, $2, $3, $4, $5)`, id, e.Key, sealed, e.Secret, u.ID); err != nil {
-			return err
-		}
-	}
-	depID, err := s.Store.CreateDeployment(r.Context(), tx, id, "create", "", in.Branch, "", u.ID)
-	if err != nil {
-		return err
-	}
-	if _, err := jobs.Enqueue(r.Context(), tx, jobs.NewJob{Kind: jobs.KindDeploy, ResourceID: id, DeploymentID: depID, CreatedBy: u.ID}); err != nil {
 		return err
 	}
 	if err := tx.Commit(r.Context()); err != nil {
@@ -516,6 +520,9 @@ func (s *Server) resourceAction(w http.ResponseWriter, r *http.Request, u *store
 	res, err := s.Store.GetResource(r.Context(), id)
 	if err != nil {
 		return notFound(err, "Resource")
+	}
+	if res.SourceType == "external" && in.Action != "refresh" {
+		return httpx.Conflict(res.Name + " is an external database; start and stop it where it runs.")
 	}
 	if res.ContainerID == "" {
 		return httpx.Conflict(res.Name + " isn't deployed yet. Deploy it first.")
@@ -727,6 +734,9 @@ func (s *Server) createDeployment(w http.ResponseWriter, r *http.Request, u *sto
 	res, err := s.Store.GetResource(r.Context(), id)
 	if err != nil {
 		return notFound(err, "Resource")
+	}
+	if res.SourceType == "external" {
+		return httpx.Conflict(res.Name + " is an external database: IGNITION connects to it but doesn't run it, so there's nothing to deploy.")
 	}
 	trigger, imageRef, branch := "manual", "", res.Branch
 	if strings.HasPrefix(u.Email, tokenActorPrefix) {

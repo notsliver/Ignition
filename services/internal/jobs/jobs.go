@@ -20,6 +20,8 @@ const (
 	KindDeploy = "deploy" // build (if needed) and roll out a resource
 	KindAction = "action" // start / stop / restart a resource
 	KindRemove = "remove" // delete a resource's containers (and optionally volumes)
+	KindImport = "import" // load a dump or a live database into a database resource
+	KindInvoke = "invoke" // call a function once (Functions › Test)
 	KindHealth = "health" // run one health check with the given settings (Health Checks, Test)
 	KindServer = "server" // a server operation: refresh, diagnostics, cleanup, scheduled server task
 )
