@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1-beta — 2026-10-27
+
+- Automations: an automations engine with its own dashboard, also available per server.
+- Projects: imports, database data, external databases and functions.
+- Installer: preflight checks (OS, architecture, memory, disk, Docker version, free ports) and clear explanations when something fails, including ports already in use.
+- `uninstall.sh` to remove IGNITION, keeping your data unless you ask otherwise.
+
 ## 0.1.0-beta — 2026-10-26
 
 First public beta.
