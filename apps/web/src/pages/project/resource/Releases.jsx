@@ -13,7 +13,7 @@ import './Operations.css';
  * the old release keeps serving until the new one passes its checks.
  */
 
-const TRIGGER = { manual: 'Manual', create: 'First deploy', redeploy: 'Redeploy', rollback: 'Rollback', retry: 'Retry', config: 'Config change', hook: 'Deploy hook', token: 'API token' };
+const TRIGGER = { manual: 'Manual', create: 'First deploy', redeploy: 'Redeploy', rollback: 'Rollback', retry: 'Retry', config: 'Config change', hook: 'Deploy hook', token: 'API token', automation: 'Automation' };
 const STATUS = { successful: ['success', 'Done'], failed: ['danger', 'Failed'], cancelled: ['neutral', 'Cancelled'], queued: ['neutral', 'Queued'], building: ['progress', 'Building'], deploying: ['progress', 'Deploying'] };
 const short = s => (s || '').slice(0, 7);
 const names = list => list.length > 3 ? `${list.slice(0, 3).join(', ')} and ${list.length - 3} more` : list.join(', ');

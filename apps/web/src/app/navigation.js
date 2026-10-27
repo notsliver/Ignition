@@ -2,7 +2,7 @@ import {
   AdjustmentsHorizontalIcon, ArrowUturnLeftIcon, CalendarDaysIcon, CircleStackIcon, CpuChipIcon, DocumentTextIcon, HeartIcon, HomeIcon,
   CodeBracketIcon, LockClosedIcon, ServerStackIcon, VariableIcon, CommandLineIcon, CubeIcon, GlobeAltIcon, RocketLaunchIcon, ArchiveBoxIcon, ArrowPathIcon, BellIcon, ChartBarIcon, ClipboardDocumentListIcon, Cog6ToothIcon,
   KeyIcon, RectangleStackIcon, ShieldCheckIcon, Squares2X2Icon, UserCircleIcon, UsersIcon, WrenchScrewdriverIcon,
-  BeakerIcon, ClockIcon, PresentationChartLineIcon, ShareIcon, Square3Stack3DIcon,
+  BeakerIcon, BoltIcon, ClockIcon, PresentationChartLineIcon, ShareIcon, Square3Stack3DIcon,
 } from '@heroicons/react/20/solid';
 
 export const topItems = [
@@ -70,6 +70,7 @@ export const resourceSections = [
   [
     { title: 'Rollback History', icon: ArrowUturnLeftIcon },
     { title: 'Scheduled Tasks', icon: CalendarDaysIcon },
+    { title: 'Automations', icon: BoltIcon },
     { title: 'Access & Secrets', icon: LockClosedIcon },
     { title: 'Advanced Settings', icon: WrenchScrewdriverIcon },
   ],
@@ -103,6 +104,7 @@ export const serverSections = [
   { label: 'Operations', items: [
     { title: 'Maintenance', icon: WrenchScrewdriverIcon },
     { title: 'Tasks & Automation', icon: ClockIcon },
+    { title: 'Automations', icon: BoltIcon },
   ] },
   { label: 'Administration', items: [
     { title: 'Access & Security', icon: ShieldCheckIcon },

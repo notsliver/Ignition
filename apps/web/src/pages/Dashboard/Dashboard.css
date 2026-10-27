@@ -21,7 +21,6 @@
 .dashboard>.section{margin-top:8px}
 
 
-.deployment-row{grid-template-columns:6px minmax(150px,1fr) minmax(0,1.8fr) 56px 56px}
 .commit{display:flex;align-items:center;gap:8px;min-width:0;font-size:12.5px;color:var(--text-2)}
 .commit span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .commit code{font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--muted)}
@@ -43,11 +42,18 @@
 }
 @media(max-width:720px){
   .dashboard{padding:16px}
-  .deployment-row{grid-template-columns:6px 1fr auto}
-  .deployment-row .commit,.deployment-row .row-meta:nth-last-child(2){display:none}
   .resources{grid-template-columns:repeat(2,minmax(0,1fr))}
   .resource:nth-child(n){border-left:0;border-top:1px solid var(--border)}
   .resource:nth-child(even){border-left:1px solid var(--border)}
   .resource:nth-child(-n+2){border-top:0}
   .alert>span{display:none}
 }
+
+.resource.unmeasured .resource-value{color:var(--muted)}
+.resource-why{margin:6px 0 0;font-size:11px;line-height:1.45;color:var(--muted);display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.alert-action{cursor:pointer}
+.dashboard-deployments .deployment-row{cursor:pointer}
+.dashboard-deployments .deployment-row{grid-template-columns:minmax(110px,1fr) minmax(60px,.6fr) minmax(150px,180px) minmax(60px,.6fr) minmax(120px,1.6fr) 84px 20px 26px;gap:12px}
+.dashboard-deployments .deployment-resource{font-family:inherit;font-size:12px}
+.dashboard-deployments .deployment-id,.dashboard-deployments .deployment-env{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+@media(max-width:1100px){.dashboard-deployments .deployment-row{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr) 20px 26px}.dashboard-deployments .deployment-env,.dashboard-deployments .deployment-ref,.dashboard-deployments .deployment-resource{display:none}}

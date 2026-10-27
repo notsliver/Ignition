@@ -81,6 +81,8 @@ func (w *Worker) Run(ctx context.Context) {
 	go func() { defer wg.Done(); w.HealthLoop(ctx) }()
 	wg.Add(1)
 	go func() { defer wg.Done(); w.TaskLoop(ctx) }()
+	wg.Add(1)
+	go func() { defer wg.Done(); w.AutomationLoop(ctx) }()
 	if w.Docker != nil {
 		wg.Add(2)
 		go func() { defer wg.Done(); w.ServerLoop(ctx) }()

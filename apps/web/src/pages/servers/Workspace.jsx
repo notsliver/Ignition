@@ -11,10 +11,13 @@ import { Monitoring, ServerLogs, Diagnostics } from './Observability';
 import { Docker, Storage, Networking } from './Runtime';
 import { Maintenance, Tasks } from './Operations';
 import { Access, Settings } from './Administration';
+import { Automations } from '../automations/Automations';
+
+const ServerAutomations = ({ server, onNavigate }) => <Automations scope="servers" server={server} onNavigate={onNavigate} />;
 
 const pages = {
   Overview, Resources: ServerResources, Deployments: ServerDeployments, Monitoring, Logs: ServerLogs, Diagnostics,
-  Docker, Storage, Networking, Maintenance, 'Tasks & Automation': Tasks, 'Access & Security': Access, Settings,
+  Docker, Storage, Networking, Maintenance, 'Tasks & Automation': Tasks, Automations: ServerAutomations, 'Access & Security': Access, Settings,
 };
 
 /**

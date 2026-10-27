@@ -30,12 +30,12 @@ const resourcePageComponents = {
   Logs: 'Logs', Metrics: 'Metrics', Terminal: 'Terminal',
   Source: 'Source', 'Build & Deploy': 'BuildDeploy', 'Environment Variables': 'EnvironmentVariables', Domains: 'Domains',
   Networking: 'Networking', Storage: 'Storage', 'Health Checks': 'HealthChecks', 'Resource Limits': 'ResourceLimits',
-  'Rollback History': 'RollbackHistory', 'Scheduled Tasks': 'ScheduledTasks', 'Access & Secrets': 'AccessSecrets', 'Advanced Settings': 'AdvancedSettings',
+  'Rollback History': 'RollbackHistory', 'Scheduled Tasks': 'ScheduledTasks', 'Access & Secrets': 'AccessSecrets', 'Advanced Settings': 'AdvancedSettings', Automations: 'ResourceAutomations',
 };
 // Pages still running on sample data are labelled so nothing pretends to be live.
 const preview = node => <><PreviewBanner />{node}</>;
 const LIVE_RESOURCE_VIEWS = ['Overview', 'Deployments', 'Logs', 'Metrics', 'Environment Variables', 'Source', 'Domains', 'Networking', 'Build & Deploy', 'Resource Limits', 'Storage', 'Terminal',
-  'Health Checks', 'Rollback History', 'Scheduled Tasks', 'Access & Secrets', 'Advanced Settings'];
+  'Health Checks', 'Rollback History', 'Scheduled Tasks', 'Access & Secrets', 'Advanced Settings', 'Automations'];
 // Settings pages backed by the API (the rest are still previews).
 const LIVE_PAGES = ['General', 'Updates', 'Users & Permissions'];
 const pages = { Dashboard: <Dashboard />, General: <General />, 'Authentication & Security': <Security />, Updates: <Updates />, 'Users & Permissions': <Users /> };
@@ -129,6 +129,7 @@ export function App() {
         : active === 'Servers' ? (server
           ? <ServerWorkspace key={server.id} server={server} view={serverView} onNavigate={showServerView} onServerChange={setServerState} onRemoved={() => { setServerState(null); setServerView('Overview'); }} onOpenResource={openResourceFromAnywhere} />
           : <Servers onOpen={openServer} />)
+        : active === 'Dashboard' ? <Dashboard onOpenResource={openResourceFromAnywhere} onOpenServer={openServer} onNavigate={navigate} />
         : active === 'Monitor' ? <Monitor onOpenResource={openResourceFromAnywhere} />
         : active === 'Sources' ? <Sources onOpenResource={openResourceFromAnywhere} />
           : active === 'Audit Log' ? <AuditLog onOpenResource={openResourceFromAnywhere} />

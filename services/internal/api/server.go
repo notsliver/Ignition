@@ -233,6 +233,24 @@ func (s *Server) Handler() http.Handler {
 	authed("DELETE /api/servers/{id}/credentials", "admin", s.revokeServerCredentials)
 	authed("PUT /api/servers/{id}/endpoint", "admin", s.changeServerEndpoint)
 
+	authed("GET /api/dashboard", "viewer", s.dashboard)
+	authed("GET /api/automations/catalog", "viewer", s.automationCatalog)
+	authed("GET /api/automations", "viewer", s.listAutomations)
+	authed("POST /api/automations", "developer", s.createAutomation)
+	authed("POST /api/automations/preview", "viewer", s.previewAutomation)
+	authed("GET /api/automations/{id}", "viewer", s.getAutomation)
+	authed("PUT /api/automations/{id}", "developer", s.updateAutomation)
+	authed("DELETE /api/automations/{id}", "developer", s.deleteAutomation)
+	authed("POST /api/automations/{id}/run", "developer", s.runAutomation)
+	authed("POST /api/automations/{id}/hook", "developer", s.createAutomationHook)
+	authed("POST /api/automations/{id}/test-notify", "developer", s.testAutomationNotify)
+	authed("GET /api/automation-runs/{id}", "viewer", s.getAutomationRun)
+	authed("POST /api/automation-runs/{id}/approve", "developer", s.decideAutomationRun("approve"))
+	authed("POST /api/automation-runs/{id}/reject", "developer", s.decideAutomationRun("reject"))
+	authed("POST /api/automation-runs/{id}/acknowledge", "developer", s.decideAutomationRun("acknowledge"))
+	authed("POST /api/automation-runs/{id}/cancel", "developer", s.decideAutomationRun("cancel"))
+	h("POST /api/automation-hooks/{token}", s.automationHook)
+
 	mux.Handle("/api/", httpx.Handler(func(w http.ResponseWriter, r *http.Request) error { return httpx.NotFound("Endpoint") }))
 	if s.WebDir != "" {
 		mux.Handle("/", s.spa())
@@ -272,7 +290,7 @@ func (s *Server) checkOrigin(next http.Handler) http.Handler {
 		}
 		// Deploy hooks carry their own secret, and token requests have no cookie a forged request could ride on.
 		_, cookieErr := r.Cookie(sessionCookie)
-		if strings.HasPrefix(r.URL.Path, "/api/hooks/") || (strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") && cookieErr != nil) {
+		if strings.HasPrefix(r.URL.Path, "/api/hooks/") || strings.HasPrefix(r.URL.Path, "/api/automation-hooks/") || (strings.HasPrefix(r.Header.Get("Authorization"), "Bearer ") && cookieErr != nil) {
 			next.ServeHTTP(w, r)
 			return
 		}

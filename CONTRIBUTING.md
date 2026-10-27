@@ -29,14 +29,3 @@ make test             # gofmt, go vet, unit and integration tests
 
 By contributing you agree your work is licensed under the [Apache License 2.0](LICENSE).
 
-## Releasing (maintainers)
-
-Releases are published from a maintainer's machine; GitHub Actions isn't required.
-
-```sh
-docker login -u notsliver          # once, with a Docker Hub access token
-make release VERSION=0.2.0-beta    # or VERSION=edge for the current main
-```
-
-`scripts/release.sh` checks that `main` is clean and pushed, builds `notsliver/ignition` for linux/amd64 and linux/arm64, pushes the version tags (`0.2.0-beta` + `beta`, or `0.2.0` + `0.2` + `0` + `latest`), tags git, and creates the GitHub release with the notes from `CHANGELOG.md`. Add the version's section to `CHANGELOG.md` first. `.github/workflows/release.yml` does the same on a pushed `v*` tag when Actions are available.
-

@@ -719,3 +719,68 @@ paths:
   /api/servers/{id}/endpoint:
     parameters: [{ $ref: '#/components/parameters/id' }]
     put: { summary: Move a remote server to a new address that presents the same host identity (admin), responses: { '200': { description: '{ server }' }, '409': { $ref: '#/components/responses/Error' } } }
+  /api/automations/catalog:
+    get:
+      summary: Built-in steps (with what each verifies and its risk), events, metrics, the capability catalog (available or what it needs) and templates.
+      responses: { '200': { description: '{ actions, events, metrics, catalog, templates }' } }
+  /api/automations:
+    get:
+      summary: Automations of a resource (?resourceId=) or that act on a server (?serverId=), with counts and runs that need someone.
+      responses: { '200': { description: '{ automations, counts, attention, managedServers?, resourceAutomations? }' } }
+    post:
+      summary: Create an automation. Resource automations need a developer, server automations an admin.
+      responses: { '201': { description: '{ automation }' }, '422': { description: validation error } }
+  /api/automations/preview:
+    post:
+      summary: Validate a draft and show its workflow, the servers it would act on now, its next runs and whether it's disruptive.
+      responses: { '200': { description: '{ workflow, errors, targets, nextRuns, disruptive, inWindowNow }' } }
+  /api/automations/{id}:
+    get:
+      summary: One automation with its last 25 runs.
+      responses: { '200': { description: '{ automation, runs }' } }
+    put:
+      summary: Change an automation. Enabling a paused one clears its failure count.
+      responses: { '200': { description: '{ automation }' }, '422': { description: validation error } }
+    delete:
+      summary: Delete an automation and its history.
+      responses: { '204': { description: Deleted } }
+  /api/automations/{id}/run:
+    post:
+      summary: Run now (observe records recommendations, assisted waits for approval, automatic executes). Over the hourly limit the run is recorded as skipped.
+      responses: { '202': { description: '{ run }' }, '200': { description: '{ run } skipped' } }
+  /api/automations/{id}/hook:
+    post:
+      summary: Create or replace the secret webhook URL that triggers this automation. Shown once.
+      responses: { '201': { description: '{ url }' } }
+  /api/automations/{id}/test-notify:
+    post:
+      summary: Send a test message to the automation's notification webhook.
+      responses: { '200': { description: '{ status }' }, '503': { description: webhook failed } }
+  /api/automation-runs/{id}:
+    get:
+      summary: A run with its plan, each step's output and how its outcome was verified.
+      responses: { '200': { description: '{ run }' } }
+  /api/automation-runs/{id}/approve:
+    post:
+      summary: Approve a plan that's awaiting approval; it runs inside the automation's maintenance window.
+      responses: { '200': { description: '{ run }' }, '409': { description: not awaiting approval } }
+  /api/automation-runs/{id}/reject:
+    post:
+      summary: Reject a plan; nothing runs.
+      responses: { '200': { description: '{ run }' }, '409': { description: not awaiting approval } }
+  /api/automation-runs/{id}/acknowledge:
+    post:
+      summary: Clear a failed run or recommendation from Needs attention.
+      responses: { '200': { description: '{ run }' } }
+  /api/automation-runs/{id}/cancel:
+    post:
+      summary: Cancel a run that hasn't started.
+      responses: { '200': { description: '{ run }' }, '409': { description: already running or finished } }
+  /api/automation-hooks/{token}:
+    post:
+      summary: Trigger an automation (no session; the URL is the secret). Optional JSON { reason }.
+      responses: { '202': { description: '{ runId, status }' }, '404': { description: unknown hook } }
+  /api/dashboard:
+    get:
+      summary: Counts, what needs attention (each linking to where it's fixed) and the latest deployments across all resources.
+      responses: { '200': { description: '{ stats, alerts, deployments, localServer? }' } }

@@ -20,7 +20,7 @@ const statusInfo = {
   cancelled: { tone: 'neutral', label: 'Cancelled' },
 };
 const active = s => s === 'queued' || s === 'building' || s === 'deploying';
-const triggerLabel = { manual: 'Manual', create: 'First deploy', redeploy: 'Redeploy', rollback: 'Rollback', retry: 'Retry', config: 'Config change', hook: 'Deploy hook', token: 'API token' };
+const triggerLabel = { manual: 'Manual', create: 'First deploy', redeploy: 'Redeploy', rollback: 'Rollback', retry: 'Retry', config: 'Config change', hook: 'Deploy hook', token: 'API token', automation: 'Automation' };
 const statusTabs = [{ value: 'all', label: 'All' }, { value: 'active', label: 'In progress' }, { value: 'failed', label: 'Failed' }];
 
 function Timeline({ d }) {
