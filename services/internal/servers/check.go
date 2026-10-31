@@ -2,6 +2,7 @@ package servers
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -15,11 +16,18 @@ import (
 func Check(ctx context.Context, reg *Registry, st *store.Store, srv *store.Server, actor string) Observation {
 	o := reg.Probe(ctx, srv)
 	settings := ParseSettings(srv.Settings)
+	// The sampler marks the collector "probe" once the probe answers; a check keeps that until a
+	// sample says otherwise, so "Test connection" doesn't flip it back.
+	var prev Info
+	json.Unmarshal(srv.Info, &prev)
+	o.HostProbe = prev.Collector == "probe" && settings.CollectMetrics && settings.HostProbe
 	state, rt, failures := Transition(srv.ConnectionState, srv.Failures, o, settings)
 	h := store.HealthUpdate{ConnectionState: state, RuntimeState: rt, Success: o.Reached, Error: o.Error, Failures: failures}
 	if o.HasInfo {
 		info := Info{Engine: &o.Info, CheckedAt: time.Now().UTC(), LatencyMS: o.Latency.Milliseconds(), ClockSkewMS: o.SkewMS}
 		switch {
+		case o.HostProbe:
+			info.Collector = "probe"
 		case srv.IsLocal && o.Procfs:
 			info.Collector = "procfs"
 		default:

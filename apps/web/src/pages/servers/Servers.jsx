@@ -9,7 +9,8 @@ import { useQuery } from '../../api/hooks';
 import { useSession } from '../../app/AuthGate';
 import { AddServerDialog } from './AddServerDialog';
 import { BulkDialog } from './BulkDialog';
-import { download, isAdmin, pct } from './model';
+import { CapacityPanel } from './Capacity';
+import { connection, download, isAdmin, pct } from './model';
 import { Chips, ConnectionStatus, LastContact, RuntimeStatus, useFeedback, useServerActions } from './shared';
 
 /*
@@ -44,6 +45,46 @@ const bulkMenu = [
   { action: 'enter_maintenance', label: 'Enter maintenance', icon: WrenchScrewdriverIcon },
 ];
 
+const groupings = [
+  { value: 'none', label: 'No grouping' },
+  { value: 'environment', label: 'Environment' },
+  { value: 'location', label: 'Location' },
+  { value: 'status', label: 'Connection' },
+];
+const GROUP_LIMIT = 200;
+const groupKey = (s, by) => by === 'environment' ? s.environment : by === 'location' ? s.location : by === 'status' ? connection(s).label : '';
+
+function groupPref() {
+  try { const v = localStorage.getItem('ignition:servers:group'); return groupings.some(g => g.value === v) ? v : 'none'; } catch { return 'none'; }
+}
+
+/** Splits rows into groups with totals that only count current samples. */
+function groupRows(rows, by) {
+  const map = new Map();
+  for (const s of rows) {
+    const k = groupKey(s, by) || '';
+    if (!map.has(k)) map.set(k, []);
+    map.get(k).push(s);
+  }
+  return [...map.entries()].sort(([a], [b]) => (a === '') - (b === '') || a.localeCompare(b)).map(([key, list]) => {
+    const live = list.filter(s => s.metrics);
+    const avg = f => { const v = live.map(f).filter(x => x != null); return v.length ? Math.round(v.reduce((x, y) => x + y, 0) / v.length) : null; };
+    return {
+      key, list, online: list.filter(s => s.available).length, workloads: list.reduce((n, s) => n + s.workloads, 0),
+      cpu: avg(s => s.metrics.cpuPercent), memory: avg(s => pct(s.metrics.memoryUsed, s.metrics.memoryTotal)), measured: live.length,
+    };
+  });
+}
+
+function GroupSummary({ g, by }) {
+  const name = g.key || (by === 'location' ? 'No location' : by === 'environment' ? 'No environment' : 'Other');
+  return <span className="sv-group-head">
+    <strong>{name}</strong>
+    <span>{g.list.length} server{g.list.length === 1 ? '' : 's'} · {g.online} available · {g.workloads} workload{g.workloads === 1 ? '' : 's'}</span>
+    {g.measured > 0 && <span title={`Average over ${g.measured} server(s) with a current sample`}>{g.cpu != null ? `CPU ${g.cpu}%` : ''}{g.cpu != null && g.memory != null ? ' · ' : ''}{g.memory != null ? `memory ${g.memory}%` : ''}</span>}
+  </span>;
+}
+
 function usagePrefs() {
   try { return localStorage.getItem('ignition:servers:view') === 'list' ? 'list' : 'table'; } catch { return 'table'; }
 }
@@ -58,6 +99,7 @@ export function Servers({ onOpen }) {
   const [desc, setDesc] = useState(false);
   const [page, setPage] = useState(0);
   const [layout, setLayout] = useState(usagePrefs);
+  const [group, setGroup] = useState(groupPref);
   const [selected, setSelected] = useState(() => new Set());
   const [selectMode, setSelectMode] = useState(false);
   const [adding, setAdding] = useState(false);
@@ -65,17 +107,21 @@ export function Servers({ onOpen }) {
   const [contextMenu, setContextMenu] = useState(null);
   const [feedbackNode, setFeedback] = useFeedback();
   useEffect(() => { const t = setTimeout(() => setDebounced(query.trim()), 250); return () => clearTimeout(t); }, [query]);
-  useEffect(() => { setPage(0); }, [debounced, filter, sort, desc]);
+  useEffect(() => { setPage(0); }, [debounced, filter, sort, desc, group]);
+  useEffect(() => { try { localStorage.setItem('ignition:servers:group', group); } catch { /* private mode */ } }, [group]);
   useEffect(() => { try { localStorage.setItem('ignition:servers:view', layout); } catch { /* private mode */ } }, [layout]);
 
-  const params = { q: debounced, filter, sort, dir: desc ? 'desc' : 'asc', limit: PAGE, offset: page * PAGE };
-  const { data, error, loading, refetch } = useQuery(() => api.servers(params), [debounced, filter, sort, desc, page], { pollMs: 10000 });
+  // Grouping needs every server at once, so it reads up to GROUP_LIMIT without paging.
+  const grouped = group !== 'none';
+  const params = { q: debounced, filter, sort, dir: desc ? 'desc' : 'asc', limit: grouped ? GROUP_LIMIT : PAGE, offset: grouped ? 0 : page * PAGE };
+  const { data, error, loading, refetch } = useQuery(() => api.servers(params), [debounced, filter, sort, desc, page, group], { pollMs: 10000 });
   const rows = data?.servers ?? [];
   const total = data?.total ?? 0;
   const summary = data?.summary;
   const byId = useMemo(() => new Map(rows.map(s => [s.id, s])), [rows]);
   const selecting = selectMode || selected.size > 0;
   const allSelected = rows.length > 0 && rows.every(r => selected.has(r.id));
+  const groups = useMemo(() => grouped ? groupRows(rows, group) : [{ key: null, list: rows }], [rows, group, grouped]);
 
   function toggle(id) {
     setSelected(cur => { const next = new Set(cur); next.has(id) ? next.delete(id) : next.add(id); return next; });
@@ -110,6 +156,8 @@ export function Servers({ onOpen }) {
       </button>
     </section>
 
+    {summary?.total > 0 && <CapacityPanel onOpen={onOpen} />}
+
     {selecting
       ? <div className="monitor-toolbar bulk-bar" role="toolbar" aria-label="Selected servers">
         <Checkbox label="Select all on this page" checked={allSelected} indeterminate={selected.size > 0 && !allSelected} onChange={() => setSelected(allSelected ? new Set() : new Set(rows.map(r => r.id)))} />
@@ -125,8 +173,9 @@ export function Servers({ onOpen }) {
       </div>
       : <div className="monitor-toolbar">
         <div className="sv-toolbar-start">
-          <SearchField value={query} onChange={setQuery} placeholder="Search name, host, address, environment or label" className="monitor-search sv-search" />
+          <SearchField value={query} onChange={setQuery} placeholder="Search name, host, address, environment, location or label" className="monitor-search sv-search" />
           <Select label="Filter" options={filters} value={filter} onChange={setFilter} className="sv-select" />
+          <Select label="Group by" options={groupings.map(g => ({ ...g, label: g.value === 'none' ? g.label : `Group: ${g.label}` }))} value={group} onChange={setGroup} className="sv-select" />
         </div>
         <div className="monitor-toolbar-end">
           <Select label="Sort by" options={sorts.map(s => ({ ...s, label: `Sort: ${s.label}` }))} value={sort} onChange={setSort} className="sv-select" />
@@ -150,7 +199,7 @@ export function Servers({ onOpen }) {
         <thead><tr>
           {selecting && <th className="select"><span className="visually-hidden">Selected</span></th>}
           <SortTh k="name" label="Server" {...{ sort, desc, sortBy }} />
-          <th>Environment</th>
+          <th>Environment · location</th>
           <SortTh k="status" label="Connection" {...{ sort, desc, sortBy }} />
           <th>Docker</th>
           <SortTh k="workloads" label="Workloads" num {...{ sort, desc, sortBy }} />
@@ -160,8 +209,9 @@ export function Servers({ onOpen }) {
           <SortTh k="lastSeen" label="Last contact" {...{ sort, desc, sortBy }} />
           <th className="actions"><span className="visually-hidden">Actions</span></th>
         </tr></thead>
-        <tbody>
-          {rows.map(s => <tr key={s.id} className={cx(selected.has(s.id) && 'selected', contextMenu?.row === s.id && 'context')} aria-selected={selected.has(s.id)}
+        {groups.map(g => <tbody key={g.key ?? 'all'}>
+          {g.key != null && <tr className="sv-group-row"><td colSpan={selecting ? 11 : 10}><GroupSummary g={g} by={group} /></td></tr>}
+          {g.list.map(s => <tr key={s.id} className={cx(selected.has(s.id) && 'selected', contextMenu?.row === s.id && 'context')} aria-selected={selected.has(s.id)}
             onClick={e => onRowClick(e, s)} onKeyDown={e => { if (e.key === 'Enter' && e.target === e.currentTarget) onOpen(s); }} tabIndex={0}
             onContextMenu={e => { e.preventDefault(); setContextMenu({ anchor: { x: e.clientX, y: e.clientY }, server: s, row: s.id }); }}>
             {selecting && <td className="select" onClick={e => e.stopPropagation()}><Checkbox label={`Select ${s.name}`} checked={selected.has(s.id)} onChange={() => toggle(s.id)} /></td>}
@@ -176,11 +226,13 @@ export function Servers({ onOpen }) {
             <td className="muted"><LastContact server={s} /></td>
             <td className="actions" onClick={e => e.stopPropagation()} onContextMenu={e => e.stopPropagation()}><RowMenu server={s} onOpen={onOpen} onChanged={refetch} setFeedback={setFeedback} /></td>
           </tr>)}
-        </tbody>
+        </tbody>)}
       </table>
       {!rows.length && <p className="monitor-empty">{loading && !data ? 'Loading servers…' : error && !data ? 'Servers couldn\'t be loaded.' : noMatches ? (debounced ? `No servers match “${debounced}”.` : 'No servers match this filter.') : ''}</p>}
     </div> : <ul className="sv-list">
-      {rows.map(s => <li key={s.id} className={cx(selected.has(s.id) && 'selected')}>
+      {groups.flatMap(g => [
+        g.key != null && <li key={`group:${g.key}`} className="sv-group-item"><GroupSummary g={g} by={group} /></li>,
+        ...g.list.map(s => <li key={s.id} className={cx(selected.has(s.id) && 'selected')}>
         {selecting && <Checkbox label={`Select ${s.name}`} checked={selected.has(s.id)} onChange={() => toggle(s.id)} />}
         <button type="button" className="sv-list-main" onClick={e => onRowClick(e, s)}>
           <strong>{s.name}</strong>
@@ -188,16 +240,17 @@ export function Servers({ onOpen }) {
         </button>
         <span className="sv-list-status"><ConnectionStatus server={s} /><RuntimeStatus server={s} /></span>
         <RowMenu server={s} onOpen={onOpen} onChanged={refetch} setFeedback={setFeedback} />
-      </li>)}
+      </li>)])}
       {!rows.length && <li className="monitor-empty">{loading && !data ? 'Loading servers…' : debounced ? `No servers match “${debounced}”.` : 'No servers match this filter.'}</li>}
     </ul>}
 
     <div className="sv-pager">
       <span className="monitor-footnote">
-        {total > 0 ? `${page * PAGE + 1}–${Math.min(total, (page + 1) * PAGE)} of ${total}` : ''}
+        {grouped ? (total > GROUP_LIMIT ? `Grouping the first ${GROUP_LIMIT} of ${total}. Search or filter to narrow it down.` : `${total} server${total === 1 ? '' : 's'}`)
+          : total > 0 ? `${page * PAGE + 1}–${Math.min(total, (page + 1) * PAGE)} of ${total}` : ''}
         {data ? ` · Checked every ${data.checkIntervalSeconds} s; a server not checked for ${data.staleAfterSeconds} s shows as Unknown.` : ''}
       </span>
-      {total > PAGE && <span className="sv-pager-buttons">
+      {!grouped && total > PAGE && <span className="sv-pager-buttons">
         <Button icon={ChevronLeftIcon} aria-label="Previous page" disabled={page === 0} onClick={() => setPage(p => p - 1)} />
         <Button icon={ChevronRightIcon} aria-label="Next page" disabled={(page + 1) * PAGE >= total} onClick={() => setPage(p => p + 1)} />
       </span>}
@@ -227,7 +280,7 @@ function Usage({ server: s, kind }) {
   }
   if (value == null) {
     title = !['online', 'degraded'].includes(s.connectionState) ? 'Not current: the server isn\'t reachable or its status is stale.'
-      : !s.isLocal ? 'Not measured: the Docker API doesn\'t report host utilisation for remote servers.'
+      : !s.isLocal && s.settings?.hostProbe === false ? 'Not measured: the host probe is off in Settings, and the Docker API doesn\'t report host utilisation.'
         : s.settings?.collectMetrics === false ? 'Collection is off in Settings.' : 'No sample yet.';
     return <span className="muted" title={title}>—</span>;
   }

@@ -55,7 +55,7 @@ func ownerOf(labels map[string]string, idx map[string]store.ResourceRef, serverI
 		}
 		return ownerRef{Kind: "ignition"} // a resource that's gone, or that lives on another server
 	}
-	if labels["ignition.probe"] != "" || labels["ignition.backup"] != "" || labels["ignition.updater"] != "" {
+	if labels["ignition.probe"] != "" || labels["ignition.hostprobe"] != "" || labels["ignition.backup"] != "" || labels["ignition.updater"] != "" {
 		return ownerRef{Kind: "helper"}
 	}
 	if labels["ignition.managed"] == "true" {

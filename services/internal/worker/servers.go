@@ -12,6 +12,7 @@ import (
 
 	"github.com/notsliver/Ignition/services/internal/hostinfo"
 	"github.com/notsliver/Ignition/services/internal/jobs"
+	"github.com/notsliver/Ignition/services/internal/runtime"
 	"github.com/notsliver/Ignition/services/internal/servers"
 	"github.com/notsliver/Ignition/services/internal/store"
 )
@@ -32,8 +33,35 @@ const (
 )
 
 type hostState struct {
-	mu   sync.Mutex
-	prev map[string]hostinfo.Snapshot
+	mu      sync.Mutex
+	prev    map[string]hostinfo.Snapshot // keyed by server ID and source
+	factsAt map[string]time.Time         // when hardware facts were last read per server
+	probeOK map[string]bool              // last probe outcome, to log changes once
+	removed map[string]bool              // probes already removed because the setting is off
+}
+
+func newHostState() *hostState {
+	return &hostState{prev: map[string]hostinfo.Snapshot{}, factsAt: map[string]time.Time{}, probeOK: map[string]bool{}, removed: map[string]bool{}}
+}
+
+// rates fills the counters that need two snapshots from the same source.
+func (hs *hostState) rates(key string, cur hostinfo.Snapshot, m *store.ServerMetricSample) {
+	hs.mu.Lock()
+	prev, had := hs.prev[key]
+	hs.prev[key] = cur
+	hs.mu.Unlock()
+	if !had {
+		return
+	}
+	if p, ok := hostinfo.CPUPercent(prev, cur); ok {
+		m.CPUPercent = &p
+	}
+	if r, wr, ok := hostinfo.DiskRates(prev, cur); ok {
+		m.DiskReadBps, m.DiskWriteBps = &r, &wr
+	}
+	if rx, tx, ok := hostinfo.NetRates(prev, cur); ok {
+		m.NetRxBps, m.NetTxBps = &rx, &tx
+	}
 }
 
 func (w *Worker) registry() *servers.Registry {
@@ -51,7 +79,7 @@ func (w *Worker) ServerLoop(ctx context.Context) {
 	defer tick.Stop()
 	prune := time.NewTicker(time.Hour)
 	defer prune.Stop()
-	hs := &hostState{prev: map[string]hostinfo.Snapshot{}}
+	hs := newHostState()
 	w.checkAll(ctx, hs)
 	for {
 		select {
@@ -87,8 +115,12 @@ func (w *Worker) checkAll(ctx context.Context, hs *hostState) {
 				return
 			}
 			o := w.checkServer(ctx, srv, "system")
-			if servers.ParseSettings(srv.Settings).CollectMetrics {
+			settings := servers.ParseSettings(srv.Settings)
+			if settings.CollectMetrics {
 				w.sampleServer(ctx, srv, o, hs)
+			}
+			if (!settings.CollectMetrics || !settings.HostProbe) && o.Reached {
+				w.removeHostProbe(ctx, srv, hs)
 			}
 		}(id)
 	}
@@ -110,20 +142,29 @@ func (w *Worker) sampleServer(ctx context.Context, srv *store.Server, o servers.
 	if o.Info.MemTotal > 0 {
 		m.MemoryTotal = &o.Info.MemTotal
 	}
-	if srv.IsLocal && o.Procfs {
-		cur := hostinfo.Read()
-		hs.mu.Lock()
-		prev, had := hs.prev[srv.ID]
-		hs.prev[srv.ID] = cur
-		hs.mu.Unlock()
-		if had {
-			if p, ok := hostinfo.CPUPercent(prev, cur); ok {
-				m.CPUPercent = &p
-			}
-			if r, wr, ok := hostinfo.DiskRates(prev, cur); ok {
-				m.DiskReadBps, m.DiskWriteBps = &r, &wr
-			}
+	var cur hostinfo.Snapshot
+	source := ""
+	if servers.ParseSettings(srv.Settings).HostProbe {
+		if snap, err := w.readHostProbe(ctx, srv, hs); err == nil {
+			cur, source = snap, "probe"
+		} else if hs.noteProbe(srv.ID, false) {
+			w.Store.AddServerEvent(ctx, srv.ID, "metrics", "warn", "Host probe didn't answer: "+err.Error(), "system", nil)
 		}
+	}
+	if source == "" && srv.IsLocal && o.Procfs {
+		cur, source = hostinfo.Read(), "procfs"
+	}
+	collector := source
+	if collector == "" {
+		collector = "engine"
+	}
+	if (collector == "probe") != o.HostProbe {
+		probeObs := o
+		probeObs.HostProbe = collector == "probe"
+		w.Store.SetServerCollector(ctx, srv.ID, collector, servers.DeriveCapabilities(srv, probeObs)["metrics"])
+	}
+	if source != "" {
+		hs.rates(srv.ID+"/"+source, cur, &m)
 		if cur.LoadOK {
 			m.Load1, m.Load5, m.Load15 = &cur.Load[0], &cur.Load[1], &cur.Load[2]
 		}
@@ -137,12 +178,81 @@ func (w *Worker) sampleServer(ctx context.Context, srv *store.Server, o servers.
 		if cur.UptimeOK {
 			m.UptimeSeconds = &cur.Uptime
 		}
+		if cur.Facts.CPUModel != "" || cur.Facts.Cores > 0 {
+			w.Store.SetServerHostFacts(ctx, srv.ID, cur.Facts)
+		}
 	}
 	if cpu, mem, n, err := w.Store.WorkloadUsage(ctx, srv.ID); err == nil && n > 0 {
 		m.WorkloadCPU, m.WorkloadMemory = &cpu, &mem
 	}
 	if err := w.Store.InsertServerMetric(ctx, m); err != nil {
 		slog.Warn("store server metric failed", "server", srv.ID, "error", err)
+	}
+}
+
+// noteProbe records the probe outcome and reports whether it changed from a success.
+func (hs *hostState) noteProbe(id string, ok bool) bool {
+	hs.mu.Lock()
+	defer hs.mu.Unlock()
+	was, known := hs.probeOK[id]
+	hs.probeOK[id] = ok
+	if ok {
+		delete(hs.removed, id)
+	}
+	return !ok && (!known || was)
+}
+
+// readHostProbe makes sure the probe container runs on the server and reads /proc through it.
+// Hardware facts (cpuinfo) are only read once an hour.
+func (w *Worker) readHostProbe(ctx context.Context, srv *store.Server, hs *hostState) (hostinfo.Snapshot, error) {
+	d, err := w.registry().Docker(srv)
+	if err != nil {
+		return hostinfo.Snapshot{}, err
+	}
+	ctx, cancel := context.WithTimeout(ctx, 40*time.Second) // room for a first-time image pull
+	defer cancel()
+	id, err := d.EnsureHostProbe(ctx, w.Docker.Instance(ctx))
+	if err != nil {
+		return hostinfo.Snapshot{}, err
+	}
+	hs.mu.Lock()
+	facts := time.Since(hs.factsAt[srv.ID]) > time.Hour
+	hs.mu.Unlock()
+	execCtx, stop := context.WithTimeout(ctx, 10*time.Second)
+	defer stop()
+	out, code, err := d.ExecCapture(execCtx, id, []string{"sh", "-c", runtime.HostProbeScript(facts)})
+	if err != nil {
+		return hostinfo.Snapshot{}, err
+	}
+	snap := hostinfo.Parse(runtime.SplitHostProbe(out))
+	if !snap.CPUOK || !snap.MemOK {
+		return hostinfo.Snapshot{}, fmt.Errorf("unexpected output (exit %d)", code)
+	}
+	hs.noteProbe(srv.ID, true)
+	if facts {
+		hs.mu.Lock()
+		hs.factsAt[srv.ID] = time.Now()
+		hs.mu.Unlock()
+	}
+	return snap, nil
+}
+
+// removeHostProbe takes the probe container down once after the setting is turned off.
+func (w *Worker) removeHostProbe(ctx context.Context, srv *store.Server, hs *hostState) {
+	hs.mu.Lock()
+	done := hs.removed[srv.ID]
+	hs.removed[srv.ID] = true
+	delete(hs.probeOK, srv.ID)
+	hs.mu.Unlock()
+	if done {
+		return
+	}
+	d, err := w.registry().Docker(srv)
+	if err != nil {
+		return
+	}
+	if err := d.RemoveHostProbe(ctx, w.Docker.Instance(ctx)); err != nil {
+		slog.Warn("remove host probe failed", "server", srv.ID, "error", err)
 	}
 }
 

@@ -100,7 +100,7 @@ func (s *Server) getServer(w http.ResponseWriter, r *http.Request, _ *store.User
 
 var serverLabelKeyRE = regexp.MustCompile(`^[a-z0-9]([a-z0-9._/-]{0,62}[a-z0-9])?$`)
 
-func validateIdentity(name, hostname, description, environment, notes *string, labels *map[string]string) map[string]string {
+func validateIdentity(name, hostname, description, environment, location, notes *string, labels *map[string]string) map[string]string {
 	errs := map[string]string{}
 	if name != nil {
 		*name = strings.TrimSpace(*name)
@@ -121,6 +121,12 @@ func validateIdentity(name, hostname, description, environment, notes *string, l
 		*environment = strings.TrimSpace(*environment)
 		if len(*environment) > 40 {
 			errs["environment"] = "Up to 40 characters."
+		}
+	}
+	if location != nil {
+		*location = strings.TrimSpace(*location)
+		if len(*location) > 64 {
+			errs["location"] = "Up to 64 characters."
 		}
 	}
 	if notes != nil && len(*notes) > 4000 {
@@ -150,7 +156,7 @@ func (s *Server) updateServer(w http.ResponseWriter, r *http.Request, u *store.U
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
-	errs := validateIdentity(in.Name, in.Hostname, in.Description, in.Environment, in.Notes, in.Labels)
+	errs := validateIdentity(in.Name, in.Hostname, in.Description, in.Environment, in.Location, in.Notes, in.Labels)
 	if len(in.Settings) > 0 {
 		var set servers.Settings
 		if err := json.Unmarshal(in.Settings, &set); err != nil {
@@ -172,7 +178,7 @@ func (s *Server) updateServer(w http.ResponseWriter, r *http.Request, u *store.U
 		return err
 	}
 	changed := []string{}
-	for k, set := range map[string]bool{"name": in.Name != nil, "hostname": in.Hostname != nil, "description": in.Description != nil, "environment": in.Environment != nil,
+	for k, set := range map[string]bool{"name": in.Name != nil, "hostname": in.Hostname != nil, "description": in.Description != nil, "environment": in.Environment != nil, "location": in.Location != nil,
 		"labels": in.Labels != nil, "notes": in.Notes != nil, "settings": len(in.Settings) > 0} {
 		if set {
 			changed = append(changed, k)
@@ -496,6 +502,8 @@ func (s *Server) serverMetrics(w http.ResponseWriter, r *http.Request, _ *store.
 	switch {
 	case !settings.CollectMetrics:
 		set("disabled", "cpu", "load", "memory", "swap", "disk", "diskio", "uptime", "containers", "workloads", "network")
+	case collector == "probe":
+		set("supported", "cpu", "load", "memory", "swap", "disk", "diskio", "uptime", "containers", "workloads", "network")
 	case collector == "procfs":
 		set("supported", "cpu", "load", "memory", "swap", "disk", "diskio", "uptime", "containers", "workloads")
 		set("unsupported", "network")
@@ -519,15 +527,19 @@ func (s *Server) serverMetrics(w http.ResponseWriter, r *http.Request, _ *store.
 	case time.Since(latest.At) > store.MetricFreshness:
 		collectorState = "stale"
 	}
-	reasons := map[string]string{
-		"network": "Host network throughput isn't measured: IGNITION runs in a container whose network counters only cover itself. Per-workload traffic is on each resource's Metrics page.",
+	reasons := map[string]string{}
+	if collector != "probe" {
+		reasons["network"] = "Host network throughput comes from the host probe, which isn't running here. IGNITION's own container only sees its own interface. Turn the host probe on in Settings."
+		if !settings.HostProbe {
+			reasons["network"] = "Host network throughput comes from the host probe, which is off in Settings."
+		}
 	}
 	if collector == "engine" {
-		reasons["cpu"] = "The Docker Engine API doesn't report host CPU or load. Remote host utilisation would need an agent, which IGNITION doesn't have."
+		reasons["cpu"] = "The Docker Engine API doesn't report host CPU or load. The host probe reads them; it's off or hasn't answered yet."
 		reasons["memory"] = "Only total memory is known (from the engine). Used memory isn't reported by the Docker API."
 		reasons["disk"] = "Filesystem capacity isn't reported by the Docker API. Docker's own usage is on the Storage page."
 	}
-	httpx.JSON(w, 200, map[string]any{"range": rg, "stepSeconds": int(spec[1].Seconds()), "buckets": buckets, "latest": latest, "support": support, "reasons": reasons,
+	httpx.JSON(w, 200, map[string]any{"range": rg, "stepSeconds": int(spec[1].Seconds()), "buckets": buckets, "latest": latest, "support": support, "reasons": reasons, "hostProbe": settings.HostProbe,
 		"collector": collector, "collectorState": collectorState, "retentionDays": 7, "intervalSeconds": int(servers.CheckInterval.Seconds()), "capacity": v.Info.Engine})
 	return nil
 }
@@ -673,6 +685,7 @@ type serverInput struct {
 	Hostname    string            `json:"hostname"`
 	Description string            `json:"description"`
 	Environment string            `json:"environment"`
+	Location    string            `json:"location"`
 	Labels      map[string]string `json:"labels"`
 	Notes       string            `json:"notes"`
 	Endpoint    string            `json:"endpoint"`
@@ -844,7 +857,7 @@ func (s *Server) createServer(w http.ResponseWriter, r *http.Request, u *store.U
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
-	errs := validateIdentity(&in.Name, &in.Hostname, &in.Description, &in.Environment, &in.Notes, &in.Labels)
+	errs := validateIdentity(&in.Name, &in.Hostname, &in.Description, &in.Environment, &in.Location, &in.Notes, &in.Labels)
 	if in.ExpectedFingerprint == "" {
 		errs["expectedFingerprint"] = "Verify the connection and review the server's identity first."
 	}
@@ -872,7 +885,7 @@ func (s *Server) createServer(w http.ResponseWriter, r *http.Request, u *store.U
 		info.ClientCertExp = &res.ClientCert.NotAfter
 	}
 	id, err := s.Store.CreateRemoteServer(r.Context(), store.NewServer{
-		Name: in.Name, Hostname: in.Hostname, Description: in.Description, Environment: in.Environment, Notes: in.Notes, Labels: in.Labels,
+		Name: in.Name, Hostname: in.Hostname, Description: in.Description, Environment: in.Environment, Location: in.Location, Notes: in.Notes, Labels: in.Labels,
 		Endpoint: res.Endpoint, CACert: in.CACert, ClientCert: in.ClientCert, TLSFingerprint: res.Fingerprint, Info: info, Capabilities: res.Capabilities, CreatedBy: u.ID,
 		ClientKeySealer: func(id string) ([]byte, error) { return s.Secrets.Seal(key, servers.KeyContext(id)) },
 	})

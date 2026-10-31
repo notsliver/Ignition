@@ -189,6 +189,7 @@ func (s *Server) Handler() http.Handler {
 	authed("POST /api/servers/verify", "admin", s.verifyServer)
 	authed("POST /api/servers/bulk", "admin", s.bulkServers)
 	authed("GET /api/servers/bundle", "admin", s.serversBundle)
+	authed("GET /api/servers/capacity", "viewer", s.fleetCapacity)
 	authed("GET /api/servers/{id}", "viewer", s.getServer)
 	authed("PATCH /api/servers/{id}", "admin", s.updateServer)
 	authed("DELETE /api/servers/{id}", "admin", s.deleteServer)

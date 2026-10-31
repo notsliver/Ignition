@@ -84,7 +84,7 @@ if [ ${#compose[@]} -gt 0 ]; then
   else "${compose[@]}" down --remove-orphans || true; fi
 fi
 # Anything left of the compose project (e.g. the install folder is gone), plus updater/helper containers.
-leftover=$(docker ps -aq --filter "label=com.docker.compose.project=$project"; docker ps -aq --filter label=ignition.updater; docker ps -aq --filter label=ignition.probe; docker ps -aq --filter label=ignition.backup)
+leftover=$(docker ps -aq --filter "label=com.docker.compose.project=$project"; docker ps -aq --filter label=ignition.updater; docker ps -aq --filter label=ignition.probe; docker ps -aq --filter label=ignition.hostprobe; docker ps -aq --filter label=ignition.backup)
 [ -n "$leftover" ] && docker rm -f $leftover >/dev/null 2>&1 || true
 
 # 2. Deployed apps.

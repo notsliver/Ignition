@@ -72,3 +72,43 @@ func TestMissingProcIsNotZero(t *testing.T) {
 		t.Fatal("Available with no stat file")
 	}
 }
+
+func TestParseProbeOutput(t *testing.T) {
+	s := Parse(map[string]string{
+		"stat":    "cpu  100 0 100 700 100 0 0 0 0 0\n",
+		"meminfo": "MemTotal: 2048 kB\nMemAvailable: 1024 kB\n",
+		"uptime":  "7200.00 1.00\n",
+		"net/dev": "Inter-|   Receive |  Transmit\n face |bytes packets errs drop fifo frame compressed multicast|bytes packets\n" +
+			"    lo: 9999 1 0 0 0 0 0 0 9999 1 0 0 0 0 0 0\n" +
+			"  eth0: 1000 10 0 0 0 0 0 0 2000 20 0 0 0 0 0 0\n" +
+			"  ens5: 500 5 0 0 0 0 0 0 100 1 0 0 0 0 0 0\n" +
+			"docker0: 7777 1 0 0 0 0 0 0 7777 1 0 0 0 0 0 0\n" +
+			"vethab12: 8888 1 0 0 0 0 0 0 8888 1 0 0 0 0 0 0\n" +
+			"br-0a1b: 6666 1 0 0 0 0 0 0 6666 1 0 0 0 0 0 0\n",
+		"df":      "Filesystem 1024-blocks Used Available Capacity Mounted on\noverlay 1000 250 750 25% /\n",
+		"cpuinfo": "processor\t: 0\nmodel name\t: AMD   EPYC 7B13\nphysical id\t: 0\n\nprocessor\t: 1\nmodel name\t: AMD EPYC 7B13\nphysical id\t: 0\n",
+	})
+	if !s.CPUOK || !s.MemOK || !s.UptimeOK || s.Uptime != 7200 {
+		t.Fatalf("basics: %+v", s)
+	}
+	// Loopback, Docker bridges and veths are skipped: only eth0 + ens5.
+	if !s.NetOK || s.NetRx != 1500 || s.NetTx != 2100 || len(s.Facts.Interfaces) != 2 {
+		t.Fatalf("net = %d %d %v", s.NetRx, s.NetTx, s.Facts.Interfaces)
+	}
+	if !s.FSOK || s.FSTotal != 1000*1024 || s.FSUsed != 250*1024 {
+		t.Fatalf("df = %d %d", s.FSTotal, s.FSUsed)
+	}
+	if s.Facts.CPUModel != "AMD EPYC 7B13" || s.Facts.Cores != 2 || s.Facts.Sockets != 1 || s.Facts.BootedAt == "" {
+		t.Fatalf("facts = %+v", s.Facts)
+	}
+	b := s
+	b.At = s.At.Add(10 * time.Second)
+	b.NetRx, b.NetTx = s.NetRx+10240, s.NetTx
+	if rx, tx, ok := NetRates(s, b); !ok || rx != 1024 || tx != 0 {
+		t.Fatalf("net rates = %v %v %v", rx, tx, ok)
+	}
+	// A missing section is absent, not zero.
+	if e := Parse(map[string]string{}); e.NetOK || e.FSOK || e.CPUOK {
+		t.Fatalf("empty parse reported data: %+v", e)
+	}
+}

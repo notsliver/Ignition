@@ -2,7 +2,7 @@ import { ArrowPathIcon, ArrowRightIcon, CheckCircleIcon, DocumentTextIcon, Excla
 import { Button, Meter, Status } from '../../ui';
 import { api } from '../../api/client';
 import { timeAgo, useQuery } from '../../api/hooks';
-import { bytes, connection, pct, runtimeOf, uptime } from './model';
+import { bytes, connection, pct, rate, runtimeOf, uptime } from './model';
 
 /*
  * Overview answers, in order: is it reachable, is Docker ready, can it take deployments, what runs
@@ -45,6 +45,8 @@ export function Overview({ server, onNavigate, actions }) {
   const cpuPct = live?.cpu != null ? Math.round(live.cpu) : null;
   const memPct = live ? pct(live.memoryUsed, live.memoryTotal) : null;
   const diskPct = live ? pct(live.diskUsed, live.diskTotal) : null;
+  const facts = server.hostFacts ?? {};
+  const collector = { probe: 'Host probe (/proc on the host)', procfs: 'This host\'s /proc', engine: 'Docker Engine API only' }[server.info?.collector] ?? '—';
 
   return <>
     <section className="ov-hero">
@@ -71,7 +73,7 @@ export function Overview({ server, onNavigate, actions }) {
       </div>
     </section>
 
-    <section className="ov-usage" aria-label="Utilisation">
+    <section className="ov-usage sv-usage5" aria-label="Utilisation">
       <button type="button" onClick={() => onNavigate('Monitoring')}>
         <span>CPU</span><strong>{cpuPct != null ? `${cpuPct}%` : '—'}</strong>
         <small>{engine?.ncpu ? `${engine.ncpu} cores` : ''}{live?.load1 != null ? ` · load ${live.load1.toFixed(2)}` : ''}{cpuPct == null ? ` ${notMeasured('cpu')}` : ''}</small>
@@ -90,6 +92,10 @@ export function Overview({ server, onNavigate, actions }) {
       <button type="button" onClick={() => onNavigate('Monitoring')}>
         <span>Uptime</span><strong>{live?.uptimeSeconds != null ? uptime(live.uptimeSeconds) : '—'}</strong>
         <small>{live?.containersRunning != null ? `${live.containersRunning} containers running` : notMeasured('uptime')}</small>
+      </button>
+      <button type="button" onClick={() => onNavigate('Monitoring')}>
+        <span>Network</span><strong>{live?.netRxBps != null ? rate(live.netRxBps + (live.netTxBps ?? 0)) : '—'}</strong>
+        <small>{live?.netRxBps != null ? `in ${rate(live.netRxBps)} · out ${rate(live.netTxBps)}` : notMeasured('network')}</small>
       </button>
     </section>
 
@@ -130,12 +136,17 @@ export function Overview({ server, onNavigate, actions }) {
           <header><h2>Host</h2><button type="button" className="ov-link" onClick={() => onNavigate('Docker')}>Docker<ArrowRightIcon /></button></header>
           {engine ? <dl className="sv-facts">
             <div><dt>Operating system</dt><dd>{engine.os || '—'}</dd></div>
-            <div><dt>Architecture</dt><dd>{engine.arch} · {engine.ncpu} CPUs</dd></div>
+            <div><dt>Architecture</dt><dd>{engine.arch} · {engine.ncpu} CPUs{facts.sockets > 1 ? ` · ${facts.sockets} sockets` : ''}</dd></div>
+            {facts.cpuModel && <div><dt>Processor</dt><dd title={facts.cpuModel}>{facts.cpuModel}</dd></div>}
             <div><dt>Kernel</dt><dd className="mono">{engine.kernel}</dd></div>
             <div><dt>Memory</dt><dd>{bytes(engine.memTotal)}</dd></div>
             <div><dt>Docker</dt><dd>{engine.version} · API {engine.apiVersion}</dd></div>
             <div><dt>Storage driver</dt><dd>{engine.storageDriver}</dd></div>
             <div><dt>Hostname</dt><dd>{engine.name}</dd></div>
+            {server.location && <div><dt>Location</dt><dd>{server.location}</dd></div>}
+            {facts.bootedAt && <div><dt>Booted</dt><dd title={new Date(facts.bootedAt).toLocaleString()}>{timeAgo(facts.bootedAt)}</dd></div>}
+            {facts.interfaces?.length > 0 && <div><dt>Network interfaces</dt><dd className="mono">{facts.interfaces.join(', ')}</dd></div>}
+            <div><dt>Metrics source</dt><dd>{collector}</dd></div>
             <div><dt>Detected</dt><dd>{server.info?.checkedAt ? timeAgo(server.info.checkedAt) : '—'}</dd></div>
           </dl> : <p className="ov-empty">Not detected yet: no successful check has read the engine.</p>}
         </section>

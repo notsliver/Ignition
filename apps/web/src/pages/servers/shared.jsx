@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  ArrowDownTrayIcon, ArrowPathIcon, ArrowRightIcon, BeakerIcon, CheckCircleIcon, ExclamationTriangleIcon, InformationCircleIcon, KeyIcon,
+  ArrowDownTrayIcon, ArrowPathIcon, ArrowRightIcon, BeakerIcon, CheckCircleIcon, ExclamationTriangleIcon, InformationCircleIcon, KeyIcon, MapPinIcon,
   NoSymbolIcon, PencilSquareIcon, PlayIcon, SignalIcon, TrashIcon, WrenchScrewdriverIcon, XCircleIcon,
 } from '@heroicons/react/16/solid';
 import { Button, Dialog, FormField, Notice, Status, TextInput, cx } from '../../ui';
@@ -81,6 +81,7 @@ export function Chips({ server }) {
   const labels = Object.entries(server.labels ?? {});
   return <span className="sv-chips">
     {server.environment && <span className="rp-chip accent">{server.environment}</span>}
+    {server.location && <span className="rp-chip" title="Location"><MapPinIcon />{server.location}</span>}
     {labels.slice(0, 3).map(([k, v]) => <span key={k} className="rp-chip">{v ? `${k}=${v}` : k}</span>)}
     {labels.length > 3 && <span className="rp-chip" title={labels.slice(3).map(([k, v]) => `${k}=${v}`).join(', ')}>+{labels.length - 3}</span>}
   </span>;
@@ -218,7 +219,7 @@ export function JobResult({ job }) {
 }
 
 function EditServerDialog({ server, onClose, onSaved }) {
-  const [form, setForm] = useState({ name: server.name, hostname: server.hostname, description: server.description, environment: server.environment, labels: labelsToText(server.labels) });
+  const [form, setForm] = useState({ name: server.name, hostname: server.hostname, description: server.description, environment: server.environment, location: server.location ?? '', labels: labelsToText(server.labels) });
   const [errors, setErrors] = useState({});
   const [pending, setPending] = useState(false);
   const set = k => e => setForm(f => ({ ...f, [k]: e.target.value }));
@@ -247,6 +248,7 @@ export function IdentityFields({ form, set, errors, hostnameHint }) {
     <FormField label="Hostname" htmlFor="sv-host" error={errors.hostname} hint={hostnameHint ?? 'How people know this machine. Shown in lists and search.'}><TextInput id="sv-host" value={form.hostname} onChange={set('hostname')} maxLength={253} /></FormField>
     <div className="sv-form-row">
       <FormField label="Environment" htmlFor="sv-env" error={errors.environment} hint="e.g. production, staging"><TextInput id="sv-env" value={form.environment} onChange={set('environment')} maxLength={40} /></FormField>
+      <FormField label="Location" htmlFor="sv-loc" error={errors.location} hint="Region, datacenter or rack. Used for grouping."><TextInput id="sv-loc" value={form.location ?? ''} onChange={set('location')} maxLength={64} placeholder="eu-west · fra1" /></FormField>
     </div>
     <FormField label="Description" htmlFor="sv-desc" error={errors.description}><TextInput id="sv-desc" value={form.description} onChange={set('description')} maxLength={500} /></FormField>
     <FormField label="Labels" htmlFor="sv-labels" error={errors.labels} hint="One per line: key=value. Searchable.">

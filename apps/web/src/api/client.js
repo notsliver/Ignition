@@ -180,6 +180,7 @@ export const api = {
 
   servers: (params = {}) => request('GET', `/servers${q(params)}`),
   server: id => request('GET', `/servers/${id}`),
+  serversCapacity: window => request('GET', `/servers/capacity${q({ window })}`),
   verifyServer: input => request('POST', '/servers/verify', input),
   createServer: input => request('POST', '/servers', input),
   updateServer: (id, patch) => request('PATCH', `/servers/${id}`, patch),

@@ -53,11 +53,12 @@ type Settings struct {
 	ConnectTimeoutSeconds int    `json:"connectTimeoutSeconds"` // dial + TLS handshake + API call budget
 	OfflineAfterFailures  int    `json:"offlineAfterFailures"`  // consecutive failed checks before "offline"
 	CollectMetrics        bool   `json:"collectMetrics"`        // host samples every 15 s
+	HostProbe             bool   `json:"hostProbe"`             // run the host probe container for host-wide figures
 	DiagnosticOutput      string `json:"diagnosticOutput"`      // summary | verbose: how much raw output checks keep
 }
 
 func DefaultSettings() Settings {
-	return Settings{ConnectTimeoutSeconds: 5, OfflineAfterFailures: 3, CollectMetrics: true, DiagnosticOutput: "summary"}
+	return Settings{ConnectTimeoutSeconds: 5, OfflineAfterFailures: 3, CollectMetrics: true, HostProbe: true, DiagnosticOutput: "summary"}
 }
 
 func ParseSettings(raw json.RawMessage) Settings {
@@ -99,7 +100,7 @@ func (s Settings) Timeout() time.Duration {
 // Info is what IGNITION knows about the host, refreshed on every successful check.
 type Info struct {
 	Engine        *runtime.EngineInfo `json:"engine"`
-	Collector     string              `json:"collector"` // procfs | engine | none: where host metrics come from
+	Collector     string              `json:"collector"` // probe | procfs | engine: where host metrics come from
 	CheckedAt     time.Time           `json:"checkedAt"`
 	LatencyMS     int64               `json:"latencyMs"`
 	ClockSkewMS   *int64              `json:"clockSkewMs"` // engine clock minus IGNITION's, when measurable
@@ -136,12 +137,14 @@ func DeriveCapabilities(srv *store.Server, o Observation) Capabilities {
 	switch {
 	case !ready:
 		c["metrics"] = no("No engine to sample.")
+	case o.HostProbe:
+		c["metrics"] = Capability{true, "Host CPU, load, memory, swap, disk, network and uptime from the host probe container, plus workload usage."}
 	case srv.IsLocal && o.Procfs:
-		c["metrics"] = Capability{true, "Host CPU, load, memory, swap, disk and uptime from /proc, plus workload usage."}
+		c["metrics"] = Capability{true, "Host CPU, load, memory, swap, disk and uptime from /proc, plus workload usage. Network needs the host probe."}
 	case srv.IsLocal:
-		c["metrics"] = Capability{true, "Engine capacity and workload usage only: /proc isn't readable here."}
+		c["metrics"] = Capability{true, "Engine capacity and workload usage only: /proc isn't readable here and the host probe isn't running."}
 	default:
-		c["metrics"] = Capability{true, "Engine capacity, container counts and Docker disk usage. Host CPU and memory utilisation need an agent, which IGNITION doesn't have."}
+		c["metrics"] = Capability{true, "Engine capacity and container counts only. Turn on the host probe in Settings for host CPU, memory, disk and network."}
 	}
 	if srv.IsLocal && ready {
 		c["networkDiagnostics"] = Capability{true, "DNS and TCP checks from a short-lived probe container on IGNITION's networks."}

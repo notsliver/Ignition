@@ -50,14 +50,15 @@ export function Monitoring({ server }) {
     { key: 'disk', family: 'disk', label: 'Disk used', unit: diskTotal ? `of ${bytes(diskTotal)} (Docker's filesystem)` : '', data: pick('diskUsed'), max: diskTotal ? diskTotal * 1.02 : undefined, limit: diskTotal, format: bytes, now: latest?.diskUsed },
     { key: 'diskio', family: 'diskio', label: 'Disk I/O', unit: 'read + write', data: buckets.map(b => b.diskReadBps != null ? b.diskReadBps + (b.diskWriteBps ?? 0) : null), format: rate,
       now: latest?.diskReadBps != null ? latest.diskReadBps + (latest.diskWriteBps ?? 0) : null, extra: latest?.diskReadBps != null ? `read ${rate(latest.diskReadBps)} · write ${rate(latest.diskWriteBps)}` : null },
-    { key: 'network', family: 'network', label: 'Network throughput', unit: '', data: [], format: rate },
+    { key: 'network', family: 'network', label: 'Network throughput', unit: 'in + out, physical interfaces', data: buckets.map(b => b.netRxBps != null ? b.netRxBps + (b.netTxBps ?? 0) : null), format: rate,
+      now: latest?.netRxBps != null ? latest.netRxBps + (latest.netTxBps ?? 0) : null, extra: latest?.netRxBps != null ? `in ${rate(latest.netRxBps)} · out ${rate(latest.netTxBps)}` : null },
     { key: 'containers', family: 'containers', label: 'Containers running', unit: 'all containers on the engine', data: pick('containersRunning'), format: v => Math.round(v).toString(), now: latest?.containersRunning },
     { key: 'wcpu', family: 'workloads', label: 'Workload CPU', unit: '% of one core, summed over IGNITION workloads', data: pick('workloadCpu'), format: pctFmt, now: latest?.workloadCpu },
     { key: 'wmem', family: 'workloads', label: 'Workload memory', unit: 'summed over IGNITION workloads', data: pick('workloadMemory'), format: bytes, now: latest?.workloadMemory },
   ].filter(c => !c.hide);
 
   function exportCsv() {
-    const cols = ['at', 'samples', 'cpu', 'load1', 'load5', 'load15', 'memoryUsed', 'memoryTotal', 'swapUsed', 'diskUsed', 'diskTotal', 'diskReadBps', 'diskWriteBps', 'containersRunning', 'workloadCpu', 'workloadMemory'];
+    const cols = ['at', 'samples', 'cpu', 'load1', 'load5', 'load15', 'memoryUsed', 'memoryTotal', 'swapUsed', 'diskUsed', 'diskTotal', 'diskReadBps', 'diskWriteBps', 'netRxBps', 'netTxBps', 'containersRunning', 'workloadCpu', 'workloadMemory'];
     downloadText(`${server.name}-host-metrics-${range}.csv`, [cols.join(','), ...buckets.map(b => cols.map(c => b[c] ?? '').join(','))].join('\n'), 'text/csv');
   }
   const notice = data && collectorNotice[data.collectorState];
@@ -72,7 +73,7 @@ export function Monitoring({ server }) {
     </div>
     {error && <Notice tone="danger" title="Couldn't load metrics">{error.message}</Notice>}
     {notice && <Notice tone={notice.tone} title={notice.title}>{notice.text}</Notice>}
-    {data && <p className="sv-step-intro">Source: {data.collector === 'procfs' ? 'this host\'s /proc (host-wide figures) and the Docker Engine' : data.collector === 'engine' ? 'the Docker Engine API only' : 'not determined yet'}. Gaps mean no sample was taken; they're never drawn as zero.</p>}
+    {data && <p className="sv-step-intro">Source: {data.collector === 'probe' ? 'the host probe container reading the host\'s /proc (host-wide figures, including network) and the Docker Engine' : data.collector === 'procfs' ? 'this host\'s /proc (host-wide figures) and the Docker Engine' : data.collector === 'engine' ? 'the Docker Engine API only' : 'not determined yet'}. Gaps mean no sample was taken; they're never drawn as zero.</p>}
     <div className="sv-charts">
       {charts.map(c => {
         const state = support[c.family];

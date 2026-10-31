@@ -26,6 +26,7 @@ type Server struct {
 	Hostname             string            `json:"hostname"`
 	Description          string            `json:"description"`
 	Environment          string            `json:"environment"`
+	Location             string            `json:"location"`
 	Labels               map[string]string `json:"labels"`
 	Notes                string            `json:"notes"`
 	IsLocal              bool              `json:"isLocal"`
@@ -52,6 +53,7 @@ type Server struct {
 	LastError            string            `json:"lastError"`
 	Failures             int               `json:"failures"`
 	Info                 json.RawMessage   `json:"info"`
+	HostFacts            json.RawMessage   `json:"hostFacts"`
 	Capabilities         json.RawMessage   `json:"capabilities"`
 	Settings             json.RawMessage   `json:"settings"`
 	Workloads            int               `json:"workloads"`
@@ -89,11 +91,11 @@ var serverBase = `
 		) m ON true
 	)`
 
-const serverCols = `id, name, hostname, description, environment, labels, notes, is_local, connection_method, endpoint,
+const serverCols = `id, name, hostname, description, environment, location, labels, notes, is_local, connection_method, endpoint,
 	ca_cert, client_cert, client_key_enc, tls_fingerprint, credentials_rotated_at, credentials_revoked_at,
 	connection_state, es, runtime_state, deployments_enabled, maintenance, maintenance_note, maintenance_since,
 	maint_by, removing, last_seen_at, last_check_at, last_error, failures,
-	info, capabilities, settings, workloads, m_at, m_cpu, m_mu, m_mt, m_du, m_dt, created_at, updated_at`
+	info, host_facts, capabilities, settings, workloads, m_at, m_cpu, m_mu, m_mt, m_du, m_dt, created_at, updated_at`
 
 var serverSelect = serverBase + ` SELECT ` + serverCols + ` FROM base`
 
@@ -103,11 +105,11 @@ func scanServer(row pgx.Row, extra ...any) (*Server, error) {
 	var mAt *time.Time
 	var cpu *float64
 	var memU, memT, diskU, diskT *int64
-	dest := []any{&s.ID, &s.Name, &s.Hostname, &s.Description, &s.Environment, &labels, &s.Notes, &s.IsLocal, &s.ConnectionMethod, &s.Endpoint,
+	dest := []any{&s.ID, &s.Name, &s.Hostname, &s.Description, &s.Environment, &s.Location, &labels, &s.Notes, &s.IsLocal, &s.ConnectionMethod, &s.Endpoint,
 		&s.CACert, &s.ClientCert, &s.ClientKeySealed, &s.TLSFingerprint, &s.CredentialsRotatedAt, &s.CredentialsRevokedAt,
 		&s.ConnectionState, &s.EffectiveState, &s.RuntimeState, &s.DeploymentsEnabled, &s.Maintenance, &s.MaintenanceNote, &s.MaintenanceSince,
 		&s.MaintenanceBy, &s.Removing, &s.LastSeenAt, &s.LastCheckAt, &s.LastError, &s.Failures,
-		&s.Info, &s.Capabilities, &s.Settings, &s.Workloads, &mAt, &cpu, &memU, &memT, &diskU, &diskT, &s.CreatedAt, &s.UpdatedAt}
+		&s.Info, &s.HostFacts, &s.Capabilities, &s.Settings, &s.Workloads, &mAt, &cpu, &memU, &memT, &diskU, &diskT, &s.CreatedAt, &s.UpdatedAt}
 	if err := row.Scan(append(dest, extra...)...); err != nil {
 		return nil, noRows(err)
 	}
@@ -175,7 +177,7 @@ func (s *Store) ListServers(ctx context.Context, q ServerQuery) ([]Server, int, 
 	args := []any{}
 	if q.Q != "" {
 		args = append(args, "%"+q.Q+"%")
-		where = append(where, `(name ILIKE $1 OR hostname ILIKE $1 OR endpoint ILIKE $1 OR environment ILIKE $1 OR description ILIKE $1 OR labels::text ILIKE $1)`)
+		where = append(where, `(name ILIKE $1 OR hostname ILIKE $1 OR endpoint ILIKE $1 OR environment ILIKE $1 OR location ILIKE $1 OR description ILIKE $1 OR labels::text ILIKE $1)`)
 	}
 	if f, ok := serverFilters[q.Filter]; ok {
 		where = append(where, f)
@@ -236,12 +238,12 @@ func (s *Store) ServerIDs(ctx context.Context) ([]string, error) {
 }
 
 type NewServer struct {
-	Name, Hostname, Description, Environment, Notes string
-	Labels                                          map[string]string
-	Endpoint, CACert, ClientCert, TLSFingerprint    string
-	ClientKeySealer                                 func(serverID string) ([]byte, error) // seals the key once the ID is known
-	Info, Capabilities                              any
-	CreatedBy                                       string
+	Name, Hostname, Description, Environment, Location, Notes string
+	Labels                                                    map[string]string
+	Endpoint, CACert, ClientCert, TLSFingerprint              string
+	ClientKeySealer                                           func(serverID string) ([]byte, error) // seals the key once the ID is known
+	Info, Capabilities                                        any
+	CreatedBy                                                 string
 }
 
 // CreateRemoteServer registers a verified remote engine. The key is sealed inside the transaction,
@@ -257,10 +259,10 @@ func (s *Store) CreateRemoteServer(ctx context.Context, n NewServer) (string, er
 	caps, _ := json.Marshal(n.Capabilities)
 	var id string
 	err = tx.QueryRow(ctx, `
-		INSERT INTO servers (name, hostname, description, environment, labels, notes, connection_method, endpoint, ca_cert, client_cert, tls_fingerprint,
+		INSERT INTO servers (name, hostname, description, environment, location, labels, notes, connection_method, endpoint, ca_cert, client_cert, tls_fingerprint,
 		                     connection_state, runtime_state, deployments_enabled, last_seen_at, last_check_at, info, capabilities, credentials_rotated_at, created_by)
-		VALUES ($1, $2, $3, $4, $5, $6, 'docker-tls', $7, $8, $9, $10, 'online', 'ready', false, now(), now(), $11, $12, now(), $13) RETURNING id`,
-		n.Name, n.Hostname, n.Description, n.Environment, labels, n.Notes, n.Endpoint, n.CACert, n.ClientCert, n.TLSFingerprint, info, caps, nullable(n.CreatedBy)).Scan(&id)
+		VALUES ($1, $2, $3, $4, $14, $5, $6, 'docker-tls', $7, $8, $9, $10, 'online', 'ready', false, now(), now(), $11, $12, now(), $13) RETURNING id`,
+		n.Name, n.Hostname, n.Description, n.Environment, labels, n.Notes, n.Endpoint, n.CACert, n.ClientCert, n.TLSFingerprint, info, caps, nullable(n.CreatedBy), n.Location).Scan(&id)
 	if err != nil {
 		return "", err
 	}
@@ -279,6 +281,7 @@ type ServerPatch struct {
 	Hostname    *string            `json:"hostname"`
 	Description *string            `json:"description"`
 	Environment *string            `json:"environment"`
+	Location    *string            `json:"location"`
 	Labels      *map[string]string `json:"labels"`
 	Notes       *string            `json:"notes"`
 	Settings    json.RawMessage    `json:"settings"`
@@ -296,8 +299,8 @@ func (s *Store) UpdateServer(ctx context.Context, id string, p ServerPatch) erro
 	_, err := s.DB.Exec(ctx, `
 		UPDATE servers SET name = COALESCE($2, name), hostname = COALESCE($3, hostname), description = COALESCE($4, description),
 		       environment = COALESCE($5, environment), labels = COALESCE($6, labels), notes = COALESCE($7, notes),
-		       settings = COALESCE($8, settings), updated_at = now()
-		WHERE id = $1`, id, p.Name, p.Hostname, p.Description, p.Environment, labels, p.Notes, settings)
+		       settings = COALESCE($8, settings), location = COALESCE($9, location), updated_at = now()
+		WHERE id = $1`, id, p.Name, p.Hostname, p.Description, p.Environment, labels, p.Notes, settings, p.Location)
 	return err
 }
 
@@ -466,6 +469,7 @@ type ServerMetricSample struct {
 	SwapUsed, SwapTotal       *int64
 	DiskUsed, DiskTotal       *int64
 	DiskReadBps, DiskWriteBps *float64
+	NetRxBps, NetTxBps        *float64
 	UptimeSeconds             *int64
 	ContainersRunning         *int
 	WorkloadCPU               *float64
@@ -475,10 +479,10 @@ type ServerMetricSample struct {
 func (s *Store) InsertServerMetric(ctx context.Context, m ServerMetricSample) error {
 	_, err := s.DB.Exec(ctx, `
 		INSERT INTO server_metric_samples (server_id, at, cpu_percent, load1, load5, load15, memory_used, memory_total, swap_used, swap_total,
-		       disk_used, disk_total, disk_read_bps, disk_write_bps, uptime_seconds, containers_running, workload_cpu_percent, workload_memory)
-		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18) ON CONFLICT DO NOTHING`,
+		       disk_used, disk_total, disk_read_bps, disk_write_bps, uptime_seconds, containers_running, workload_cpu_percent, workload_memory, net_rx_bps, net_tx_bps)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) ON CONFLICT DO NOTHING`,
 		m.ServerID, m.At, m.CPUPercent, m.Load1, m.Load5, m.Load15, m.MemoryUsed, m.MemoryTotal, m.SwapUsed, m.SwapTotal,
-		m.DiskUsed, m.DiskTotal, m.DiskReadBps, m.DiskWriteBps, m.UptimeSeconds, m.ContainersRunning, m.WorkloadCPU, m.WorkloadMemory)
+		m.DiskUsed, m.DiskTotal, m.DiskReadBps, m.DiskWriteBps, m.UptimeSeconds, m.ContainersRunning, m.WorkloadCPU, m.WorkloadMemory, m.NetRxBps, m.NetTxBps)
 	return err
 }
 
@@ -505,6 +509,8 @@ type ServerMetricBucket struct {
 	DiskTotal      *float64  `json:"diskTotal"`
 	DiskRead       *float64  `json:"diskReadBps"`
 	DiskWrite      *float64  `json:"diskWriteBps"`
+	NetRx          *float64  `json:"netRxBps"`
+	NetTx          *float64  `json:"netTxBps"`
 	Uptime         *float64  `json:"uptimeSeconds"`
 	Containers     *float64  `json:"containersRunning"`
 	WorkloadCPU    *float64  `json:"workloadCpu"`
@@ -520,12 +526,13 @@ func (s *Store) ServerMetricSeries(ctx context.Context, serverID string, window,
 			       avg(cpu_percent) AS cpu, max(cpu_percent) AS cpu_max, avg(load1) AS l1, avg(load5) AS l5, avg(load15) AS l15,
 			       avg(memory_used) AS mu, max(memory_total) AS mt, avg(swap_used) AS su, max(swap_total) AS st,
 			       avg(disk_used) AS du, max(disk_total) AS dt, avg(disk_read_bps) AS dr, avg(disk_write_bps) AS dw,
-			       max(uptime_seconds) AS up, avg(containers_running) AS cr, avg(workload_cpu_percent) AS wc, avg(workload_memory) AS wm
+			       max(uptime_seconds) AS up, avg(containers_running) AS cr, avg(workload_cpu_percent) AS wc, avg(workload_memory) AS wm,
+			       avg(net_rx_bps) AS nr, avg(net_tx_bps) AS nt
 			FROM server_metric_samples
 			WHERE server_id = $1 AND at >= now() - $2::interval - $3::interval
 			GROUP BY 1
 		)
-		SELECT b.at, COALESCE(a.n, 0), a.cpu, a.cpu_max, a.l1, a.l5, a.l15, a.mu, a.mt, a.su, a.st, a.du, a.dt, a.dr, a.dw, a.up, a.cr, a.wc, a.wm
+		SELECT b.at, COALESCE(a.n, 0), a.cpu, a.cpu_max, a.l1, a.l5, a.l15, a.mu, a.mt, a.su, a.st, a.du, a.dt, a.dr, a.dw, a.up, a.cr, a.wc, a.wm, a.nr, a.nt
 		FROM buckets b LEFT JOIN agg a ON a.at = b.at ORDER BY b.at`, serverID, interval(window), interval(step))
 	if err != nil {
 		return nil, err
@@ -535,7 +542,7 @@ func (s *Store) ServerMetricSeries(ctx context.Context, serverID string, window,
 	for rows.Next() {
 		var b ServerMetricBucket
 		if err := rows.Scan(&b.At, &b.Samples, &b.CPU, &b.CPUMax, &b.Load1, &b.Load5, &b.Load15, &b.MemoryUsed, &b.MemoryTotal, &b.SwapUsed, &b.SwapTotal,
-			&b.DiskUsed, &b.DiskTotal, &b.DiskRead, &b.DiskWrite, &b.Uptime, &b.Containers, &b.WorkloadCPU, &b.WorkloadMemory); err != nil {
+			&b.DiskUsed, &b.DiskTotal, &b.DiskRead, &b.DiskWrite, &b.Uptime, &b.Containers, &b.WorkloadCPU, &b.WorkloadMemory, &b.NetRx, &b.NetTx); err != nil {
 			return nil, err
 		}
 		out = append(out, b)
@@ -549,10 +556,10 @@ func (s *Store) LatestServerSample(ctx context.Context, serverID string) (*Serve
 	var at *time.Time
 	err := s.DB.QueryRow(ctx, `
 		SELECT at, cpu_percent, load1, load5, load15, memory_used, memory_total, swap_used, swap_total, disk_used, disk_total,
-		       disk_read_bps, disk_write_bps, uptime_seconds, containers_running, workload_cpu_percent, workload_memory
+		       disk_read_bps, disk_write_bps, uptime_seconds, containers_running, workload_cpu_percent, workload_memory, net_rx_bps, net_tx_bps
 		FROM server_metric_samples WHERE server_id = $1 ORDER BY at DESC LIMIT 1`, serverID).
 		Scan(&at, &b.CPU, &b.Load1, &b.Load5, &b.Load15, &b.MemoryUsed, &b.MemoryTotal, &b.SwapUsed, &b.SwapTotal, &b.DiskUsed, &b.DiskTotal,
-			&b.DiskRead, &b.DiskWrite, &b.Uptime, &b.Containers, &b.WorkloadCPU, &b.WorkloadMemory)
+			&b.DiskRead, &b.DiskWrite, &b.Uptime, &b.Containers, &b.WorkloadCPU, &b.WorkloadMemory, &b.NetRx, &b.NetTx)
 	if err != nil {
 		return nil, noRows(err)
 	}
@@ -1218,4 +1225,97 @@ func (s *Store) ServerJobLogs(ctx context.Context, serverID string, since time.T
 		out = append(out, l)
 	}
 	return out, rows.Err()
+}
+
+/* --------------------------------- Capacity --------------------------------- */
+
+// SetServerHostFacts stores what the host probe read about the machine (CPU model, cores, boot time).
+func (s *Store) SetServerHostFacts(ctx context.Context, id string, facts any) error {
+	b, _ := json.Marshal(facts)
+	_, err := s.DB.Exec(ctx, `UPDATE servers SET host_facts = $2 WHERE id = $1`, id, b)
+	return err
+}
+
+// ServerCapacity is one server's committed limits next to its observed load over a window.
+type ServerCapacity struct {
+	ServerID         string   `json:"serverId"`
+	Workloads        int      `json:"workloads"`
+	CommittedMemory  int64    `json:"committedMemory"` // bytes, summed memory limits of workloads meant to run
+	CommittedCPUs    float64  `json:"committedCpus"`
+	CPUP95           *float64 `json:"cpuP95"`
+	CPUAvg           *float64 `json:"cpuAvg"`
+	MemoryP95        *float64 `json:"memoryP95"`
+	MemoryTotal      *float64 `json:"memoryTotal"`
+	DiskUsed         *float64 `json:"diskUsed"`
+	DiskTotal        *float64 `json:"diskTotal"`
+	DiskGrowthPerDay *float64 `json:"diskGrowthPerDay"` // bytes/day from a linear fit, nil with too little history
+	Samples          int      `json:"samples"`
+}
+
+// FleetCapacity reads committed limits and window statistics for every server in one pass.
+// External databases aren't run by IGNITION, so they commit nothing.
+func (s *Store) FleetCapacity(ctx context.Context, window time.Duration) (map[string]*ServerCapacity, error) {
+	out := map[string]*ServerCapacity{}
+	rows, err := s.DB.Query(ctx, `
+		SELECT sv.id, count(r.id), COALESCE(sum(r.memory_mb), 0)::bigint * 1048576, COALESCE(sum(r.cpus), 0)::float8
+		FROM servers sv LEFT JOIN resources r ON r.server_id = sv.id AND r.desired_state = 'running'
+		     AND r.status <> 'removing' AND r.source_type <> 'external'
+		GROUP BY sv.id`)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		c := &ServerCapacity{}
+		if err := rows.Scan(&c.ServerID, &c.Workloads, &c.CommittedMemory, &c.CommittedCPUs); err != nil {
+			rows.Close()
+			return nil, err
+		}
+		out[c.ServerID] = c
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	rows, err = s.DB.Query(ctx, `
+		SELECT server_id, count(*),
+		       percentile_cont(0.95) WITHIN GROUP (ORDER BY cpu_percent), avg(cpu_percent),
+		       percentile_cont(0.95) WITHIN GROUP (ORDER BY memory_used), max(memory_total)::float8,
+		       (array_agg(disk_used ORDER BY at DESC) FILTER (WHERE disk_used IS NOT NULL))[1]::float8,
+		       max(disk_total)::float8,
+		       regr_slope(disk_used, extract(epoch FROM at)) * 86400,
+		       extract(epoch FROM max(at) FILTER (WHERE disk_used IS NOT NULL) - min(at) FILTER (WHERE disk_used IS NOT NULL))
+		FROM server_metric_samples WHERE at > now() - $1::interval GROUP BY server_id`, interval(window))
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id string
+		var n int
+		var cpu95, cpuAvg, mem95, memT, du, dt, slope, span *float64
+		if err := rows.Scan(&id, &n, &cpu95, &cpuAvg, &mem95, &memT, &du, &dt, &slope, &span); err != nil {
+			return nil, err
+		}
+		c := out[id]
+		if c == nil {
+			continue
+		}
+		c.Samples, c.CPUP95, c.CPUAvg, c.MemoryP95, c.MemoryTotal, c.DiskUsed, c.DiskTotal = n, cpu95, cpuAvg, mem95, memT, du, dt
+		// A slope over less than six hours is mostly noise from logs and image pulls.
+		if slope != nil && span != nil && *span >= 6*3600 {
+			c.DiskGrowthPerDay = slope
+		}
+	}
+	return out, rows.Err()
+}
+
+// SetServerCollector records where host metrics now come from, with the matching capability text,
+// without waiting for the next full check to rewrite info.
+func (s *Store) SetServerCollector(ctx context.Context, id, collector string, metrics any) error {
+	b, _ := json.Marshal(metrics)
+	_, err := s.DB.Exec(ctx, `
+		UPDATE servers SET info = jsonb_set(info, '{collector}', to_jsonb($2::text)),
+		       capabilities = jsonb_set(capabilities, '{metrics}', $3::jsonb)
+		WHERE id = $1 AND info ? 'collector' AND capabilities ? 'metrics'`, id, collector, b)
+	return err
 }

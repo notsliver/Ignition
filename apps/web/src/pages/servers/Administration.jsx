@@ -144,9 +144,9 @@ export function Settings({ server, onChanged, actions, setFeedback }) {
   const { user } = useSession();
   const admin = isAdmin(user);
   const initial = {
-    name: server.name, hostname: server.hostname, description: server.description, environment: server.environment, labels: labelsToText(server.labels), notes: server.notes,
+    name: server.name, hostname: server.hostname, description: server.description, environment: server.environment, location: server.location ?? '', labels: labelsToText(server.labels), notes: server.notes,
     connectTimeoutSeconds: String(server.settings.connectTimeoutSeconds), offlineAfterFailures: String(server.settings.offlineAfterFailures),
-    collectMetrics: server.settings.collectMetrics, diagnosticOutput: server.settings.diagnosticOutput,
+    collectMetrics: server.settings.collectMetrics, hostProbe: server.settings.hostProbe ?? true, diagnosticOutput: server.settings.diagnosticOutput,
   };
   const form = useSettingsForm(initial);
   const [errors, setErrors] = useState({});
@@ -158,8 +158,8 @@ export function Settings({ server, onChanged, actions, setFeedback }) {
     setErrors({});
     try {
       const out = await api.updateServer(server.id, {
-        name: v.name, hostname: v.hostname, description: v.description, environment: v.environment, labels: textToLabels(v.labels), notes: v.notes,
-        settings: { connectTimeoutSeconds: Number(v.connectTimeoutSeconds), offlineAfterFailures: Number(v.offlineAfterFailures), collectMetrics: v.collectMetrics, diagnosticOutput: v.diagnosticOutput },
+        name: v.name, hostname: v.hostname, description: v.description, environment: v.environment, location: v.location, labels: textToLabels(v.labels), notes: v.notes,
+        settings: { connectTimeoutSeconds: Number(v.connectTimeoutSeconds), offlineAfterFailures: Number(v.offlineAfterFailures), collectMetrics: v.collectMetrics, hostProbe: v.hostProbe, diagnosticOutput: v.diagnosticOutput },
       });
       form.save();
       onChanged(out.server);
@@ -179,6 +179,7 @@ export function Settings({ server, onChanged, actions, setFeedback }) {
       {field('name', 'Display name', 'Shown everywhere in IGNITION.', { maxLength: 64 })}
       {field('hostname', 'Hostname', 'For people; IGNITION connects to the address under Connection.', { maxLength: 253 })}
       {field('environment', 'Environment', 'e.g. production, staging.', { maxLength: 40 })}
+      {field('location', 'Location', 'Region, datacenter or rack, e.g. eu-west · fra1. Servers can be grouped by it.', { maxLength: 64 })}
       {field('description', 'Description', null, { maxLength: 500 })}
       <SettingsField label="Labels" hint={errors.labels ? <span className="rp-error">{errors.labels}</span> : 'One per line: key=value.'} htmlFor="labels">
         <textarea id="labels" className="labels-input" rows={3} value={v.labels} onChange={e => form.set('labels')(e.target.value)} disabled={!admin} />
@@ -216,6 +217,9 @@ export function Settings({ server, onChanged, actions, setFeedback }) {
     <SettingsGroup title="Advanced">
       <SettingsField label="Collect host metrics" hint="Sample this server every 15 seconds for Monitoring. Kept 7 days.">
         <Switch checked={v.collectMetrics} disabled={!admin} onChange={form.set('collectMetrics')} label="Collect host metrics" />
+      </SettingsField>
+      <SettingsField label="Host probe" hint={<>Runs a tiny <code>busybox</code> container named <code>ignition-hostprobe</code> on the host's network to read host CPU, memory, disk and network from <code>/proc</code>. No capabilities, read-only, 16 MB. Without it, {server.isLocal ? 'network isn\'t measured' : 'only engine figures are available'}. Turning it off removes the container.</>}>
+        <Switch checked={v.hostProbe} disabled={!admin || !v.collectMetrics} onChange={form.set('hostProbe')} label="Run the host probe" />
       </SettingsField>
       <SettingsField label="Diagnostic output" hint="How much raw output each diagnostic check keeps. Secrets are masked either way.">
         <Select label="Diagnostic output" value={v.diagnosticOutput} onChange={form.set('diagnosticOutput')} options={[{ value: 'summary', label: 'Summary (2 KB per check)' }, { value: 'verbose', label: 'Verbose (16 KB per check)' }]} />

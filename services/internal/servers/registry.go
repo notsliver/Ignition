@@ -102,6 +102,7 @@ type Observation struct {
 	Fingerprint string
 	Latency     time.Duration
 	Procfs      bool
+	HostProbe   bool // the host probe answered on the previous sample
 	SkewMS      *int64
 }
 

@@ -50,7 +50,7 @@ const stepIcon = { passed: CheckCircleIcon, warning: ExclamationTriangleIcon, fa
 
 export function AddServerDialog({ onClose, onCreated }) {
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState({ name: '', hostname: '', description: '', environment: '', labels: '' });
+  const [form, setForm] = useState({ name: '', hostname: '', description: '', environment: '', location: '', labels: '' });
   const [conn, setConn] = useState({ endpoint: '', caCert: '', clientCert: '', clientKey: '' });
   const [errors, setErrors] = useState({});
   const [verify, setVerify] = useState(null);
@@ -196,6 +196,7 @@ export function AddServerDialog({ onClose, onCreated }) {
         <div><dt>Name</dt><dd>{form.name}</dd></div>
         <div><dt>Hostname</dt><dd>{form.hostname || verify?.endpoint?.split(':')[0]}</dd></div>
         {form.environment && <div><dt>Environment</dt><dd>{form.environment}</dd></div>}
+        {form.location && <div><dt>Location</dt><dd>{form.location}</dd></div>}
         <div><dt>Connection</dt><dd>Docker Engine over mutual TLS · {verify?.endpoint}</dd></div>
         <div><dt>Engine</dt><dd>Docker {verify?.engine?.version} on {verify?.engine?.os} ({verify?.engine?.arch})</dd></div>
         <div><dt>Client certificate</dt><dd>{verify?.clientCertificate?.subject} · expires {verify?.clientCertificate && new Date(verify.clientCertificate.notAfter).toLocaleDateString()}</dd></div>

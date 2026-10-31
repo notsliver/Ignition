@@ -565,7 +565,7 @@ paths:
     get:
       summary: Server inventory, filtered, sorted and paged in the database, with overview counts.
       parameters:
-        - { name: q, in: query, schema: { type: string }, description: Name, hostname, endpoint, environment, description or labels }
+        - { name: q, in: query, schema: { type: string }, description: Name, hostname, endpoint, environment, location, description or labels }
         - { name: filter, in: query, schema: { type: string, enum: [all, online, offline, degraded, pending, unknown, maintenance, deployable, blocked, attention] } }
         - { name: sort, in: query, schema: { type: string, enum: [name, status, lastSeen, workloads, cpu, memory, disk] } }
         - { name: dir, in: query, schema: { type: string, enum: [asc, desc] } }
@@ -588,11 +588,16 @@ paths:
       summary: Diagnostic bundles for several servers as one JSON download (admin, audited). Never contains credentials, keys, environment values or log contents.
       parameters: [{ name: ids, in: query, required: true, schema: { type: string }, description: Comma-separated server IDs }]
       responses: { '200': { description: JSON file } }
+  /api/servers/capacity:
+    get:
+      summary: Fleet capacity planning. Per server, committed workload CPU and memory limits against cores and memory, p95 CPU and memory over the window, disk use with a days-until-full projection, a status (constrained, watch, ok, underused, unknown) and findings; plus fleet totals.
+      parameters: [{ name: window, in: query, schema: { type: string, enum: ['24h', '7d'] } }]
+      responses: { '200': { description: '{ window, servers: CapacityServer[], totals, thresholds }' } }
   /api/servers/{id}:
     parameters: [{ $ref: '#/components/parameters/id' }]
     get: { summary: One server with settings, engine info, verified capabilities, warnings and deployment eligibility, responses: { '200': { description: '{ server: ServerView }' } } }
     patch:
-      summary: Update name, hostname, description, environment, labels, notes or settings (admin).
+      summary: Update name, hostname, description, environment, location, labels, notes or settings (admin, including settings.hostProbe).
       responses: { '200': { description: '{ server }' }, '422': { $ref: '#/components/responses/Error' } }
     delete:
       summary: Remove the registration (admin, ?confirm=<name>). Refused while resources or work remain. Nothing on the host is stopped or deleted.
