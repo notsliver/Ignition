@@ -164,6 +164,16 @@ var routePerms = map[string]string{
 	"PATCH /api/projects/{id}":                  "projects.update",
 	"DELETE /api/projects/{id}":                 "projects.delete",
 
+	"GET /api/projects/{id}/deployments":        "deployments.view",
+	"GET /api/projects/{id}/metrics":            "resources.view",
+	"GET /api/projects/{id}/logs":               "logs.view",
+	"GET /api/projects/{id}/activity":           "audit.view",
+	"GET /api/projects/{id}/environments":       "projects.view",
+	"POST /api/projects/{id}/environments":      "projects.update",
+	"PUT /api/projects/{id}/environments/order": "projects.update",
+	"PATCH /api/environments/{id}":              "projects.update",
+	"DELETE /api/environments/{id}":             "projects.update",
+
 	// Resources
 	"GET /api/projects/{id}/resources":               "resources.view",
 	"GET /api/resources":                             "resources.view",

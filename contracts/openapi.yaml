@@ -228,6 +228,29 @@ paths:
     parameters: [{ $ref: '#/components/parameters/id' }]
     put: { summary: Favorite for the current user, responses: { '204': { description: OK } } }
     delete: { summary: Unfavorite, responses: { '204': { description: OK } } }
+  /api/projects/{id}/deployments:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Deployments of every resource in the project (?env= name or ID, ?resource=, ?status=, ?q=, paging) with 14-day statistics, responses: { '200': { description: '{ deployments, total, stats }' } } }
+  /api/projects/{id}/metrics:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: CPU, memory and network series for every resource in the project (?range=, ?env=) plus each one's newest sample, responses: { '200': { description: '{ buckets, resources, stepSeconds }' } } }
+  /api/projects/{id}/logs:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Runtime output of the project's running resources merged by time (?env=, ?resources=, ?tail=, ?since= for live tailing). Secrets are redacted., responses: { '200': { description: '{ lines, sources, failed }' } } }
+  /api/projects/{id}/activity:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Audit events of the project and its resources, responses: { '200': { description: '{ events }' } } }
+  /api/projects/{id}/environments:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get: { summary: Environments with resource, running and domain counts, responses: { '200': { description: '{ environments }' } } }
+    post: { summary: Add an environment, responses: { '201': { description: '{ id }' }, '422': { $ref: '#/components/responses/Error' } } }
+  /api/projects/{id}/environments/order:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    put: { summary: Reorder environments; the first is the default, responses: { '204': { description: Saved }, '422': { $ref: '#/components/responses/Error' } } }
+  /api/environments/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    patch: { summary: Rename an environment, responses: { '204': { description: Renamed }, '422': { $ref: '#/components/responses/Error' } } }
+    delete: { summary: Delete an empty environment (never the last one), responses: { '204': { description: Deleted }, '409': { $ref: '#/components/responses/Error' } } }
   /api/projects/{id}/resources:
     parameters: [{ $ref: '#/components/parameters/id' }]
     get:

@@ -30,9 +30,11 @@ const certDays = d => d.certExpiresAt ? Math.floor((new Date(d.certExpiresAt) - 
 const routeLabel = d => d.redirectTo ? `Redirect ${d.redirectCode} → ${d.redirectTo.replace('{path}', '…')}` : `${d.resourceName}${d.port ? `:${d.port}` : ''}`;
 const filters = [{ value: 'all', label: 'All' }, { value: 'attention', label: 'Needs attention' }, { value: 'routing', label: 'Paths & redirects' }];
 
-export function Domains({ onOpenResource }) {
+export function Domains({ onOpenResource, project, environment }) {
   const { user } = useSession();
-  const { data, error, refetch } = useQuery(() => api.allDomains(), [], { pollMs: 15000 });
+  // Inside a project, only its routes (in the selected environment); the proxy and DNS sections live under Infrastructure.
+  const scoped = !!project;
+  const { data, error, refetch } = useQuery(() => api.allDomains(scoped ? { project: project.id, env: environment } : {}), [project?.id, environment], { pollMs: 15000 });
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [adding, setAdding] = useState(null);
@@ -73,7 +75,8 @@ export function Domains({ onOpenResource }) {
 
   return <div className="monitor nw-page">
     <div className="rp-intro">
-      <p>Every hostname Ignition serves. A hostname can route paths to different resources, redirect, or only let some networks in. Certificates are issued automatically.</p>
+      <p>{scoped ? <>Hostnames that reach {project.name} in {environment}. Paths can go to different resources, redirect, or only let some networks in. Proxy, certificates and DNS providers are under <a href="/domains" onClick={e => { e.preventDefault(); history.pushState(null, '', '/domains'); dispatchEvent(new PopStateEvent('popstate')); }}>Infrastructure › Domains</a>.</>
+        : 'Every hostname Ignition serves. A hostname can route paths to different resources, redirect, or only let some networks in. Certificates are issued automatically.'}</p>
       <div className="rp-intro-actions">
         <Button icon={ArrowPathIcon} onClick={() => run(api.recheckDomains, 'Checking every domain in the background')}>Check all</Button>
         {can(user, 'domains.manage') && <Button variant="primary" icon={PlusIcon} onClick={() => setAdding({})}>Add domain</Button>}
@@ -124,15 +127,15 @@ export function Domains({ onOpenResource }) {
       {!hosts.length && <div className="rp-empty">
         <GlobeAltIcon />
         <strong>{list.length ? 'Nothing matches' : 'No domains yet'}</strong>
-        <p>{list.length ? 'Try another search or filter.' : 'Point a hostname at an application. Names under .localhost work on this machine without DNS.'}</p>
+        <p>{list.length ? 'Try another search or filter.' : `Point a hostname at ${scoped ? `an application in ${environment}` : 'an application'}. Names under .localhost work on this machine without DNS.`}</p>
         {!list.length && can(user, 'domains.manage') && <Button variant="primary" icon={PlusIcon} onClick={() => setAdding({})}>Add domain</Button>}
       </div>}
     </div>
 
-    <ProxySection canManage={can(user, 'proxy.manage')} />
-    <DnsProviders canManage={can(user, 'dns.manage')} publicIpv4={data?.publicIpv4} publicIpv6={data?.publicIpv6} onChanged={refetch} />
+    {!scoped && <ProxySection canManage={can(user, 'proxy.manage')} />}
+    {!scoped && <DnsProviders canManage={can(user, 'dns.manage')} publicIpv4={data?.publicIpv4} publicIpv6={data?.publicIpv6} onChanged={refetch} />}
 
-    {adding && <AddRouteDialog initial={adding} providers={data?.dnsProviders ?? []} publicIpv4={data?.publicIpv4} onClose={() => setAdding(null)}
+    {adding && <AddRouteDialog initial={adding} projectId={project?.id} environment={environment} providers={data?.dnsProviders ?? []} publicIpv4={data?.publicIpv4} onClose={() => setAdding(null)}
       onAdded={(d, dnsError) => { setAdding(null); setFeedback(dnsError ? { tone: 'warning', title: `${d.hostname}${d.pathPrefix} added, but DNS records weren't created`, text: dnsError } : { tone: 'success', title: `${d.hostname}${d.pathPrefix} added`, text: d.statusMessage }); refetch(); }} />}
     {deleting && <DeleteRouteDialog domain={deleting} onClose={() => setDeleting(null)} onDeleted={() => { setFeedback({ tone: 'success', title: `${deleting.hostname}${deleting.pathPrefix} deleted` }); setDeleting(null); refetch(); }} />}
   </div>;
@@ -140,9 +143,9 @@ export function Domains({ onOpenResource }) {
 
 /* ------------------------------- Add a route ------------------------------- */
 
-export function AddRouteDialog({ initial = {}, resourceId, providers = [], publicIpv4, onClose, onAdded }) {
+export function AddRouteDialog({ initial = {}, resourceId, projectId, environment, providers = [], publicIpv4, onClose, onAdded }) {
   const resources = useQuery(() => api.allResources(), [], { enabled: !resourceId });
-  const apps = (resources.data?.resources ?? []).filter(r => r.type === 'application');
+  const apps = (resources.data?.resources ?? []).filter(r => r.type === 'application' && (!projectId || (r.projectId === projectId && (!environment || r.environment === environment))));
   const [v, setV] = useState({ resourceId: resourceId ?? '', hostname: initial.hostname ?? '', mode: 'proxy', pathPrefix: '', stripPrefix: false, port: '', https: true,
     redirectTo: '', redirectCode: '308', allowIps: '', dnsProviderId: '' });
   const [errors, setErrors] = useState({});

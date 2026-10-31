@@ -833,38 +833,7 @@ type DeploymentQuery struct {
 }
 
 func (s *Store) ListServerDeployments(ctx context.Context, serverID string, q DeploymentQuery) ([]ServerDeployment, int, error) {
-	if q.Limit <= 0 || q.Limit > 200 {
-		q.Limit = 50
-	}
-	status := map[string]string{"active": `d.status IN ('queued', 'building', 'deploying')`, "successful": `d.status = 'successful'`,
-		"failed": `d.status = 'failed'`, "cancelled": `d.status = 'cancelled'`}[q.Status]
-	if status == "" {
-		status = "true"
-	}
-	sql := strings.Replace(deploymentSelect, "\n\tFROM deployments d", `, r.name, r.type, p.id, p.name, e.name, e.id, count(*) OVER ()
-	FROM deployments d`, 1) + `
-		JOIN projects p ON p.id = r.project_id JOIN environments e ON e.id = r.environment_id
-		WHERE r.server_id = $1 AND ` + status + ` AND ($2 = '' OR r.name ILIKE '%' || $2 || '%' OR p.name ILIKE '%' || $2 || '%' OR d.commit_sha ILIKE $2 || '%'
-		      OR d.image_ref ILIKE '%' || $2 || '%' OR d.error ILIKE '%' || $2 || '%' OR d.id::text = $2)
-		ORDER BY d.created_at DESC LIMIT $3 OFFSET $4`
-	rows, err := s.DB.Query(ctx, sql, serverID, q.Q, q.Limit, max(q.Offset, 0))
-	if err != nil {
-		return nil, 0, err
-	}
-	defer rows.Close()
-	out := []ServerDeployment{}
-	total := 0
-	for rows.Next() {
-		var d ServerDeployment
-		err := rows.Scan(&d.ID, &d.ResourceID, &d.Number, &d.Status, &d.Trigger, &d.ImageRef, &d.CommitSHA, &d.Branch, &d.Reason, &d.Error,
-			&d.Author, &d.JobID, &d.Current, &d.ImageID, &d.Previous, &d.RestoreEnv, &d.EnvKept, &d.CreatedAt, &d.StartedAt, &d.FinishedAt,
-			&d.ResourceName, &d.ResourceType, &d.ProjectID, &d.ProjectName, &d.Environment, &d.EnvironmentID, &total)
-		if err != nil {
-			return nil, 0, err
-		}
-		out = append(out, d)
-	}
-	return out, total, rows.Err()
+	return s.deploymentsWhere(ctx, `r.server_id = $1`, []any{serverID}, q)
 }
 
 // RetainedImageIDs are images deployments of this server's resources ran, which a rollback could need.

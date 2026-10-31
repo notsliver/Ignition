@@ -10,8 +10,8 @@ import '../Deployments/Deployments.css';
 import './ResourceDeployments.css';
 
 // Pipeline steps as the worker logs them. Image deploys skip source/build; git ones skip pull.
-const STEPS = [['source', 'Source fetched'], ['pull', 'Image pulled'], ['build', 'Build'], ['rollout', 'Rollout'], ['health', 'Health verification'], ['complete', 'Complete']];
-const statusInfo = {
+export const STEPS = [['source', 'Source fetched'], ['pull', 'Image pulled'], ['build', 'Build'], ['rollout', 'Rollout'], ['health', 'Health verification'], ['complete', 'Complete']];
+export const statusInfo = {
   queued: { tone: 'neutral', label: 'Queued' },
   building: { tone: 'warning', label: 'Building' },
   deploying: { tone: 'progress', label: 'Deploying' },
@@ -19,11 +19,11 @@ const statusInfo = {
   failed: { tone: 'danger', label: 'Failed' },
   cancelled: { tone: 'neutral', label: 'Cancelled' },
 };
-const active = s => s === 'queued' || s === 'building' || s === 'deploying';
-const triggerLabel = { manual: 'Manual', create: 'First deploy', redeploy: 'Redeploy', rollback: 'Rollback', retry: 'Retry', config: 'Config change', hook: 'Deploy hook', token: 'API token', automation: 'Automation' };
+export const active = s => s === 'queued' || s === 'building' || s === 'deploying';
+export const triggerLabel = { manual: 'Manual', create: 'First deploy', redeploy: 'Redeploy', rollback: 'Rollback', retry: 'Retry', config: 'Config change', hook: 'Deploy hook', token: 'API token', automation: 'Automation' };
 const statusTabs = [{ value: 'all', label: 'All' }, { value: 'active', label: 'In progress' }, { value: 'failed', label: 'Failed' }];
 
-function Timeline({ d }) {
+export function Timeline({ d }) {
   const { data } = useQuery(() => api.deploymentLogs(d.id), [d.id], { pollMs: active(d.status) ? 1500 : 0 });
   const logs = data?.logs ?? [];
   const [open, setOpen] = useState(null);

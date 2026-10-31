@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
-# Install or update IGNITION. Safe to re-run: existing secrets and data are kept.
+# Install or update Ignition. Safe to re-run: existing secrets and data are kept.
 #
 # On a server (VPS), as root:
 #   curl -fsSL https://raw.githubusercontent.com/notsliver/Ignition/main/install.sh | bash
 # This downloads the compose files to /opt/ignition and runs the published image
 # notsliver/ignition from Docker Hub. Nothing is built.
 #
-# From a git checkout (developing IGNITION):  ./install.sh
+# From a git checkout (developing Ignition):  ./install.sh
 # This builds the image from your checkout instead.
 #
 # Options (environment variables):
@@ -37,7 +37,7 @@ trap 'printf "\n%sCancelled. Re-run the installer to continue; it picks up where
 RAW="https://raw.githubusercontent.com/notsliver/Ignition/${IGNITION_REF:-main}"
 IMAGE_REPO="notsliver/ignition"
 
-# Developing IGNITION when the script sits in a checkout; otherwise a server install from Docker Hub.
+# Developing Ignition when the script sits in a checkout; otherwise a server install from Docker Hub.
 here="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" 2>/dev/null && pwd || true)"
 if [ -n "$here" ] && [ -f "$here/deploy/docker-compose.yml" ] && [ -d "$here/services" ]; then
   MODE=source
@@ -50,8 +50,8 @@ fi
 os="$(uname -s)"
 arch="$(uname -m)"
 if [ "$MODE" = server ]; then
-  [ "$os" = Linux ] || fail "IGNITION servers run Linux; this is $os." \
-    "To try IGNITION on a laptop, clone the repository and run ./install.sh from the checkout."
+  [ "$os" = Linux ] || fail "Ignition servers run Linux; this is $os." \
+    "To try Ignition on a laptop, clone the repository and run ./install.sh from the checkout."
   case "$arch" in
     x86_64|amd64|aarch64|arm64) ;;
     *) fail "This server's CPU architecture ($arch) isn't supported." "Published images are for x86_64 (amd64) and arm64." ;;
@@ -64,10 +64,10 @@ fi
 if [ "${IGNITION_SKIP_CHECKS:-}" != 1 ] && [ "$os" = Linux ]; then
   mem_mb=$(awk '/MemTotal/ {print int($2/1024)}' /proc/meminfo 2>/dev/null || echo 0)
   if [ "$mem_mb" -gt 0 ] && [ "$mem_mb" -lt 900 ]; then
-    fail "This server has ${mem_mb} MB of memory; IGNITION needs at least 1 GB (2 GB recommended)." \
+    fail "This server has ${mem_mb} MB of memory; Ignition needs at least 1 GB (2 GB recommended)." \
       "Choose a bigger server, or add swap and run with IGNITION_SKIP_CHECKS=1 at your own risk."
   elif [ "$mem_mb" -gt 0 ] && [ "$mem_mb" -lt 1800 ]; then
-    note "This server has ${mem_mb} MB of memory. IGNITION runs, but 2 GB or more is recommended once you deploy apps."
+    note "This server has ${mem_mb} MB of memory. Ignition runs, but 2 GB or more is recommended once you deploy apps."
   fi
   target="${IGNITION_DIR:-/opt/ignition}"; [ "$MODE" = source ] && target="$here"
   probe="$target"; while [ ! -d "$probe" ]; do probe="$(dirname "$probe")"; done
@@ -75,7 +75,7 @@ if [ "${IGNITION_SKIP_CHECKS:-}" != 1 ] && [ "$os" = Linux ]; then
   docker_root="/var/lib/docker"; [ -d "$docker_root" ] || docker_root="/var/lib"
   docker_free_mb=$(df -Pm "$docker_root" 2>/dev/null | awk 'NR==2 {print $4}' || echo 0)
   if [ "${docker_free_mb:-0}" -gt 0 ] && [ "$docker_free_mb" -lt 3000 ]; then
-    fail "Only ${docker_free_mb} MB of disk is free for Docker; IGNITION needs at least 3 GB." \
+    fail "Only ${docker_free_mb} MB of disk is free for Docker; Ignition needs at least 3 GB." \
       "Free space (docker system prune removes unused images), or use a server with a bigger disk."
   fi
   [ "${free_mb:-1}" -gt 50 ] || fail "There's almost no disk space left at $probe."
@@ -112,7 +112,7 @@ fi
 docker compose version >/dev/null 2>&1 || fail "Docker Compose v2 (the 'docker compose' command) is missing." \
   "Install the plugin: apt-get install -y docker-compose-plugin   (or update Docker)."
 docker_major=$(docker version --format '{{.Server.Version}}' 2>/dev/null | cut -d. -f1 || echo 0)
-[ "${docker_major:-0}" -ge 24 ] 2>/dev/null || fail "Docker $(docker version --format '{{.Server.Version}}' 2>/dev/null) is too old; IGNITION needs Docker 24 or newer." \
+[ "${docker_major:-0}" -ge 24 ] 2>/dev/null || fail "Docker $(docker version --format '{{.Server.Version}}' 2>/dev/null) is too old; Ignition needs Docker 24 or newer." \
   "Upgrade Docker: https://docs.docker.com/engine/install/"
 
 # ---- 3. Install folder ----
@@ -121,7 +121,7 @@ if [ "$MODE" = server ]; then
   mkdir -p "$dir/deploy" 2>/dev/null || fail "Can't create $dir." "Check the path and permissions, or choose another folder with IGNITION_DIR=/path."
   [ -w "$dir" ] || fail "Can't write to $dir."
   cd "$dir"
-  say "Downloading IGNITION's compose files to $dir…"
+  say "Downloading Ignition's compose files to $dir…"
   for f in deploy/docker-compose.yml deploy/proxy-bootstrap.json .env.example; do
     code=$(curl -sS -L -w '%{http_code}' --retry 3 --retry-delay 2 --max-time 30 "$RAW/$f" -o "$f.tmp" 2>/tmp/ignition-curl.err || echo 000)
     if [ "$code" != 200 ]; then
@@ -151,7 +151,7 @@ setenv() { # setenv KEY VALUE: replace or append in .env
 getenv() { grep -E "^$1=" .env 2>/dev/null | tail -1 | cut -d= -f2- || true; }
 
 if [ ! -f .env ] && docker volume inspect ignition_db-data >/dev/null 2>&1; then
-  fail ".env is missing, but an IGNITION database already exists on this server." \
+  fail ".env is missing, but an Ignition database already exists on this server." \
     "That .env holds the database password and the key that encrypts your secrets; a new one can't open the old data." \
     "Restore your backup of .env into $(pwd), then run the installer again." \
     "Or, to start over and DELETE the old data: docker volume rm ignition_db-data ignition_proxy-data"
@@ -183,7 +183,7 @@ port=$(getenv IGNITION_PORT); http_port=$(getenv IGNITION_HTTP_PORT); https_port
   fail "IGNITION_PORT ($port), IGNITION_HTTP_PORT ($http_port) and IGNITION_HTTPS_PORT ($https_port) must all be different."
 
 # ---- 5. Free ports ----
-# Who holds a TCP port: a Docker container (other than IGNITION's own), or a program on the host.
+# Who holds a TCP port: a Docker container (other than Ignition's own), or a program on the host.
 port_owner() {
   local p=$1 c
   c=$(docker ps --format '{{.Names}}\t{{.Ports}}' 2>/dev/null | grep -E "(0\.0\.0\.0|\[::\]|:::?):$p->" | cut -f1 | grep -v '^ignition-' | head -1 || true)
@@ -210,7 +210,7 @@ port_help() { # port_help PORT VAR WHAT
     process:unknown) why="Another program is listening on port $p." ;;
     *) why="\"$name\" is listening on port $p." ;;
   esac
-  local fixes=("$why" "IGNITION needs it for $what." "Fix it in one of these ways:")
+  local fixes=("$why" "Ignition needs it for $what." "Fix it in one of these ways:")
   case "$owner" in
     container:*) fixes+=("  • Stop that container:  docker stop $name   (and docker update --restart=no $name to keep it stopped)") ;;
     *)
@@ -220,7 +220,7 @@ port_help() { # port_help PORT VAR WHAT
         *) [ "$name" != unknown ] && fixes+=("  • Stop $name:  systemctl disable --now $name   (if it's a service)") ;;
       esac ;;
   esac
-  fixes+=("  • Or run IGNITION on another port:  curl -fsSL $RAW/install.sh | sudo $var=<free port> bash")
+  fixes+=("  • Or run Ignition on another port:  curl -fsSL $RAW/install.sh | sudo $var=<free port> bash")
   [ "$var" != IGNITION_PORT ] && fixes+=("    (domains then need that port in their URL, and automatic HTTPS needs ports 80 and 443)")
   fail "Port $p is already in use." "${fixes[@]}"
 }
@@ -294,7 +294,7 @@ explain() {
   grep -qi "no space left on device" <<<"$out" && fail "The disk is full." "Free space (docker system prune) and run the installer again."
   grep -qi "dial tcp\|i/o timeout\|TLS handshake timeout\|no such host\|connection refused\|network is unreachable" <<<"$out" && \
     fail "Couldn't download from the internet while starting $what." "Check this server's internet access, DNS and any proxy, then run the installer again." "$(grep -iE 'dial tcp|timeout|no such host|refused|unreachable' <<<"$out" | tail -1)"
-  grep -qi "is already in use by container\|Conflict. The container name" <<<"$out" && fail "A container named like IGNITION's already exists but belongs to another setup." \
+  grep -qi "is already in use by container\|Conflict. The container name" <<<"$out" && fail "A container named like Ignition's already exists but belongs to another setup." \
     "Remove it (docker rm -f <name> from the message below) or run the uninstaller first." "$(grep -i conflict <<<"$out" | tail -1)"
   grep -qi "permission denied" <<<"$out" && fail "Docker was denied permission while starting $what." "Run the installer as root (sudo)." "$(grep -i 'permission denied' <<<"$out" | tail -1)"
   fail "Starting $what failed." "Docker said:" "$(tail -8 <<<"$out")" "Full log: $log"
@@ -307,17 +307,17 @@ run() { # run "what" cmd...: show progress, capture output, explain failures
 docker network inspect ignition >/dev/null 2>&1 || run "the apps network" docker network create ignition
 if [ "$MODE" = server ]; then
   say "Downloading $image (this can take a few minutes)…"
-  run "IGNITION" "${COMPOSE[@]}" pull --quiet api worker db proxy
-  say "Starting IGNITION…"
-  run "IGNITION" "${COMPOSE[@]}" up -d --no-build --remove-orphans
+  run "Ignition" "${COMPOSE[@]}" pull --quiet api worker db proxy
+  say "Starting Ignition…"
+  run "Ignition" "${COMPOSE[@]}" up -d --no-build --remove-orphans
   setenv IGNITION_IMAGE "$image"
 else
-  say "Building and starting IGNITION from this checkout (the first build takes a few minutes)…"
-  run "IGNITION" "${COMPOSE[@]}" up -d --build --remove-orphans
+  say "Building and starting Ignition from this checkout (the first build takes a few minutes)…"
+  run "Ignition" "${COMPOSE[@]}" up -d --build --remove-orphans
 fi
 
 # ---- 8. Wait until ready ----
-printf 'Waiting for IGNITION to be ready'
+printf 'Waiting for Ignition to be ready'
 ready=0
 for _ in $(seq 1 90); do
   status=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' ignition-api-1 2>/dev/null || echo "missing")
@@ -332,7 +332,7 @@ if [ "$ready" != 1 ]; then
   logs=$("${COMPOSE[@]}" logs --tail 40 api 2>&1 || true)
   dbstate=$(docker inspect -f '{{.State.Status}} {{if .State.Health}}{{.State.Health.Status}}{{end}}' ignition-db-1 2>/dev/null || echo missing)
   if grep -qi "password authentication failed" <<<"$logs"; then
-    fail "IGNITION couldn't sign in to its database." \
+    fail "Ignition couldn't sign in to its database." \
       "The database was created with a different POSTGRES_PASSWORD than the one in $(pwd)/.env." \
       "Restore the .env that belongs to this data, or delete the old data (docker volume rm ignition_db-data) to start fresh."
   elif grep -qi "secret key\|IGNITION_SECRET_KEY" <<<"$logs"; then
@@ -340,7 +340,7 @@ if [ "$ready" != 1 ]; then
   elif [[ "$dbstate" != running* ]]; then
     fail "The database didn't start ($dbstate)." "$("${COMPOSE[@]}" logs --tail 15 db 2>&1 | tail -15)"
   fi
-  fail "IGNITION didn't become ready in 3 minutes (api is ${status})." "Last lines of its log:" "$(tail -15 <<<"$logs")" \
+  fail "Ignition didn't become ready in 3 minutes (api is ${status})." "Last lines of its log:" "$(tail -15 <<<"$logs")" \
     "More: cd $(pwd) && ${COMPOSE[*]} logs api"
 fi
 
@@ -348,7 +348,7 @@ fi
 url=$(getenv IGNITION_PUBLIC_URL); url=${url:-http://localhost:${port}}
 code=$("${COMPOSE[@]}" logs api 2>/dev/null | grep -o '"setup_code":"[A-F0-9]*"' | tail -1 | cut -d'"' -f4 || true)
 echo
-say "IGNITION is running at $url"
+say "Ignition is running at $url"
 if [ -n "$code" ]; then
   say "Setup code: ${code}"
   echo "Open the URL, enter the code, and create your owner account."

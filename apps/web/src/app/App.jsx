@@ -4,12 +4,15 @@ import { Badge, IconButton, Notice, cx } from '../ui';
 import { ComingSoon } from '../pages/ComingSoon';
 import { Domains as DomainsHub } from '../pages/network/Domains';
 import { Networking } from '../pages/network/Networking';
+import { ProjectDeployments } from '../pages/project/views/ProjectDeployments';
+import { ProjectMonitoring } from '../pages/project/views/ProjectMonitoring';
+import { ProjectLogs } from '../pages/project/views/ProjectLogs';
+import { ProjectSettings } from '../pages/project/views/ProjectSettings';
 import { Dashboard } from '../pages/Dashboard/Dashboard';
 import { Monitor } from '../pages/Monitor/Monitor';
 import { Sources } from '../pages/Sources/Sources';
 import { Projects } from '../pages/Projects/Projects';
 import { Resources } from '../pages/project/Resources/Resources';
-import { Deployments } from '../pages/project/Deployments/Deployments';
 import { ResourceDetail } from '../pages/project/ResourceDetail/ResourceDetail';
 import * as ResourcePages from '../pages/project/resource';
 import { General } from '../pages/settings/General/General';
@@ -125,9 +128,20 @@ export function App() {
     document.title = `${where} · ${instanceName}`;
   }, [active, project, resource, resourceView, server, serverView, instanceName]);
 
+  // Declared before the pages that link to resources use it.
+  const openResourceFromAnywhere = (r, view = 'Overview') => {
+    if (!confirmLeave()) return;
+    history.pushState(null, '', `/projects/${r.projectId}/resources/${r.id}${view === 'Overview' ? '' : `/${slug(view)}`}`);
+    applyUrl();
+  };
   const projectPages = project && { Resources: resource
     ? renderResourcePage()
-    : <Resources project={project} environment={environment} environmentId={environmentId} onOpen={setResource} />, Deployments: preview(<Deployments project={project} />) };
+    : <Resources project={project} environment={environment} environmentId={environmentId} onOpen={setResource} />,
+    Deployments: <ProjectDeployments key={`${project.id}:${environment}`} project={project} environment={environment} onOpenResource={openResourceFromAnywhere} />,
+    Domains: <DomainsHub key={`${project.id}:${environment}`} project={project} environment={environment} onOpenResource={openResourceFromAnywhere} />,
+    Monitoring: <ProjectMonitoring key={`${project.id}:${environment}`} project={project} environment={environment} onOpenResource={openResourceFromAnywhere} />,
+    Logs: <ProjectLogs key={`${project.id}:${environment}`} project={project} environment={environment} onOpenResource={openResourceFromAnywhere} />,
+    'Project Settings': <ProjectSettings key={project.id} project={project} onProjectChange={setProject} onDeleted={() => { setProject(null); setActive('Projects'); }} /> };
   function renderResourcePage() {
     const props = { key: `${resource.id ?? resource.name}:${resourceView}`, project, environment, resource, onNavigate: showResourceView, onResourceChange: setResourceState, onDeleted: () => setResourceState(null) };
     if (resourceView === 'Overview') return <ResourceDetail {...props} />;
@@ -136,11 +150,6 @@ export function App() {
     return Page ? (LIVE_RESOURCE_VIEWS.includes(resourceView) ? <Page {...props} /> : preview(<Page {...props} />)) : <ComingSoon title={resourceView} />;
   }
   // Opening a resource from Monitor goes through its URL, so project and resource load the same way as a reload.
-  const openResourceFromAnywhere = (r, view = 'Overview') => {
-    if (!confirmLeave()) return;
-    history.pushState(null, '', `/projects/${r.projectId}/resources/${r.id}${view === 'Overview' ? '' : `/${slug(view)}`}`);
-    applyUrl();
-  };
   const page = project ? projectPages[active]
     : active === 'Projects' ? <Projects onOpen={openProject} />
         : active === 'Servers' ? (server

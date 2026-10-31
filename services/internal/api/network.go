@@ -717,6 +717,15 @@ func (s *Server) allDomains(w http.ResponseWriter, r *http.Request, _ *store.Use
 	if err != nil {
 		return err
 	}
+	if project, env := r.URL.Query().Get("project"), r.URL.Query().Get("env"); project != "" {
+		kept := list[:0]
+		for _, d := range list {
+			if d.ProjectID == project && (env == "" || d.Environment == env) {
+				kept = append(kept, d)
+			}
+		}
+		list = kept
+	}
 	providers, _ := s.Store.DNSProviders(r.Context())
 	pv := []map[string]any{}
 	for _, p := range providers {
