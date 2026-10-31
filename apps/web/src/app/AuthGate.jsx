@@ -3,6 +3,7 @@ import { ArrowRightEndOnRectangleIcon, EyeIcon, EyeSlashIcon, KeyIcon, LockClose
 import { Button, FormField, Logo, Notice, TextInput } from '../ui';
 import { api, onUnauthenticated } from '../api/client';
 import { EnrollTwoFactor, RecoveryCodes } from './TwoFactor';
+import { adoptServerPreferences, setPreferenceSaver } from './preferences';
 import './AuthGate.css';
 
 const SessionContext = createContext(null);
@@ -11,7 +12,12 @@ export const useSession = () => useContext(SessionContext);
 /** Whether the signed-in user has a permission (role defaults plus grants, minus denials). */
 export const can = (user, permission) => !!user?.permissions?.includes(permission);
 
-const withPermissions = out => ({ ...out.user, permissions: out.permissions ?? [], mfaNotice: out.mfaNotice ?? null });
+const withPermissions = out => {
+  // Signed in: preferences are saved to the account, and the account's win over this browser's.
+  setPreferenceSaver(p => api.savePreferences(p).catch(() => {}));
+  adoptServerPreferences(out.preferences);
+  return { ...out.user, permissions: out.permissions ?? [], mfaNotice: out.mfaNotice ?? null };
+};
 
 /** Shows first-run setup, sign-in, or an invite / reset link until there's a session, then renders the app. */
 export function AuthGate({ children }) {
@@ -46,7 +52,7 @@ export function AuthGate({ children }) {
   if (state.phase === 'ready') return <SessionContext.Provider value={{
     user: state.user,
     refresh: async () => setState({ phase: 'ready', user: withPermissions(await api.me()) }),
-    signOut: async () => { await api.logout().catch(() => {}); setState({ phase: 'login' }); },
+    signOut: async () => { await api.logout().catch(() => {}); setPreferenceSaver(null); setState({ phase: 'login' }); },
   }}>{children}</SessionContext.Provider>;
   return <div className="auth-screen">
     <main className="auth-column">

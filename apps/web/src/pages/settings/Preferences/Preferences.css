@@ -1,0 +1,41 @@
+.prefs-intro{margin:0;font-size:12.5px;line-height:1.5;color:var(--muted)}
+.prefs-presets{display:grid;grid-template-columns:repeat(5,72px);gap:8px;justify-content:end}
+.prefs-preset{display:flex;flex-direction:column;align-items:center;gap:5px;padding:4px 2px 6px;border-radius:9px;font-size:11px;color:var(--text-2)}
+.prefs-preset:hover{background:var(--hover)}
+.prefs-preset.active{color:var(--text);font-weight:500}
+.prefs-preset:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.prefs-swatch{display:grid;place-items:center;width:26px;height:26px;border-radius:50%;background:linear-gradient(135deg,var(--sw-light) 50%,var(--sw-dark) 50%);box-shadow:0 0 0 1px var(--border)}
+.prefs-preset.active .prefs-swatch{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--text-2)}
+.prefs-swatch svg{width:13px;color:#fff;filter:drop-shadow(0 0 1px #0008)}
+.prefs-color{display:inline-flex;align-items:center;gap:8px;cursor:pointer;font-size:12px;color:var(--text-2)}
+.prefs-color input{width:30px;height:24px;padding:0;border:1px solid var(--border);border-radius:6px;background:none;cursor:pointer}
+.prefs-color .mono{font:11.5px ui-monospace,SFMono-Regular,Menlo,monospace}
+.prefs-preview{display:flex;flex-direction:column;gap:10px;margin:0 16px 14px;padding:12px 14px;border:1px dashed var(--border);border-radius:10px}
+.prefs-preview-label{font-size:11px;font-weight:600;letter-spacing:.3px;text-transform:uppercase;color:var(--muted)}
+.prefs-preview-row{display:flex;align-items:center;flex-wrap:wrap;gap:10px;font-size:12.5px}
+.prefs-preview-row a{color:var(--accent)}
+.prefs-preview .input{max-width:280px}
+.prefs-keys{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:6px 18px;margin:0;padding:0 16px 14px;list-style:none;font-size:12.5px;color:var(--text-2)}
+.prefs-keys li{display:flex;align-items:center;gap:10px}
+.prefs-keys li>span{display:inline-flex;align-items:center;gap:4px;min-width:74px}
+.prefs-keys small{margin:0 2px;font-size:10.5px;color:var(--muted)}
+kbd{display:inline-grid;place-items:center;min-width:20px;height:20px;padding:0 5px;border:1px solid var(--border);border-bottom-width:2px;border-radius:5px;font:11px ui-monospace,SFMono-Regular,Menlo,monospace;color:var(--text);background:var(--surface)}
+@media(max-width:620px){.prefs-keys{grid-template-columns:minmax(0,1fr)}.prefs-presets{justify-content:flex-start}}
+
+/* Applied app-wide from Settings › Preferences. */
+:root[data-contrast="high"]{--border:#9b9da2;--line:#9b9da2;--muted:#55585e;--text-2:#2a2c30}
+:root[data-contrast="high"][data-theme="dark"]{--border:#6b6e75;--line:#6b6e75;--muted:#b9bcc2;--text-2:#e2e3e6}
+:root[data-contrast="high"] :focus-visible{outline-width:3px!important}
+:root[data-motion="reduce"] *,:root[data-motion="reduce"] *::before,:root[data-motion="reduce"] *::after{animation-duration:.01ms!important;animation-iteration-count:1!important;transition-duration:.01ms!important;scroll-behavior:auto!important}
+:root[data-density="comfortable"] .monitor-table td,:root[data-density="comfortable"] .sources-table td,:root[data-density="comfortable"] .perm-table td{height:52px}
+:root[data-density="comfortable"] .monitor-table th{height:40px}
+.prefs-card{position:relative;display:flex;gap:4px;width:64px;height:44px;padding:5px;border:1px solid;border-radius:8px;overflow:hidden;transition:transform .15s,box-shadow .15s}
+.prefs-preset:hover .prefs-card{transform:translateY(-1px)}
+.prefs-preset.active .prefs-card{box-shadow:0 0 0 2px var(--surface),0 0 0 4px var(--accent)}
+.prefs-card-side{width:8px;border-radius:3px;opacity:.9}
+.prefs-card-body{display:flex;flex-direction:column;justify-content:center;gap:4px;flex:1;padding:4px 5px;border:1px solid;border-radius:5px}
+.prefs-card-body span{display:block;height:3px;border-radius:2px}
+.prefs-card-body .prefs-card-btn{width:16px;height:6px;margin-top:1px;border-radius:2px}
+.prefs-card-check{position:absolute;top:3px;right:3px;display:grid;place-items:center;width:14px;height:14px;border-radius:50%}
+.prefs-card-check svg{width:10px}
+@media(max-width:620px){.prefs-presets{grid-template-columns:repeat(4,72px);justify-content:start}}

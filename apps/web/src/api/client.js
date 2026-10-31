@@ -56,6 +56,7 @@ export const api = {
   mfaConfirmTicket: (ticket, code) => request('POST', '/auth/mfa/setup/confirm', { ticket, code }),
   ssoStartUrl: '/api/auth/oidc/start',
   accountSecurity: () => request('GET', '/account/security'),
+  savePreferences: prefs => request('PUT', '/account/preferences', prefs),
   accountMfaSetup: () => request('POST', '/account/mfa/setup'),
   accountMfaEnable: code => request('POST', '/account/mfa/enable', { code }),
   accountMfaDisable: code => request('POST', '/account/mfa/disable', { code }),

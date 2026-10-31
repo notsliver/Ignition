@@ -1,3 +1,4 @@
+import { formatWhen, getPreferences, refreshFactor } from '../app/preferences';
 import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
@@ -27,7 +28,8 @@ export function useQuery(fetcher, deps, { pollMs = 0, enabled = true } = {}) {
 
   useEffect(() => {
     if (!enabled || !pollMs) return;
-    const id = setInterval(() => { if (document.visibilityState === 'visible') refetch(); }, pollMs);
+    // Settings › Preferences › Refresh stretches or shortens every page's polling.
+    const id = setInterval(() => { if (document.visibilityState === 'visible') refetch(); }, Math.max(2000, pollMs * refreshFactor()));
     return () => clearInterval(id);
   }, [pollMs, enabled, refetch]);
 
@@ -56,6 +58,7 @@ export function useMutation(fn) {
 /** Human-friendly relative time for API timestamps. */
 export function timeAgo(iso) {
   if (!iso) return '—';
+  if (getPreferences().timeStyle === 'absolute') return formatWhen(iso);
   const seconds = Math.round((Date.now() - new Date(iso).getTime()) / 1000);
   if (seconds < 45) return 'Just now';
   const minutes = Math.round(seconds / 60);

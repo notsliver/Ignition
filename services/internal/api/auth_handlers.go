@@ -153,7 +153,8 @@ func (s *Server) startSession(w http.ResponseWriter, r *http.Request, user *stor
 		Name: sessionCookie, Value: token, Path: "/", HttpOnly: true, Secure: s.SecureCookies,
 		SameSite: http.SameSiteLaxMode, MaxAge: int(ttl.Seconds()),
 	})
-	out := map[string]any{"user": user, "permissions": effectivePermissions(user), "mfaNotice": s.mfaNotice(user)}
+	prefs, _ := s.Store.UserPreferences(r.Context(), user.ID)
+	out := map[string]any{"user": user, "permissions": effectivePermissions(user), "mfaNotice": s.mfaNotice(user), "preferences": prefs}
 	for k, v := range extra {
 		out[k] = v
 	}
@@ -188,6 +189,8 @@ func (s *Server) logout(w http.ResponseWriter, r *http.Request) error {
 }
 
 func (s *Server) me(w http.ResponseWriter, r *http.Request, user *store.User) error {
-	httpx.JSON(w, 200, map[string]any{"user": user, "permissions": effectivePermissions(user), "mfaEnforced": s.policy().EnforceMFA, "mfaNotice": s.mfaNotice(user)})
+	prefs, _ := s.Store.UserPreferences(r.Context(), user.ID)
+	httpx.JSON(w, 200, map[string]any{"user": user, "permissions": effectivePermissions(user), "mfaEnforced": s.policy().EnforceMFA, "mfaNotice": s.mfaNotice(user),
+		"preferences": prefs})
 	return nil
 }

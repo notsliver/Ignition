@@ -193,6 +193,9 @@ paths:
     get: { summary: Begin OpenID Connect sign-in (authorization code with PKCE). Redirects to the identity provider., security: [], responses: { '302': { description: Redirect } } }
   /api/auth/oidc/callback:
     get: { summary: OpenID Connect redirect target. Verifies the ID token, finds, links or provisions the account, sets the session and redirects to the dashboard (or back to sign-in with ?sso_error=)., security: [], responses: { '302': { description: Redirect } } }
+  /api/account/preferences:
+    get: { summary: Your interface preferences (theme and preset, accent, contrast, size, motion, time display, start page, sidebar, refresh, shortcuts), responses: { '200': { description: '{ preferences }' } } }
+    put: { summary: Replace your interface preferences. Every key and value is validated., responses: { '200': { description: '{ preferences }' }, '422': { $ref: '#/components/responses/Error' } } }
   /api/account/security:
     get: { summary: Your two-factor status, recovery codes left, SSO link and effective permissions, responses: { '200': { description: '{ mfaEnabled, recoveryCodesLeft, mfaEnforced, sso, hasPassword, permissions, role }' } } }
   /api/account/mfa/setup:

@@ -168,3 +168,20 @@ func (s *Store) SuspendWithoutMFA(ctx context.Context) ([]string, error) {
 	}
 	return out, rows.Err()
 }
+
+/* -------------------------------- Preferences --------------------------------- */
+
+func (s *Store) UserPreferences(ctx context.Context, userID string) (map[string]string, error) {
+	var raw []byte
+	if err := s.DB.QueryRow(ctx, `SELECT preferences FROM users WHERE id = $1`, userID).Scan(&raw); err != nil {
+		return nil, noRows(err)
+	}
+	out := map[string]string{}
+	json.Unmarshal(raw, &out)
+	return out, nil
+}
+
+func (s *Store) SetUserPreferences(ctx context.Context, userID string, prefs []byte) error {
+	_, err := s.DB.Exec(ctx, `UPDATE users SET preferences = $2 WHERE id = $1`, userID, prefs)
+	return err
+}

@@ -146,7 +146,8 @@ var accountRoutes = map[string]bool{
 	"POST /api/account/mfa/disable": true, "POST /api/account/mfa/recovery-codes": true, "GET /api/permissions": true, "GET /api/system": true,
 	"PUT /api/projects/{id}/favorite": true, "DELETE /api/projects/{id}/favorite": true, "GET /api/cron/preview": true, "GET /api/databases/engines": true,
 	"GET /api/automations/catalog": true,
-	"POST /api/invites":            true, // who may invite is a setting; checked in createInvite
+	"GET /api/account/preferences": true, "PUT /api/account/preferences": true,
+	"POST /api/invites": true, // who may invite is a setting; checked in createInvite
 }
 
 // routePerms names the permission each route needs. TestEveryRouteHasAPermission keeps it complete.

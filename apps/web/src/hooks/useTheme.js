@@ -1,15 +1,7 @@
-import { useEffect, useState } from 'react';
+import { resolvedTheme, setPreferences, usePreferences } from '../app/preferences';
 
-export function initialTheme() {
-  try { const saved = localStorage.getItem('theme'); if (saved) return saved; } catch {}
-  return matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
-}
-
+// The sidebar's light/dark switch is a shortcut for the theme preference (see Settings › Preferences).
 export function useTheme() {
-  const [theme, setTheme] = useState(initialTheme);
-  useEffect(() => {
-    document.documentElement.dataset.theme = theme;
-    try { localStorage.setItem('theme', theme); } catch {}
-  }, [theme]);
-  return [theme, setTheme];
+  const prefs = usePreferences();
+  return [resolvedTheme(prefs), theme => setPreferences({ theme })];
 }

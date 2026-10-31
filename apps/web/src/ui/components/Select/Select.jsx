@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { CheckIcon, ChevronUpDownIcon, MagnifyingGlassIcon } from '@heroicons/react/16/solid';
 import { cx } from '../../utils/cx';
+import { pageZoom } from '../../utils/zoom';
 import './Select.css';
 
 /**
@@ -25,7 +26,8 @@ export function Select({ id, options, value, onChange, label, className, searcha
     const rect = triggerRef.current.getBoundingClientRect();
     const popover = popoverRef.current.getBoundingClientRect();
     const below = rect.bottom + 4 + popover.height <= window.innerHeight;
-    setPosition({ top: below ? rect.bottom + 4 : rect.top - 4 - popover.height, left: rect.left, minWidth: rect.width });
+    const z = pageZoom();
+    setPosition({ top: (below ? rect.bottom + 4 : rect.top - 4 - popover.height) / z, left: rect.left / z, minWidth: rect.width / z });
     const target = showSearch
       ? popoverRef.current.querySelector('input')
       : popoverRef.current.querySelector('[aria-selected="true"]') ?? popoverRef.current.querySelector('[role="option"]');

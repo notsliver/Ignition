@@ -905,15 +905,15 @@ func (s *Server) createServer(w http.ResponseWriter, r *http.Request, u *store.U
 /* ----------------------------------- Removal ----------------------------------- */
 
 type removalPreview struct {
-	Server        serverView              `json:"server"`
-	Resources     []store.Resource        `json:"resources"`
-	Activity      store.ServerActivity    `json:"activity"`
-	Volumes       int                     `json:"volumes"`
-	Tasks         int                     `json:"tasks"`
-	Blockers      []string                `json:"blockers"`
-	Effects       []string                `json:"effects"`
-	NotDone       []string                `json:"notDone"`
-	Reachable     bool                    `json:"reachable"`
+	Server    serverView           `json:"server"`
+	Resources []store.Resource     `json:"resources"`
+	Activity  store.ServerActivity `json:"activity"`
+	Volumes   int                  `json:"volumes"`
+	Tasks     int                  `json:"tasks"`
+	Blockers  []string             `json:"blockers"`
+	Effects   []string             `json:"effects"`
+	NotDone   []string             `json:"notDone"`
+	Reachable bool                 `json:"reachable"`
 }
 
 func (s *Server) buildRemovalPreview(ctx context.Context, srv *store.Server) (removalPreview, error) {

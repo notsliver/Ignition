@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { ChevronRightIcon } from '@heroicons/react/16/solid';
 import { cx } from '../../utils/cx';
+import { pageZoom } from '../../utils/zoom';
 import './Menu.css';
 
 /**
@@ -28,9 +29,10 @@ export function MenuPopover({ anchor, items, label, onClose, align = 'end', side
       top = anchor.bottom + 6 + menu.height <= window.innerHeight - 8 ? anchor.bottom + 6 : anchor.top - 6 - menu.height;
       left = align === 'start' ? anchor.left : anchor.right - menu.width;
     }
+    const z = pageZoom();
     setPosition({
-      top: Math.max(8, Math.min(top, window.innerHeight - menu.height - 8)),
-      left: Math.max(8, Math.min(left, window.innerWidth - menu.width - 8)),
+      top: Math.max(8, Math.min(top, window.innerHeight - menu.height - 8)) / z,
+      left: Math.max(8, Math.min(left, window.innerWidth - menu.width - 8)) / z,
     });
     menuRef.current.querySelector('[role="menuitem"]')?.focus({ preventScroll: true });
   }, [anchor, align, side]);

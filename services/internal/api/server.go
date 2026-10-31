@@ -93,6 +93,8 @@ func (s *Server) Handler() http.Handler {
 	h("GET /api/auth/oidc/start", s.oidcStart)
 	h("GET /api/auth/oidc/callback", s.oidcCallback)
 	authed("GET /api/account/security", "viewer", s.accountSecurity)
+	authed("GET /api/account/preferences", "viewer", s.getPreferences)
+	authed("PUT /api/account/preferences", "viewer", s.putPreferences)
 	authed("POST /api/account/mfa/setup", "viewer", s.accountMFASetup)
 	authed("POST /api/account/mfa/enable", "viewer", s.accountMFAEnable)
 	authed("POST /api/account/mfa/disable", "viewer", s.accountMFADisable)
@@ -408,7 +410,6 @@ func (s *Server) requireUser(perm string, fn func(http.ResponseWriter, *http.Req
 		return fn(w, r, user)
 	})
 }
-
 
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) error {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)

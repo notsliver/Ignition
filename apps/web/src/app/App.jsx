@@ -23,6 +23,9 @@ import { useInstanceName } from './instance';
 import { useSidebarWidth, SIDEBAR_MAX, SIDEBAR_MIN } from '../hooks/useSidebarWidth';
 import { AppSidebar } from './AppSidebar';
 import { MfaBanner } from './MfaBanner';
+import { getPreferences } from './preferences';
+import { useShortcuts } from './shortcuts';
+import { Preferences } from '../pages/settings/Preferences/Preferences';
 import { confirmLeave } from './unsaved';
 import { fromUrl, slug, toUrl } from './routing';
 import { api } from '../api/client';
@@ -40,13 +43,13 @@ const preview = node => <><PreviewBanner />{node}</>;
 const LIVE_RESOURCE_VIEWS = ['Overview', 'Deployments', 'Logs', 'Metrics', 'Environment Variables', 'Source', 'Domains', 'Networking', 'Build & Deploy', 'Resource Limits', 'Storage', 'Terminal',
   'Health Checks', 'Rollback History', 'Scheduled Tasks', 'Access & Secrets', 'Advanced Settings', 'Automations', 'Code'];
 // Settings pages backed by the API (the rest are still previews).
-const LIVE_PAGES = ['General', 'Authentication & Security', 'Updates', 'Users & Permissions'];
-const pages = { Dashboard: <Dashboard />, General: <General />, 'Authentication & Security': <Security />, Updates: <Updates />, 'Users & Permissions': <Users /> };
+const LIVE_PAGES = ['General', 'Authentication & Security', 'Updates', 'Users & Permissions', 'Preferences'];
+const pages = { Dashboard: <Dashboard />, General: <General />, 'Authentication & Security': <Security />, Updates: <Updates />, 'Users & Permissions': <Users />, Preferences: <Preferences /> };
 
 export function App() {
   const instanceName = useInstanceName();
   const [active, setActive] = useState('Dashboard');
-  const [hidden, setHidden] = useState(false);
+  const [hidden, setHidden] = useState(() => getPreferences().sidebar === 'collapsed');
   const [mobileOpen, setMobileOpen] = useState(false);
   const [project, setProject] = useState(null);
   const appRef = useRef(null);
@@ -60,6 +63,7 @@ export function App() {
   const openServer = (s, view = 'Overview') => { if (!confirmLeave()) return; setServerState(s); setServerView(view); setActive('Servers'); setMobileOpen(false); };
   const showServerView = view => { if (view === serverView || !confirmLeave()) return; setServerView(view); setMobileOpen(false); };
   const navigate = title => { if (!confirmLeave()) return; setActive(title); setResourceState(null); setServerState(null); setMissing(''); setMobileOpen(false); };
+  useShortcuts({ navigate, closeProject: () => { setProject(null); }, toggleSidebar: () => setHidden(h => !h) });
   const [environment, setEnvironment] = useState(null);
   const openProject = p => { setProject(p); setEnvironment(p.environments[0]?.name ?? 'Production'); navigate('Resources'); };
   const environmentId = project?.environments.find(e => e.name === environment)?.id;
@@ -67,7 +71,15 @@ export function App() {
   // Keep the address bar in sync with what's on screen, and restore it on reload or Back/Forward.
   const [restoring, setRestoring] = useState(true);
   const [missing, setMissing] = useState('');
-  async function applyUrl() {
+  async function applyUrl(initial = false) {
+    // Opening Ignition at its root goes to the start page chosen in Preferences.
+    if (initial && location.pathname === '/') {
+      const start = getPreferences().startPage;
+      let last = null;
+      try { last = localStorage.getItem('ignition:last-path'); } catch { /* private mode */ }
+      const to = start === 'last' ? last : { projects: '/projects', servers: '/servers', monitor: '/monitor', domains: '/domains' }[start];
+      if (to && to !== '/') history.replaceState(null, '', to);
+    }
     const target = fromUrl(location.pathname, location.search);
     setMissing('');
     try {
@@ -95,14 +107,16 @@ export function App() {
     }
   }
   useEffect(() => {
-    applyUrl();
+    applyUrl(true);
     const onPop = () => applyUrl();
     window.addEventListener('popstate', onPop);
     return () => window.removeEventListener('popstate', onPop);
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
   const url = toUrl({ active, project, resource, resourceView, environment, server, serverView });
   useEffect(() => {
-    if (restoring || url === location.pathname + location.search) return;
+    if (restoring) return;
+    try { localStorage.setItem('ignition:last-path', url); } catch { /* private mode */ }
+    if (url === location.pathname + location.search) return;
     history.pushState(null, '', url);
   }, [url, restoring]);
   useEffect(() => {

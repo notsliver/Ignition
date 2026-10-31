@@ -487,7 +487,7 @@ func (s *Server) getServerStorage(w http.ResponseWriter, r *http.Request, _ *sto
 	}
 	sort.Slice(binds, func(i, j int) bool { return binds[i].Container < binds[j].Container })
 	httpx.JSON(w, 200, map[string]any{"volumes": vols, "mounts": mounts, "binds": binds, "missing": missing,
-		"backups": "Ignition doesn't schedule volume backups yet. Download a point-in-time archive from the resource's Storage page.",
+		"backups":   "Ignition doesn't schedule volume backups yet. Download a point-in-time archive from the resource's Storage page.",
 		"hostPaths": srv.IsLocal})
 	return nil
 }

@@ -73,4 +73,3 @@ func Check(ctx context.Context, reg *Registry, st *store.Store, srv *store.Serve
 	}
 	return o
 }
-
