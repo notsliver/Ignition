@@ -3,7 +3,9 @@ import { IconButton, Menu, Select, Status, SegmentedControl, Sidebar, SidebarFoo
 import { useTheme } from '../hooks/useTheme';
 import { useSession } from './AuthGate';
 import { useInstanceName } from './instance';
-import { ArrowRightStartOnRectangleIcon, UserCircleIcon } from '@heroicons/react/16/solid';
+import { ArrowRightStartOnRectangleIcon, ShieldCheckIcon, UserCircleIcon } from '@heroicons/react/16/solid';
+import { useEffect, useState } from 'react';
+import { AccountDialog } from './AccountDialog';
 import { groups, projectItems, resourceSectionsFor, serverSections, settingsPages, settingsSections, topItems } from './navigation';
 import { connection } from '../pages/servers/model';
 
@@ -15,6 +17,8 @@ const resourceTone = { running: 'success', deploying: 'progress', unhealthy: 'wa
 export function AppSidebar({ active, project, environment, onEnvironmentChange, onNavigate, onCloseProject, resource, resourceView, onResourceNavigate, onCloseResource, onHide, server, serverView, onServerNavigate, onCloseServer }) {
   const [theme, setTheme] = useTheme();
   const { user, signOut } = useSession();
+  const [account, setAccount] = useState(false);
+  useEffect(() => { const open = () => setAccount(true); addEventListener('ignition:open-account', open); return () => removeEventListener('ignition:open-account', open); }, []);
   const instanceName = useInstanceName();
   const footer = <SidebarFooter><SegmentedControl label="Theme" options={themeOptions} value={theme} onChange={setTheme} /></SidebarFooter>;
 
@@ -85,12 +89,14 @@ export function AppSidebar({ active, project, environment, onEnvironmentChange, 
       </div>)}
     </SidebarNav>
     {footer}
+    {account && <AccountDialog onClose={() => setAccount(false)} />}
   </Sidebar>;
 
   return <Sidebar>
     <SidebarHeader>
       <Menu className="workspace" label="Account" align="start" items={[
-        { label: `Signed in as ${user.email} (${user.role})`, icon: UserCircleIcon, onSelect: () => {} },
+        { label: `Signed in as ${user.email} (${user.role})`, icon: UserCircleIcon, onSelect: () => setAccount(true) },
+        { label: 'Two-factor authentication', icon: ShieldCheckIcon, onSelect: () => setAccount(true) },
         'separator',
         { label: 'Sign out', icon: ArrowRightStartOnRectangleIcon, onSelect: signOut },
       ]}><Logo className="brand-logo" /><span>{instanceName}</span><ChevronDownIcon className="workspace-caret" /></Menu>
@@ -103,5 +109,6 @@ export function AppSidebar({ active, project, environment, onEnvironmentChange, 
       </SidebarGroup>)}
     </SidebarNav>
     {footer}
+    {account && <AccountDialog onClose={() => setAccount(false)} />}
   </Sidebar>;
 }

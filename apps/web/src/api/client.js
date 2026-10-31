@@ -1,4 +1,4 @@
-// The one place the dashboard talks to the IGNITION API.
+// The one place the dashboard talks to the Ignition API.
 // Errors follow the API's shape: { error: { code, message, fields, requestId } }.
 
 export class ApiError extends Error {
@@ -27,13 +27,13 @@ async function request(method, path, body) {
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
-    throw new ApiError(0, { error: { code: 'offline', message: 'Can\'t reach the IGNITION API. Is it running?' } });
+    throw new ApiError(0, { error: { code: 'offline', message: 'Can\'t reach the Ignition API. Is it running?' } });
   }
   if (res.status === 204) return null;
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     const err = new ApiError(res.status, data);
-    if (res.status === 401 && !path.startsWith('/auth/') && !path.startsWith('/setup')) listeners.forEach(fn => fn());
+    if (res.status === 401 && !path.startsWith('/auth/') && !path.startsWith('/setup')) listeners.forEach(fn => fn(err));
     throw err;
   }
   return data;
@@ -50,6 +50,25 @@ export const api = {
   login: (email, password) => request('POST', '/auth/login', { email, password }),
   logout: () => request('POST', '/auth/logout'),
   me: () => request('GET', '/auth/me'),
+  authMethods: () => request('GET', '/auth/methods'),
+  mfaVerify: (ticket, code) => request('POST', '/auth/mfa', { ticket, code }),
+  mfaSetupTicket: ticket => request('POST', '/auth/mfa/setup', { ticket }),
+  mfaConfirmTicket: (ticket, code) => request('POST', '/auth/mfa/setup/confirm', { ticket, code }),
+  ssoStartUrl: '/api/auth/oidc/start',
+  accountSecurity: () => request('GET', '/account/security'),
+  accountMfaSetup: () => request('POST', '/account/mfa/setup'),
+  accountMfaEnable: code => request('POST', '/account/mfa/enable', { code }),
+  accountMfaDisable: code => request('POST', '/account/mfa/disable', { code }),
+  accountRecoveryCodes: code => request('POST', '/account/mfa/recovery-codes', { code }),
+  permissions: () => request('GET', '/permissions'),
+  security: () => request('GET', '/settings/security'),
+  saveSecurity: policy => request('PUT', '/settings/security', policy),
+  revokeAllSessions: () => request('POST', '/settings/security/revoke-sessions'),
+  saveOidc: config => request('PUT', '/settings/security/oidc', config),
+  testOidc: config => request('POST', '/settings/security/oidc/test', config),
+  deleteOidc: () => request('DELETE', '/settings/security/oidc'),
+  resetUserMfa: id => request('DELETE', `/users/${id}/mfa`),
+  setUserPermissions: (id, overrides) => request('PUT', `/users/${id}/permissions`, overrides),
   system: () => request('GET', '/system'),
 
   projects: (params = {}) => request('GET', `/projects${q(params)}`),

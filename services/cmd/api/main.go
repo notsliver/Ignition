@@ -1,4 +1,4 @@
-// Command api serves the IGNITION HTTP API (and the built dashboard when IGNITION_WEB_DIR is set).
+// Command api serves the Ignition HTTP API (and the built dashboard when IGNITION_WEB_DIR is set).
 package main
 
 import (

@@ -3,7 +3,7 @@ import { ArrowPathIcon, CheckCircleIcon, ExclamationTriangleIcon, PaperAirplaneI
 import { Button, Dialog, Notice, SegmentedControl, Select, Status, TextInput, cx } from '../../../ui';
 import { api } from '../../../api/client';
 import { useQuery } from '../../../api/hooks';
-import { useSession } from '../../../app/AuthGate';
+import { useSession, can } from '../../../app/AuthGate';
 import { publicUrl } from '../Resources/Resources';
 import { CopyButton } from './shared';
 import './Function.css';
@@ -93,7 +93,7 @@ export function FunctionDialog({ projectName, environment, takenNames, onClose, 
 
 export function FunctionCode({ resource, onNavigate, onResourceChange }) {
   const { user } = useSession();
-  const canEdit = user.role !== 'viewer';
+  const canEdit = can(user, 'resources.update');
   const { data, error, refetch } = useQuery(() => api.fn(resource.id), [resource.id]);
   const [code, setCode] = useState(null);
   const [saving, setSaving] = useState(false);

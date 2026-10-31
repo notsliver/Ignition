@@ -211,7 +211,7 @@ func (s *Server) serverLogs(w http.ResponseWriter, r *http.Request, u *store.Use
 		{"id": "jobs", "label": "Operations and deployments", "available": true, "retention": "Kept with deployment history", "detail": "Step logs of server jobs and of deployments to resources on this server."},
 		{"id": "container", "label": "Container logs", "available": viewServer(srv).Available, "retention": "Docker's log driver settings on the host", "detail": "stdout and stderr of a container, read through the Docker API."},
 		{"id": "daemon", "label": "Docker daemon", "available": false, "detail": "The Docker Engine API doesn't expose the daemon's own log. Read it on the host: journalctl -u docker."},
-		{"id": "agent", "label": "Agent", "available": false, "detail": "IGNITION has no agent on servers; its connection results are in Server events."},
+		{"id": "agent", "label": "Agent", "available": false, "detail": "Ignition has no agent on servers; its connection results are in Server events."},
 	}
 	lines := []logLine{}
 	switch source {
@@ -257,8 +257,8 @@ func (s *Server) serverLogs(w http.ResponseWriter, r *http.Request, u *store.Use
 		if err != nil {
 			return err
 		}
-		if owner == nil && roleRank[u.Role] < roleRank["admin"] {
-			return httpx.Forbidden("Logs of containers IGNITION doesn't manage can hold anything; only admins can read them.")
+		if owner == nil && !can(u, "servers.inspect") {
+			return httpx.Forbidden("Logs of containers Ignition doesn't manage can hold anything; only admins can read them.")
 		}
 		raw, err := dk.Logs(r.Context(), cid, limit, since)
 		if err != nil {
@@ -299,7 +299,7 @@ func (s *Server) serverLogs(w http.ResponseWriter, r *http.Request, u *store.Use
 var taskKinds = map[string]struct{ Title, Description string }{
 	"diagnostics":       {"Scheduled diagnostics", "Runs every diagnostic check and records the results. Fails when a check fails."},
 	"disk_check":        {"Disk-space check", "Runs the disk check. Fails when the disk is 95% full or more."},
-	"docker_cleanup":    {"Safe Docker cleanup", "Removes stopped IGNITION containers, untagged unused images and unused build cache. Never volumes or tagged images."},
+	"docker_cleanup":    {"Safe Docker cleanup", "Removes stopped Ignition containers, untagged unused images and unused build cache. Never volumes or tagged images."},
 	"reconcile":         {"Runtime reconciliation", "Checks the connection and refreshes every workload's recorded status from Docker."},
 	"maintenance_check": {"Maintenance check", "Reports in-flight work, and fails if maintenance mode has been on longer than allowed."},
 }
@@ -546,18 +546,18 @@ func (s *Server) getServerAccess(w http.ResponseWriter, r *http.Request, u *stor
 	events, _ := s.Store.ListServerEvents(r.Context(), srv.ID, store.EventQuery{Kinds: []string{"security", "connection"}, Limit: 50})
 	failures, _ := s.Store.ListServerEvents(r.Context(), srv.ID, store.EventQuery{Kinds: []string{"connection"}, Levels: []string{"warn", "error"}, Limit: 20})
 	audit := []store.AuditEvent{} // the audit log is admin-only everywhere else too
-	if roleRank[u.Role] >= roleRank["admin"] {
+	if can(u, "audit.view") {
 		audit, _ = s.Store.ListAudit(r.Context(), srv.ID, 50)
 	}
 	permissions := []map[string]string{
-		{"role": "Viewer", "can": "See the server, its workloads, metrics, events, diagnostics results and Docker inventory; read logs of IGNITION workloads."},
-		{"role": "Developer", "can": "Also test the connection, refresh runtime state, run diagnostics, and start, stop or restart IGNITION workloads."},
+		{"role": "Viewer", "can": "See the server, its workloads, metrics, events, diagnostics results and Docker inventory; read logs of Ignition workloads."},
+		{"role": "Developer", "can": "Also test the connection, refresh runtime state, run diagnostics, and start, stop or restart Ignition workloads."},
 		{"role": "Admin / Owner", "can": "Also change settings, maintenance and deployment eligibility, run cleanups, read logs and inspect documents of unmanaged containers, rotate or revoke credentials, and remove the server."},
 	}
 	access := map[string]any{"method": srv.ConnectionMethod, "permissions": permissions, "events": events, "failures": failures, "audit": audit}
 	if srv.IsLocal {
 		access["trust"] = "trusted"
-		access["identity"] = map[string]any{"socket": s.Servers.Local.SocketPath(), "description": "IGNITION's api and worker containers mount this host's Docker socket. Anything that can use the socket has root-equivalent access to the host, so it's never exposed to browsers: every Docker call goes through the API, which checks your role first."}
+		access["identity"] = map[string]any{"socket": s.Servers.Local.SocketPath(), "description": "Ignition's api and worker containers mount this host's Docker socket. Anything that can use the socket has root-equivalent access to the host, so it's never exposed to browsers: every Docker call goes through the API, which checks your role first."}
 		access["rotation"] = "There are no credentials to rotate: access is controlled by who can reach the socket on this host."
 	} else {
 		trust := "trusted"
@@ -581,7 +581,7 @@ func (s *Server) getServerAccess(w http.ResponseWriter, r *http.Request, u *stor
 }
 
 // rotateServerCredentials verifies the new certificate and key against the engine before replacing
-// the old ones, so a bad pair can't lock IGNITION out. With acceptIdentity the engine may present a
+// the old ones, so a bad pair can't lock Ignition out. With acceptIdentity the engine may present a
 // new host certificate (it was reissued); the fingerprint the operator reviewed must still match.
 func (s *Server) rotateServerCredentials(w http.ResponseWriter, r *http.Request, u *store.User) error {
 	srv, err := s.loadServer(r)
@@ -666,7 +666,7 @@ func (s *Server) revokeServerCredentials(w http.ResponseWriter, r *http.Request,
 	}
 	s.Servers.Forget(srv.ID)
 	s.Store.Audit(r.Context(), u, "server.credentials_revoke", "server", srv.ID, map[string]any{"name": srv.Name}, clientIP(r))
-	s.Store.AddServerEvent(r.Context(), srv.ID, "security", "warn", "Credentials revoked: the stored client key was deleted. IGNITION can't connect until new credentials are rotated in.", actorName(u), nil)
+	s.Store.AddServerEvent(r.Context(), srv.ID, "security", "warn", "Credentials revoked: the stored client key was deleted. Ignition can't connect until new credentials are rotated in.", actorName(u), nil)
 	srv, _ = s.Store.GetServer(r.Context(), srv.ID)
 	httpx.JSON(w, 200, map[string]any{"server": viewServer(srv)})
 	return nil

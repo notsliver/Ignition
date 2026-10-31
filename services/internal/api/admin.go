@@ -134,7 +134,6 @@ func (s *Server) putGeneral(w http.ResponseWriter, r *http.Request, u *store.Use
 
 const (
 	inviteTTL = 7 * 24 * time.Hour
-	resetTTL  = 24 * time.Hour
 )
 
 var roleOrder = []string{"viewer", "developer", "admin", "owner"}
@@ -148,6 +147,7 @@ func canManage(actor *store.User, targetRole string) bool {
 }
 
 func (s *Server) listUsers(w http.ResponseWriter, r *http.Request, _ *store.User) error {
+	s.sweepMFADeadline(r)
 	users, err := s.Store.ListUsers(r.Context())
 	if err != nil {
 		return err
@@ -213,6 +213,9 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request, actor *store
 			return err
 		}
 		s.Store.Audit(r.Context(), actor, "user.role", "user", target.ID, map[string]any{"email": target.Email, "from": target.Role, "to": *in.Role}, clientIP(r))
+		if *in.Role != target.Role && s.policy().RevokeOnRoleChange {
+			s.Store.RevokeSessions(r.Context(), target.ID)
+		}
 	}
 	if in.Status != nil {
 		if *in.Status != "active" && *in.Status != "suspended" {
@@ -281,6 +284,12 @@ func (s *Server) linkFor(r *http.Request, token string) string {
 }
 
 func (s *Server) createInvite(w http.ResponseWriter, r *http.Request, actor *store.User) error {
+	switch p := s.policy(); {
+	case p.Invitations == "disabled":
+		return httpx.Forbidden("Invitations are turned off in Authentication & Security.")
+	case p.Invitations == "admins" && !can(actor, "users.invite"):
+		return httpx.Forbidden("Only people who manage users can invite others.")
+	}
 	var in struct {
 		Email string `json:"email"`
 		Role  string `json:"role"`
@@ -297,6 +306,10 @@ func (s *Server) createInvite(w http.ResponseWriter, r *http.Request, actor *sto
 	}
 	if in.Role == "owner" && actor.Role != "owner" {
 		return httpx.Forbidden("Only owners can invite owners.")
+	}
+	// Members who don't manage users can only invite people with at most their own role.
+	if !can(actor, "users.invite") && roleRank[in.Role] > roleRank[actor.Role] {
+		return httpx.Forbidden("You can invite people with your role or below.")
 	}
 	if _, err := s.Store.UserByEmail(r.Context(), in.Email); err == nil {
 		return httpx.Invalid(map[string]string{"email": "Someone with this email already has an account."})
@@ -340,7 +353,7 @@ func (s *Server) createResetLink(w http.ResponseWriter, r *http.Request, actor *
 	if err != nil {
 		return err
 	}
-	t, err := s.Store.CreateUserToken(r.Context(), "reset", hash, target.Email, nil, &target.ID, actor.ID, resetTTL)
+	t, err := s.Store.CreateUserToken(r.Context(), "reset", hash, target.Email, nil, &target.ID, actor.ID, time.Duration(s.policy().ResetExpiryMinutes)*time.Minute)
 	if err != nil {
 		return err
 	}
@@ -358,7 +371,10 @@ func (s *Server) inspectLink(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return httpx.NotFound("This link has expired or was already used. Ask for a new one")
 	}
-	out := map[string]any{"kind": t.Kind, "email": t.Email, "expiresAt": t.ExpiresAt, "instance": s.instance(r.Context()).Name}
+	p := s.policy()
+	out := map[string]any{"kind": t.Kind, "email": t.Email, "expiresAt": t.ExpiresAt, "instance": s.instance(r.Context()).Name,
+		"passwordLength": p.PasswordLength, "passwordAllowed": t.Kind == "reset" || (p.LocalAuth && !p.DisableRegistration && p.Invitations != "disabled"),
+		"sso": p.OIDCAuth && s.oidcConfig(r.Context()).Configured(), "ssoLabel": s.oidcConfig(r.Context()).label()}
 	if t.Role != nil {
 		out["role"] = *t.Role
 	}
@@ -382,8 +398,15 @@ func (s *Server) acceptLink(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return httpx.NotFound("This link has expired or was already used. Ask for a new one")
 	}
-	if err := auth.ValidatePassword(in.Password); err != nil {
-		return httpx.Invalid(map[string]string{"password": strings.ToUpper(err.Error()[:1]) + err.Error()[1:] + "."})
+	p := s.policy()
+	if t.Kind == "invite" && p.Invitations == "disabled" {
+		return httpx.Forbidden("Invitations are turned off on this Ignition.")
+	}
+	if t.Kind == "invite" && (p.DisableRegistration || !p.LocalAuth) {
+		return httpx.Forbidden("New accounts can't be created with a password here. Sign in with single sign-on using " + t.Email + ".")
+	}
+	if msg := s.checkPassword(r.Context(), in.Password); msg != "" {
+		return httpx.Invalid(map[string]string{"password": msg})
 	}
 	hash, err := auth.HashPassword(in.Password)
 	if err != nil {
@@ -416,7 +439,10 @@ func (s *Server) acceptLink(w http.ResponseWriter, r *http.Request) error {
 	if user.Status != "active" {
 		return httpx.Forbidden("This account is suspended.")
 	}
-	return s.startSession(w, r, user)
+	if t.Kind == "reset" {
+		return s.secondFactor(w, r, user, "password")
+	}
+	return s.secondFactor(w, r, user, "invite")
 }
 
 /* ----------------------------------- Audit ---------------------------------- */
@@ -489,4 +515,65 @@ func csvSafe(v string) string {
 		return "'" + v
 	}
 	return v
+}
+
+/* -------------------------------- Permissions -------------------------------- */
+
+// putUserPermissions sets grants and denials on top of a user's role. You can't change your own,
+// only owners change owners', and you can only grant what you have yourself.
+func (s *Server) putUserPermissions(w http.ResponseWriter, r *http.Request, actor *store.User) error {
+	target, err := s.userFor(r)
+	if err != nil {
+		return err
+	}
+	var in store.PermOverrides
+	if err := httpx.Decode(r, &in); err != nil {
+		return err
+	}
+	if target.ID == actor.ID {
+		return httpx.Forbidden("You can't change your own permissions. Ask another admin.")
+	}
+	if !canManage(actor, target.Role) {
+		return httpx.Forbidden("Only owners can manage owners.")
+	}
+	seen := map[string]bool{}
+	for _, list := range [][]string{in.Grant, in.Deny} {
+		for _, k := range list {
+			p, ok := permissionByKey[k]
+			switch {
+			case !ok || !p.Grantable:
+				return httpx.Invalid(map[string]string{"permissions": "Unknown permission: " + k})
+			case seen[k]:
+				return httpx.Invalid(map[string]string{"permissions": p.Label + " is both granted and denied."})
+			}
+			seen[k] = true
+		}
+	}
+	for _, k := range in.Grant {
+		if !can(actor, k) {
+			return httpx.Forbidden("You can't grant " + strings.ToLower(permissionByKey[k].Label) + ": you don't have it yourself.")
+		}
+	}
+	if in.Grant == nil {
+		in.Grant = []string{}
+	}
+	if in.Deny == nil {
+		in.Deny = []string{}
+	}
+	if err := s.Store.SetUserPermissions(r.Context(), target.ID, in); err != nil {
+		return err
+	}
+	s.Store.Audit(r.Context(), actor, "user.permissions", "user", target.ID, map[string]any{"email": target.Email, "grant": in.Grant, "deny": in.Deny,
+		"before": target.Permissions}, clientIP(r))
+	if s.policy().RevokeOnRoleChange {
+		s.Store.RevokeSessions(r.Context(), target.ID)
+	}
+	updated, _ := s.Store.GetUser(r.Context(), target.ID)
+	httpx.JSON(w, 200, map[string]any{"user": updated, "permissions": effectivePermissions(updated)})
+	return nil
+}
+
+func (s *Server) listPermissions(w http.ResponseWriter, r *http.Request, _ *store.User) error {
+	httpx.JSON(w, 200, map[string]any{"permissions": permissionCatalog, "roles": roleOrder})
+	return nil
 }

@@ -1,4 +1,4 @@
-// Package servers is the control plane for the Docker hosts IGNITION manages.
+// Package servers is the control plane for the Docker hosts Ignition manages.
 //
 // Status model. A server has three independent dimensions, never folded into one string:
 //
@@ -97,13 +97,13 @@ func (s Settings) Timeout() time.Duration {
 	return time.Duration(s.ConnectTimeoutSeconds) * time.Second
 }
 
-// Info is what IGNITION knows about the host, refreshed on every successful check.
+// Info is what Ignition knows about the host, refreshed on every successful check.
 type Info struct {
 	Engine        *runtime.EngineInfo `json:"engine"`
 	Collector     string              `json:"collector"` // probe | procfs | engine: where host metrics come from
 	CheckedAt     time.Time           `json:"checkedAt"`
 	LatencyMS     int64               `json:"latencyMs"`
-	ClockSkewMS   *int64              `json:"clockSkewMs"` // engine clock minus IGNITION's, when measurable
+	ClockSkewMS   *int64              `json:"clockSkewMs"` // engine clock minus Ignition's, when measurable
 	ClientCertExp *time.Time          `json:"clientCertExpires,omitempty"`
 }
 
@@ -147,13 +147,13 @@ func DeriveCapabilities(srv *store.Server, o Observation) Capabilities {
 		c["metrics"] = Capability{true, "Engine capacity and container counts only. Turn on the host probe in Settings for host CPU, memory, disk and network."}
 	}
 	if srv.IsLocal && ready {
-		c["networkDiagnostics"] = Capability{true, "DNS and TCP checks from a short-lived probe container on IGNITION's networks."}
+		c["networkDiagnostics"] = Capability{true, "DNS and TCP checks from a short-lived probe container on Ignition's networks."}
 	} else if ready {
-		c["networkDiagnostics"] = Capability{true, "DNS and TCP checks from IGNITION to the server's engine endpoint."}
+		c["networkDiagnostics"] = Capability{true, "DNS and TCP checks from Ignition to the server's engine endpoint."}
 	} else {
 		c["networkDiagnostics"] = no("The server isn't reachable.")
 	}
-	c["maintenance"] = Capability{true, "Pause new deployments and scheduled server tasks. Workloads keep running; IGNITION doesn't drain or reboot hosts."}
+	c["maintenance"] = Capability{true, "Pause new deployments and scheduled server tasks. Workloads keep running; Ignition doesn't drain or reboot hosts."}
 	if srv.IsLocal {
 		c["deploy"] = Capability{ready, map[bool]string{true: "The deploy engine runs workloads here.", false: "Deployments need a working Docker Engine."}[ready]}
 	} else {
@@ -220,7 +220,7 @@ func Warnings(srv *store.Server, info Info) []Warning {
 	var out []Warning
 	switch srv.EffectiveState {
 	case StateOffline:
-		text := "IGNITION can't reach this server, so figures shown are from the last successful contact."
+		text := "Ignition can't reach this server, so figures shown are from the last successful contact."
 		if srv.CredentialsRevokedAt != nil {
 			text = "Its credentials were revoked. Rotate in new credentials from Access & Security to reconnect."
 		} else if srv.LastError != "" {
@@ -228,7 +228,7 @@ func Warnings(srv *store.Server, info Info) []Warning {
 		}
 		out = append(out, Warning{"danger", "offline", "Server offline", text})
 	case StateUnknown:
-		out = append(out, Warning{"warning", "stale", "Status is stale", "No check has completed for over a minute. The IGNITION worker may be stopped; its last result can't be trusted."})
+		out = append(out, Warning{"warning", "stale", "Status is stale", "No check has completed for over a minute. The Ignition worker may be stopped; its last result can't be trusted."})
 	case StatePending:
 		out = append(out, Warning{"info", "pending", "Enrollment not finished", "The server hasn't been reached yet."})
 	case StateDegraded:
@@ -239,7 +239,7 @@ func Warnings(srv *store.Server, info Info) []Warning {
 	if srv.EffectiveState != StateOffline && srv.EffectiveState != StatePending {
 		switch srv.RuntimeState {
 		case RuntimeNotInstalled:
-			out = append(out, Warning{"danger", "runtime_missing", "Docker isn't installed", "No Docker socket was found. Install Docker Engine and mount its socket into IGNITION."})
+			out = append(out, Warning{"danger", "runtime_missing", "Docker isn't installed", "No Docker socket was found. Install Docker Engine and mount its socket into Ignition."})
 		case RuntimeUnavailable:
 			out = append(out, Warning{"danger", "runtime_unavailable", "Docker is unavailable", "The Docker Engine didn't respond. Check that the daemon is running: systemctl status docker."})
 		case RuntimeIncompatible:
@@ -247,7 +247,7 @@ func Warnings(srv *store.Server, info Info) []Warning {
 			if info.Engine != nil {
 				v = " (API " + info.Engine.APIVersion + ")"
 			}
-			out = append(out, Warning{"danger", "runtime_incompatible", "Docker is too old" + v, "IGNITION needs Engine API " + runtime.MinAPIVersion + " or newer (Docker 25+). Upgrade Docker on this host."})
+			out = append(out, Warning{"danger", "runtime_incompatible", "Docker is too old" + v, "Ignition needs Engine API " + runtime.MinAPIVersion + " or newer (Docker 25+). Upgrade Docker on this host."})
 		}
 	}
 	if srv.Maintenance {
@@ -256,7 +256,7 @@ func Warnings(srv *store.Server, info Info) []Warning {
 		out = append(out, Warning{"warning", "deployments_disabled", "New deployments disabled", "Deploys, redeploys and deploy hooks for resources here are refused until you enable them."})
 	}
 	if info.ClockSkewMS != nil && abs(*info.ClockSkewMS) > 30_000 {
-		out = append(out, Warning{"warning", "clock_skew", "Clock out of sync", fmt.Sprintf("The engine's clock is %ds away from IGNITION's. Enable NTP (timedatectl set-ntp true).", *info.ClockSkewMS/1000)})
+		out = append(out, Warning{"warning", "clock_skew", "Clock out of sync", fmt.Sprintf("The engine's clock is %ds away from Ignition's. Enable NTP (timedatectl set-ntp true).", *info.ClockSkewMS/1000)})
 	}
 	if info.ClientCertExp != nil && time.Until(*info.ClientCertExp) < 14*24*time.Hour {
 		out = append(out, Warning{"warning", "cert_expiring", "Client certificate expiring", "It expires " + info.ClientCertExp.Format("2 Jan 2006") + ". Rotate credentials before then to avoid losing the connection."})

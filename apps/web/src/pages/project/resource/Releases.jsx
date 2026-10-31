@@ -3,7 +3,7 @@ import { ArrowRightIcon, ArrowUturnLeftIcon, ArrowUturnRightIcon, InformationCir
 import { Button, Checkbox, CommitIcon, Dialog, Notice, Status, TextInput, cx } from '../../../ui';
 import { api } from '../../../api/client';
 import { timeAgo, useQuery } from '../../../api/hooks';
-import { useSession } from '../../../app/AuthGate';
+import { useSession, can } from '../../../app/AuthGate';
 import { Empty, PageIntro } from './shared';
 import './Operations.css';
 
@@ -26,7 +26,7 @@ function title(d) {
 
 export function RollbackHistory({ resource, onNavigate }) {
   const { user } = useSession();
-  const canDeploy = user.role !== 'viewer';
+  const canDeploy = can(user, 'deployments.create');
   const [busy, setBusy] = useState(false);
   const { data, error, refetch } = useQuery(() => api.releases(resource.id), [resource.id], { pollMs: busy ? 3000 : 15000 });
   const [target, setTarget] = useState(null);

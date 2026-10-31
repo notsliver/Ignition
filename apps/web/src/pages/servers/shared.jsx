@@ -6,7 +6,7 @@ import {
 import { Button, Dialog, FormField, Notice, Status, TextInput, cx } from '../../ui';
 import { api } from '../../api/client';
 import { timeAgo, useQuery } from '../../api/hooks';
-import { useSession } from '../../app/AuthGate';
+import { useSession, can } from '../../app/AuthGate';
 import { connection, download, isAdmin, isDeveloper, labelsToText, runtimeOf, textToLabels, warningTarget } from './model';
 import '../settings/settings.css';
 import '../project/resource/resource.css';
@@ -56,7 +56,7 @@ export function JobProgress({ jobId, title, onDone, renderResult }) {
       <JobStatus job={job} />
       <span className="spacer" />
       {logs.length > 0 && <button type="button" className="ov-link" onClick={() => setShowLogs(v => !v)}>{showLogs ? 'Hide log' : `Log (${logs.length})`}</button>}
-      {!done && isAdmin(user) && <button type="button" className="ov-link" onClick={() => api.cancelServerJob(jobId).catch(e => setCancelError(e.message))}>Cancel</button>}
+      {!done && can(user, 'servers.tasks') && <button type="button" className="ov-link" onClick={() => api.cancelServerJob(jobId).catch(e => setCancelError(e.message))}>Cancel</button>}
     </div>
     {job?.status === 'failed' && job.error && <p className="sv-job-error"><XCircleIcon />{job.error}</p>}
     {cancelError && <p className="sv-job-error"><XCircleIcon />{cancelError}</p>}
@@ -153,10 +153,10 @@ export function useServerActions(server, { onChanged, onNavigate, onOpen, setFee
       { label: 'Edit details', icon: PencilSquareIcon, onSelect: () => setDialog({ kind: 'edit' }) },
       ...(server.isLocal ? [{ label: server.deploymentsEnabled ? 'Disable new deployments' : 'Enable new deployments', icon: server.deploymentsEnabled ? NoSymbolIcon : PlayIcon, onSelect: toggleDeployments }] : []),
       { label: server.maintenance ? 'Exit maintenance' : 'Enter maintenance', icon: WrenchScrewdriverIcon, onSelect: maintenance },
-      { label: 'Export diagnostics', icon: ArrowDownTrayIcon, onSelect: () => download(api.serverBundleUrl(server.id)) },
       ...(!server.isLocal ? [{ label: server.hasCredentials ? 'Rotate credentials' : 'Reconnect with new credentials', icon: KeyIcon, onSelect: () => (onNavigate ? onNavigate('Access & Security') : onOpen?.(server, 'Access & Security')) }] : []),
-      ...(!server.isLocal ? ['separator', { label: 'Remove server', icon: TrashIcon, danger: true, onSelect: () => setDialog({ kind: 'remove' }) }] : []),
     ] : []),
+    ...(can(user, 'servers.inspect') ? [{ label: 'Export diagnostics', icon: ArrowDownTrayIcon, onSelect: () => download(api.serverBundleUrl(server.id)) }] : []),
+    ...(!server.isLocal && can(user, 'servers.delete') ? ['separator', { label: 'Remove server', icon: TrashIcon, danger: true, onSelect: () => setDialog({ kind: 'remove' }) }] : []),
   ];
 
   const close = () => setDialog(null);
@@ -264,7 +264,7 @@ function MaintenanceDialog({ server, onClose, onDone }) {
   const a = impact.data;
   return <ConfirmDialog icon={WrenchScrewdriverIcon}
     title={entering ? `Put ${server.name} into maintenance?` : `Take ${server.name} out of maintenance?`}
-    description={entering ? 'New deployments and scheduled server tasks pause. Running workloads keep running: IGNITION doesn\'t stop, drain or move them, and it won\'t reboot the host.' : 'New deployments and scheduled tasks resume.'}
+    description={entering ? 'New deployments and scheduled server tasks pause. Running workloads keep running: Ignition doesn\'t stop, drain or move them, and it won\'t reboot the host.' : 'New deployments and scheduled tasks resume.'}
     confirmLabel={entering ? 'Enter maintenance' : 'Exit maintenance'} onClose={onClose}
     onConfirm={async () => onDone(await api.setServerMaintenance(server.id, entering, note))}>
     {entering && <>
@@ -283,7 +283,7 @@ export function RemoveServerDialog({ server, onClose, onRemoved }) {
   const p = useQuery(() => api.serverRemoval(server.id), [server.id]);
   const d = p.data;
   const blocked = d?.blockers.length > 0;
-  return <ConfirmDialog icon={TrashIcon} danger title={`Remove ${server.name} from IGNITION?`}
+  return <ConfirmDialog icon={TrashIcon} danger title={`Remove ${server.name} from Ignition?`}
     description="This removes the registration only. It's not a cleanup of the machine."
     confirmLabel="Remove server" phrase={d && !blocked ? server.name : undefined} onClose={onClose}
     onConfirm={async () => { if (blocked) throw new Error('Resolve the blockers first.'); await api.deleteServer(server.id, server.name); onRemoved(); }}>
@@ -309,7 +309,7 @@ export function Unavailable({ server, error, what, onNavigate }) {
   return <div className="rp-empty">
     <ExclamationTriangleIcon />
     <strong>{offline ? `${what} unavailable while the server is ${server.connectionState === 'pending' ? 'not enrolled' : server.connectionState}` : `Couldn't load ${what.toLowerCase()}`}</strong>
-    <p>{error?.message ?? 'IGNITION needs a working connection to the Docker Engine to show this.'}</p>
+    <p>{error?.message ?? 'Ignition needs a working connection to the Docker Engine to show this.'}</p>
     {onNavigate && <Button icon={BeakerIcon} onClick={() => onNavigate('Diagnostics')}>Open diagnostics</Button>}
   </div>;
 }

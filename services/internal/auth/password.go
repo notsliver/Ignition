@@ -53,10 +53,13 @@ func VerifyPassword(password, encoded string) (bool, error) {
 	return subtle.ConstantTimeCompare(got, want) == 1, nil
 }
 
-// ValidatePassword enforces the minimum policy for local accounts.
-func ValidatePassword(password string) error {
-	if len(password) < 12 {
-		return errors.New("password must be at least 12 characters")
+// ValidatePassword enforces the default minimum policy for local accounts.
+func ValidatePassword(password string) error { return ValidatePasswordMin(password, 12) }
+
+// ValidatePasswordMin enforces a minimum length set in Authentication & Security.
+func ValidatePasswordMin(password string, min int) error {
+	if len([]rune(password)) < min {
+		return fmt.Errorf("password must be at least %d characters", min)
 	}
 	if len(password) > 256 {
 		return errors.New("password is too long")

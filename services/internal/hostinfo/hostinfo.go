@@ -1,6 +1,6 @@
 // Package hostinfo reads host-wide figures from procfs.
 //
-// The same parsers serve two sources. Read() opens files under Root for the local server: IGNITION
+// The same parsers serve two sources. Read() opens files under Root for the local server: Ignition
 // runs in containers, but /proc/stat, /proc/loadavg, /proc/meminfo, /proc/uptime and
 // /proc/diskstats are not namespaced, so they describe the whole machine. /proc/net/dev *is*
 // namespaced (it shows the container's own interface), so Read() leaves network out. Parse()

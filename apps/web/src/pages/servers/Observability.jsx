@@ -6,7 +6,7 @@ import {
 import { Button, Checkbox, Notice, SearchField, SegmentedControl, Select, Sparkline, Status, cx } from '../../ui';
 import { api } from '../../api/client';
 import { timeAgo, useQuery } from '../../api/hooks';
-import { useSession } from '../../app/AuthGate';
+import { useSession, can } from '../../app/AuthGate';
 import { bytes, download, downloadText, isAdmin, isDeveloper, rate, uptime } from './model';
 
 /* --------------------------------- Monitoring --------------------------------- */
@@ -53,8 +53,8 @@ export function Monitoring({ server }) {
     { key: 'network', family: 'network', label: 'Network throughput', unit: 'in + out, physical interfaces', data: buckets.map(b => b.netRxBps != null ? b.netRxBps + (b.netTxBps ?? 0) : null), format: rate,
       now: latest?.netRxBps != null ? latest.netRxBps + (latest.netTxBps ?? 0) : null, extra: latest?.netRxBps != null ? `in ${rate(latest.netRxBps)} · out ${rate(latest.netTxBps)}` : null },
     { key: 'containers', family: 'containers', label: 'Containers running', unit: 'all containers on the engine', data: pick('containersRunning'), format: v => Math.round(v).toString(), now: latest?.containersRunning },
-    { key: 'wcpu', family: 'workloads', label: 'Workload CPU', unit: '% of one core, summed over IGNITION workloads', data: pick('workloadCpu'), format: pctFmt, now: latest?.workloadCpu },
-    { key: 'wmem', family: 'workloads', label: 'Workload memory', unit: 'summed over IGNITION workloads', data: pick('workloadMemory'), format: bytes, now: latest?.workloadMemory },
+    { key: 'wcpu', family: 'workloads', label: 'Workload CPU', unit: '% of one core, summed over Ignition workloads', data: pick('workloadCpu'), format: pctFmt, now: latest?.workloadCpu },
+    { key: 'wmem', family: 'workloads', label: 'Workload memory', unit: 'summed over Ignition workloads', data: pick('workloadMemory'), format: bytes, now: latest?.workloadMemory },
   ].filter(c => !c.hide);
 
   function exportCsv() {
@@ -138,7 +138,7 @@ export function ServerLogs({ server }) {
     setCopied(true);
     setTimeout(() => setCopied(false), 1200);
   }
-  const containerOptions = (containers.data?.containers ?? []).map(c => ({ value: c.id, label: c.name, description: `${c.owner.kind === 'resource' ? `${c.owner.resource.name} · ` : c.owner.kind === 'unmanaged' ? 'not managed by IGNITION · ' : ''}${c.state}` }));
+  const containerOptions = (containers.data?.containers ?? []).map(c => ({ value: c.id, label: c.name, description: `${c.owner.kind === 'resource' ? `${c.owner.resource.name} · ` : c.owner.kind === 'unmanaged' ? 'not managed by Ignition · ' : ''}${c.state}` }));
 
   return <>
     <div className="rp-toolbar">
@@ -167,7 +167,7 @@ export function ServerLogs({ server }) {
         <button type="button" className="icon-action" onClick={() => downloadText(`${server.name}-${source}-logs.txt`, text(lines))} disabled={!lines.length} aria-label="Download" title="Download"><ArrowDownTrayIcon /></button>
       </div>
       <div className="sv-console-body" ref={scroller} onScroll={e => { const el = e.currentTarget; const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 24; if (atBottom !== follow) setFollow(atBottom); }}>
-        {!ready ? <p className="dim sv-console-msg">Choose a container to read its logs.{!isAdmin(user) ? ' Containers IGNITION doesn\'t manage need an admin.' : ''}</p>
+        {!ready ? <p className="dim sv-console-msg">Choose a container to read its logs.{!can(user, 'servers.inspect') ? ' Containers Ignition doesn\'t manage need the servers.inspect permission.' : ''}</p>
           : loading && !data ? <p className="dim sv-console-msg">Loading…</p>
             : !lines.length ? <p className="dim sv-console-msg">{data?.available === false ? 'Nothing to show.' : debounced || level ? 'No lines match these filters.' : 'No log lines in this time range.'}</p>
               : lines.map((l, i) => { const k = keyOf(l, i); const hasFields = l.fields && Object.keys(l.fields).length > 0; return <div key={k} className={cx('sv-line', levelTone[l.level], selected.has(k) && 'selected')}>
@@ -211,9 +211,9 @@ export function Diagnostics({ server, setFeedback }) {
 
   return <>
     <div className="rp-intro">
-      <p>Each check tests one thing from IGNITION's worker against a fixed target (this server's socket or engine endpoint, or Docker Hub for pulls). No check accepts an address you type, so this page can't be used to probe other hosts.</p>
+      <p>Each check tests one thing from Ignition's worker against a fixed target (this server's socket or engine endpoint, or Docker Hub for pulls). No check accepts an address you type, so this page can't be used to probe other hosts.</p>
       <div className="rp-intro-actions">
-        {isAdmin(user) && <Button icon={ArrowDownTrayIcon} onClick={() => download(api.serverBundleUrl(server.id))}>Export bundle</Button>}
+        {can(user, 'servers.inspect') && <Button icon={ArrowDownTrayIcon} onClick={() => download(api.serverBundleUrl(server.id))}>Export bundle</Button>}
         {dev && <Button variant="primary" icon={BeakerIcon} disabled={!!active || starting} onClick={() => run()}>{active ? 'Running…' : 'Run all checks'}</Button>}
       </div>
     </div>

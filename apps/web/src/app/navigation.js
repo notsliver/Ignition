@@ -85,7 +85,7 @@ const hiddenByType = {
   cron: ['Code', 'Domains', 'Networking', 'Health Checks', 'Scheduled Tasks'],
   function: ['Source', 'Build & Deploy', 'Storage'],
 };
-// External databases run elsewhere: only what IGNITION does with them applies.
+// External databases run elsewhere: only what Ignition does with them applies.
 const externalSections = ['Overview', 'Environment Variables', 'Automations'];
 export const resourceSectionsFor = (type, sourceType) => resourceSections
   .map(section => section.filter(item => sourceType === 'external' ? externalSections.includes(item.title) : !hiddenByType[type]?.includes(item.title)))

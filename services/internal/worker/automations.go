@@ -948,7 +948,7 @@ func (w *Worker) localOnly(ctx context.Context, t target) (*store.Resource, erro
 		return nil, errors.New("the resource no longer exists")
 	}
 	if srv, err := w.Store.GetServer(ctx, res.ServerID); err == nil && !srv.IsLocal {
-		return nil, errors.New("this resource isn't on the local server, where IGNITION runs workloads")
+		return nil, errors.New("this resource isn't on the local server, where Ignition runs workloads")
 	}
 	return res, nil
 }

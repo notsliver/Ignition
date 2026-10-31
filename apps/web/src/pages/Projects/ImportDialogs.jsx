@@ -98,7 +98,7 @@ export function ImportGitDialog({ provider = 'github', onClose, onCreated }) {
   const firstError = Object.values(errors)[0];
   const ins = inspection;
   return <Dialog open onClose={onClose} className="pi-dialog" title={`Import from ${p.label}`}
-    description="IGNITION looks at the repository first: a compose file becomes one resource per service; otherwise the repository becomes one application built from its Dockerfile or detected stack."
+    description="Ignition looks at the repository first: a compose file becomes one resource per service; otherwise the repository becomes one application built from its Dockerfile or detected stack."
     footer={<>
       {firstError && <span className="pi-error" role="alert">{firstError}</span>}
       <Button onClick={onClose}>Cancel</Button>

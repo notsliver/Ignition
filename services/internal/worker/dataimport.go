@@ -84,7 +84,7 @@ func (w *Worker) runImport(ctx context.Context, job *jobs.Job, row importRow, lo
 	}
 	eng := dbimport.EngineByID(res.Engine)
 	if eng == nil {
-		return "", fmt.Errorf("%s isn't a database IGNITION knows how to import into", res.Name)
+		return "", fmt.Errorf("%s isn't a database Ignition knows how to import into", res.Name)
 	}
 	if res.ContainerID == "" || res.Status != "running" {
 		return "", fmt.Errorf("%s isn't running; start it and import again", res.Name)

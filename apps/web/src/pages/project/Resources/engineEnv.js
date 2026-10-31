@@ -65,7 +65,7 @@ export const engineEnv = {
   redis: {
     label: 'Redis',
     vars: [
-      { key: 'REDIS_PASSWORD', default: '', required: true, ...pw, does: 'Required password (IGNITION passes it as --requirepass). Applies on the next deploy.' },
+      { key: 'REDIS_PASSWORD', default: '', required: true, ...pw, does: 'Required password (Ignition passes it as --requirepass). Applies on the next deploy.' },
       { key: 'TZ', default: 'UTC', does: 'Time zone of the server process.' },
     ],
     note: 'Other Redis settings are command-line flags: add them to the start command under Advanced Settings (e.g. --maxmemory 256mb --maxmemory-policy allkeys-lru).',
@@ -105,7 +105,7 @@ export const engineEnv = {
       { key: 'DB_PASSWORD', default: '', secret: true, does: 'That user\'s password.' },
       { key: 'DATABASE_URL', default: '', secret: true, does: 'The full connection URL apps get with "Use in an app". Update it when you change the parts.' },
     ],
-    note: 'IGNITION checks DB_HOST:DB_PORT every minute. Changes apply right away; nothing is redeployed.',
+    note: 'Ignition checks DB_HOST:DB_PORT every minute. Changes apply right away; nothing is redeployed.',
   },
 };
 

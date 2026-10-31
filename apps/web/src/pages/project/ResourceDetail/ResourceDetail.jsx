@@ -6,7 +6,7 @@ import {
 import { Avatar, BranchIcon, Button, CommitIcon, Dialog, Meter, Notice, Status, cx } from '../../../ui';
 import { api } from '../../../api/client';
 import { duration, timeAgo, useQuery } from '../../../api/hooks';
-import { useSession } from '../../../app/AuthGate';
+import { useSession, can } from '../../../app/AuthGate';
 import { publicUrl, resourceStatus, sourceLabel } from '../Resources/Resources';
 import { CopyButton } from '../resource/shared';
 import { ConnectionCard, ImportDataDialog, ImportHistory } from '../Resources/DatabaseDialogs';
@@ -32,7 +32,7 @@ export function ResourceDetail(props) {
   return props.resource.sourceType === 'external' ? <ExternalOverview {...props} /> : <ContainerOverview {...props} />;
 }
 
-// An external database: IGNITION only knows whether it answers and how to connect to it.
+// An external database: Ignition only knows whether it answers and how to connect to it.
 function ExternalOverview({ project, environment, resource: initial, onNavigate, onResourceChange }) {
   const res = useQuery(() => api.resource(initial.id), [initial.id], { pollMs: 10000 });
   const resource = res.data?.resource ?? initial;
@@ -45,13 +45,13 @@ function ExternalOverview({ project, environment, resource: initial, onNavigate,
         <span className="ov-label">External database</span>
         <Status tone={reachable ? 'success' : resource.status === 'failed' ? 'danger' : 'neutral'}>{reachable ? 'Reachable' : resource.status === 'failed' ? 'Unreachable' : 'Not checked yet'}</Status>
         <dl>
-          <div><dt>Runs</dt><dd>Outside IGNITION</dd></div>
+          <div><dt>Runs</dt><dd>Outside Ignition</dd></div>
           <div><dt>Checked</dt><dd>Every minute from this machine</dd></div>
           <div><dt>Last change</dt><dd>{timeAgo(resource.updatedAt)}</dd></div>
         </dl>
       </div>
       <div className="ov-actions">
-        <span className="ov-label">What IGNITION does with it</span>
+        <span className="ov-label">What Ignition does with it</span>
         <p className="ov-ext-note">Keeps its credentials encrypted, checks it's reachable, and gives its connection URL to your apps. Backups, upgrades and scaling stay with whoever runs it.</p>
       </div>
     </section>
@@ -76,7 +76,7 @@ function ExternalOverview({ project, environment, resource: initial, onNavigate,
 function ContainerOverview({ project, environment, resource: initial, onNavigate, onResourceChange }) {
   const [importing, setImporting] = useState(false);
   const { user } = useSession();
-  const isAdmin = user.role === 'admin' || user.role === 'owner';
+  const isAdmin = can(user, 'audit.view');
   const [confirmStop, setConfirmStop] = useState(false);
   const [actionError, setActionError] = useState('');
   const [busy, setBusy] = useState('');

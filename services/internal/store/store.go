@@ -38,23 +38,48 @@ func noRows(err error) error {
 /* ---------------------------------- Users ---------------------------------- */
 
 type User struct {
-	ID           string     `json:"id"`
-	Email        string     `json:"email"`
-	Name         string     `json:"name"`
-	Role         string     `json:"role"`
-	Status       string     `json:"status"`
-	PasswordHash string     `json:"-"`
-	FailedLogins int        `json:"-"`
-	LockedUntil  *time.Time `json:"-"`
-	CreatedAt    time.Time  `json:"createdAt"`
+	ID           string        `json:"id"`
+	Email        string        `json:"email"`
+	Name         string        `json:"name"`
+	Role         string        `json:"role"`
+	Status       string        `json:"status"`
+	PasswordHash string        `json:"-"`
+	FailedLogins int           `json:"-"`
+	LockedUntil  *time.Time    `json:"-"`
+	CreatedAt    time.Time     `json:"createdAt"`
+	MFAEnabledAt *time.Time    `json:"mfaEnabledAt"`
+	Permissions  PermOverrides `json:"permissionOverrides"`
+	SSO          bool          `json:"sso"` // linked to an OpenID Connect identity
+	HasPassword  bool          `json:"hasPassword"`
 }
 
-const userCols = `id, email, name, role, status, password_hash, failed_logins, locked_until, created_at`
+// PermOverrides adjust a user's role defaults: grant adds permissions, deny removes them.
+type PermOverrides struct {
+	Grant []string `json:"grant"`
+	Deny  []string `json:"deny"`
+}
+
+const userCols = `id, email, name, role, status, password_hash, failed_logins, locked_until, created_at, totp_enabled_at, permissions, oidc_subject`
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
-	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.Status, &u.PasswordHash, &u.FailedLogins, &u.LockedUntil, &u.CreatedAt)
+	var perms []byte
+	var subject *string
+	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.Status, &u.PasswordHash, &u.FailedLogins, &u.LockedUntil, &u.CreatedAt, &u.MFAEnabledAt, &perms, &subject)
+	u.finish(perms, subject)
 	return &u, noRows(err)
+}
+
+func (u *User) finish(perms []byte, subject *string) {
+	json.Unmarshal(perms, &u.Permissions)
+	if u.Permissions.Grant == nil {
+		u.Permissions.Grant = []string{}
+	}
+	if u.Permissions.Deny == nil {
+		u.Permissions.Deny = []string{}
+	}
+	u.SSO = subject != nil
+	u.HasPassword = u.PasswordHash != ""
 }
 
 func (s *Store) CountUsers(ctx context.Context) (n int, err error) {
@@ -109,19 +134,21 @@ func (s *Store) ResetFailedLogins(ctx context.Context, id string) error {
 
 /* --------------------------------- Sessions -------------------------------- */
 
-func (s *Store) CreateSession(ctx context.Context, userID string, tokenHash []byte, ua, ip string, ttl time.Duration) error {
-	_, err := s.DB.Exec(ctx, `INSERT INTO sessions (user_id, token_hash, user_agent, ip, expires_at) VALUES ($1, $2, $3, $4, now() + $5::interval)`,
-		userID, tokenHash, ua, ip, interval(ttl))
+func (s *Store) CreateSession(ctx context.Context, userID string, tokenHash []byte, ua, ip string, ttl time.Duration, method string) error {
+	_, err := s.DB.Exec(ctx, `INSERT INTO sessions (user_id, token_hash, user_agent, ip, expires_at, method) VALUES ($1, $2, $3, $4, now() + $5::interval, $6)`,
+		userID, tokenHash, ua, ip, interval(ttl), method)
 	return err
 }
 
 // UserBySession returns the session's active user and slides last_seen_at forward.
-func (s *Store) UserBySession(ctx context.Context, tokenHash []byte) (*User, error) {
+// A session idle for longer than idle (0 = no limit) has ended.
+func (s *Store) UserBySession(ctx context.Context, tokenHash []byte, idle time.Duration) (*User, error) {
 	return scanUser(s.DB.QueryRow(ctx, `
 		WITH touched AS (
-			UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1 AND expires_at > now() RETURNING user_id
+			UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1 AND expires_at > now()
+			       AND ($2 = 0 OR last_seen_at > now() - make_interval(secs => $2)) RETURNING user_id
 		)
-		SELECT `+prefix("u.", userCols)+` FROM users u JOIN touched t ON t.user_id = u.id WHERE u.status = 'active'`, tokenHash))
+		SELECT `+prefix("u.", userCols)+` FROM users u JOIN touched t ON t.user_id = u.id WHERE u.status = 'active'`, tokenHash, int(idle.Seconds())))
 }
 
 func (s *Store) DeleteSession(ctx context.Context, tokenHash []byte) error {
@@ -363,10 +390,10 @@ func (s *Store) GetResource(ctx context.Context, id string) (*Resource, error) {
 
 type NewResource struct {
 	ProjectID, EnvironmentID, Name, Type, SourceType, Image, RepoURL, Branch, Dockerfile, Command, DataPath, CreatedBy, SourceID, Engine string
-	Port                                                                                                                         *int
-	MemoryMB                                                                                                                     int
-	CPUs                                                                                                                         float64
-	Defaults                                                                                                                     *ResourceDefaults // instance defaults for settings without their own input
+	Port                                                                                                                                 *int
+	MemoryMB                                                                                                                             int
+	CPUs                                                                                                                                 float64
+	Defaults                                                                                                                             *ResourceDefaults // instance defaults for settings without their own input
 }
 
 func (s *Store) CreateResource(ctx context.Context, tx pgx.Tx, r NewResource) (string, error) {

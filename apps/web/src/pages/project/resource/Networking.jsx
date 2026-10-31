@@ -5,7 +5,7 @@ import {
 import { Button, Dialog, Notice, SegmentedControl, Select, Status, TextInput, cx } from '../../../ui';
 import { api } from '../../../api/client';
 import { timeAgo, useQuery } from '../../../api/hooks';
-import { useSession } from '../../../app/AuthGate';
+import { useSession, can } from '../../../app/AuthGate';
 import { SaveBar } from '../../settings/SettingsField';
 import { CopyButton, PageIntro, Table } from './shared';
 import './Networking.css';
@@ -34,7 +34,7 @@ const toBody = f => ({
 
 export function Networking({ resource, onNavigate }) {
   const { user } = useSession();
-  const canEdit = user.role !== 'viewer';
+  const canEdit = can(user, 'resources.update');
   const { data, error, refetch, setData } = useQuery(() => api.networking(resource.id), [resource.id], { pollMs: 10000 });
   const [saved, setSaved] = useState(null);
   const [form, setForm] = useState(null);
@@ -95,7 +95,7 @@ export function Networking({ resource, onNavigate }) {
 
     <Networks data={data} form={form} set={set} canEdit={canEdit} resource={resource} errors={errors} />
     <Ports data={data} form={form} set={set} setPort={setPort} canEdit={canEdit} resource={resource} errors={errors} />
-    <Connectivity data={data} resource={resource} canEdit={canEdit} isAdmin={user.role === 'admin' || user.role === 'owner'} onTest={t => setData(d => ({ ...d, tests: [t, ...d.tests].slice(0, 8) }))} />
+    <Connectivity data={data} resource={resource} canEdit={canEdit} isAdmin={can(user, 'resources.privileged')} onTest={t => setData(d => ({ ...d, tests: [t, ...d.tests].slice(0, 8) }))} />
     <Exposure data={data} form={saved} resource={resource} onNavigate={onNavigate} />
 
     <SaveBar dirty={dirty} onDiscard={() => { setForm(saved); setErrors({}); }} summary="Networking changes apply on the next deployment" />

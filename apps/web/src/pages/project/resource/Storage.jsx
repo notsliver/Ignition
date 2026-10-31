@@ -3,7 +3,7 @@ import { ArrowDownTrayIcon, ArrowUturnLeftIcon, CircleStackIcon, ExclamationTria
 import { Button, Dialog, Notice, TextInput, cx } from '../../../ui';
 import { api } from '../../../api/client';
 import { useQuery } from '../../../api/hooks';
-import { useSession } from '../../../app/AuthGate';
+import { useSession, can } from '../../../app/AuthGate';
 import { SaveBar } from '../../settings/SettingsField';
 import { Empty, PageIntro } from './shared';
 import './Storage.css';
@@ -20,8 +20,9 @@ const backupUrl = (resourceId, docker) => `/api/resources/${resourceId}/storage/
 
 export function Storage({ resource, onNavigate, onResourceChange }) {
   const { user } = useSession();
-  const canEdit = user.role !== 'viewer';
-  const isAdmin = user.role === 'admin' || user.role === 'owner';
+  const canEdit = can(user, 'storage.update');
+  const canBackup = can(user, 'storage.backup');
+  const canDelete = can(user, 'storage.delete');
   const [fast, setFast] = useState(false);
   const { data, error, refetch } = useQuery(() => api.storage(resource.id), [resource.id], { pollMs: fast ? 5000 : 15000 });
   // Poll faster while a volume is still held by a container that's going away.
@@ -105,7 +106,7 @@ export function Storage({ resource, onNavigate, onResourceChange }) {
             <span className="mono">{v.mountPath}{err && <em className="st-error"> · {err}</em>}</span></span>
           <span className="st-size">{l?.sizeBytes != null ? bytes(l.sizeBytes) : <span className="st-muted">Created on deploy</span>}</span>
           <span className={cx('rp-chip', state.cls === 'ok' && 'success', state.cls === 'pending' && 'warning')}>{state.text}</span>
-          {isAdmin && l?.sizeBytes != null && <a className="icon-action" href={backupUrl(resource.id, l.docker)} download aria-label={`Download a backup of ${v.name}`} title="Download backup (.tar.gz)"><ArrowDownTrayIcon /></a>}
+          {canBackup && l?.sizeBytes != null && <a className="icon-action" href={backupUrl(resource.id, l.docker)} download aria-label={`Download a backup of ${v.name}`} title="Download backup (.tar.gz)"><ArrowDownTrayIcon /></a>}
           {canEdit && <button type="button" className="icon-action danger" aria-label={`Remove ${v.name}`} title="Remove (data is kept)" onClick={() => { setList(x => x.filter(y => y.name !== v.name)); setFeedback(null); }}><XMarkIcon /></button>}
         </div>;
       })}
@@ -124,8 +125,8 @@ export function Storage({ resource, onNavigate, onResourceChange }) {
           <span className="rp-row-main"><strong>{v.name}</strong><span className="mono">{v.docker}{v.mounted ? ` · still mounted at ${v.mounted} until the next deploy` : v.inUse ? ' · in use by the previous container, which is shutting down' : ''}</span></span>
           <span className="st-size">{bytes(v.sizeBytes)}</span>
           {canEdit && !list.some(l => l.name === v.name) && <Button icon={ArrowUturnLeftIcon} onClick={() => setDraft({ name: v.name, mountPath: '' })}>Reattach</Button>}
-          {isAdmin && <a className="icon-action" href={backupUrl(resource.id, v.docker)} download aria-label={`Download a backup of ${v.name}`} title="Download backup (.tar.gz)"><ArrowDownTrayIcon /></a>}
-          {isAdmin && <button type="button" className="icon-action danger" aria-label={`Delete ${v.name} and its data`} title={v.inUse ? 'Still in use; wait for the deployment to finish' : 'Delete data'} disabled={v.inUse} onClick={() => setDeleting(v)}><TrashIcon /></button>}
+          {canBackup && <a className="icon-action" href={backupUrl(resource.id, v.docker)} download aria-label={`Download a backup of ${v.name}`} title="Download backup (.tar.gz)"><ArrowDownTrayIcon /></a>}
+          {canDelete && <button type="button" className="icon-action danger" aria-label={`Delete ${v.name} and its data`} title={v.inUse ? 'Still in use; wait for the deployment to finish' : 'Delete data'} disabled={v.inUse} onClick={() => setDeleting(v)}><TrashIcon /></button>}
         </div>)}
       </div>
     </section>}

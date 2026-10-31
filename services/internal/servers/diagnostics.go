@@ -30,16 +30,16 @@ type CheckDef struct {
 var Checks = []CheckDef{
 	{"connectivity", "Server connectivity", "Reach the host: the Docker socket for this machine, a TCP connection to the engine for remote servers."},
 	{"identity", "Host identity", "Verify the engine's TLS certificate against the pinned CA, hostname and enrolled fingerprint."},
-	{"agent", "Agent health and version", "Check the IGNITION agent on the host."},
+	{"agent", "Agent health and version", "Check the Ignition agent on the host."},
 	{"docker", "Docker daemon", "Ping the Docker Engine and read its version."},
 	{"platform", "Operating system and architecture", "Detect the OS, kernel and CPU architecture the engine reports."},
-	{"compatibility", "Runtime compatibility", "Compare the engine's API version, OS type, architecture and storage driver with what IGNITION supports."},
+	{"compatibility", "Runtime compatibility", "Compare the engine's API version, OS type, architecture and storage driver with what Ignition supports."},
 	{"disk", "Available disk capacity", "Measure free space where Docker stores images, containers and volumes."},
 	{"memory", "Memory pressure", "Read available memory and swap use."},
-	{"clock", "Clock synchronization", "Compare the engine's clock with IGNITION's."},
-	{"dns", "DNS resolution", "Resolve the names IGNITION depends on for this server."},
-	{"tcp", "TCP connectivity", "Open TCP connections to the endpoints IGNITION depends on for this server."},
-	{"ports", "Port conflicts and exposure", "Compare published host ports with what IGNITION's resources and proxy expect."},
+	{"clock", "Clock synchronization", "Compare the engine's clock with Ignition's."},
+	{"dns", "DNS resolution", "Resolve the names Ignition depends on for this server."},
+	{"tcp", "TCP connectivity", "Open TCP connections to the endpoints Ignition depends on for this server."},
+	{"ports", "Port conflicts and exposure", "Compare published host ports with what Ignition's resources and proxy expect."},
 	{"consistency", "Resource status consistency", "Compare each workload's recorded status with what Docker reports."},
 }
 
@@ -73,9 +73,9 @@ type Diagnoser struct {
 
 func (d *Diagnoser) location() string {
 	if d.Server.IsLocal {
-		return "IGNITION worker on this host"
+		return "Ignition worker on this host"
 	}
-	return "IGNITION worker → " + d.Server.Endpoint
+	return "Ignition worker → " + d.Server.Endpoint
 }
 
 // Run executes one check and always returns a result: failures are results, not errors.
@@ -93,7 +93,7 @@ func (d *Diagnoser) Run(ctx context.Context, id string) store.DiagnosticResult {
 	case "identity":
 		d.identity(ctx, &r)
 	case "agent":
-		r.unsupported("IGNITION has no agent: it talks to the Docker Engine API directly, over the local socket or mutual TLS. There's nothing to install or upgrade on the host.")
+		r.unsupported("Ignition has no agent: it talks to the Docker Engine API directly, over the local socket or mutual TLS. There's nothing to install or upgrade on the host.")
 	case "docker":
 		d.docker(ctx, &r)
 	case "platform":
@@ -162,13 +162,13 @@ func (d *Diagnoser) connectivity(ctx context.Context, r *result) {
 		r.printf("socket: %s", sock)
 		st, err := os.Stat(sock)
 		if err != nil {
-			r.fail("No Docker socket at "+sock+".", "Mount the Docker socket into the IGNITION api and worker containers (see deploy/docker-compose.yml).")
+			r.fail("No Docker socket at "+sock+".", "Mount the Docker socket into the Ignition api and worker containers (see deploy/docker-compose.yml).")
 			return
 		}
 		r.printf("mode: %s", st.Mode())
 		t0 := time.Now()
 		if err := d.Registry.Local.Ping(ctx); err != nil {
-			r.fail("The socket exists but Docker didn't answer: "+cleanErr(err), "Check the daemon: systemctl status docker; and that the socket's group lets IGNITION read it.")
+			r.fail("The socket exists but Docker didn't answer: "+cleanErr(err), "Check the daemon: systemctl status docker; and that the socket's group lets Ignition read it.")
 			return
 		}
 		r.pass(fmt.Sprintf("Docker socket answered in %d ms.", time.Since(t0).Milliseconds()))
@@ -181,7 +181,7 @@ func (d *Diagnoser) connectivity(ctx context.Context, r *result) {
 	if err != nil {
 		msg, kind := Classify(err)
 		r.printf("error: %v", err)
-		hint := "Check the server is up, the address and port are right, and no firewall blocks IGNITION's address."
+		hint := "Check the server is up, the address and port are right, and no firewall blocks Ignition's address."
 		if kind == "dns" {
 			hint = "Fix the DNS record or use the server's IP address in Settings › Connection."
 		}
@@ -239,7 +239,7 @@ func (d *Diagnoser) identity(ctx context.Context, r *result) {
 		return
 	}
 	r.printf("presented fingerprint: %s", seen)
-	r.pass("The engine's certificate matches the CA, hostname and enrolled fingerprint, and it accepted IGNITION's client certificate.")
+	r.pass("The engine's certificate matches the CA, hostname and enrolled fingerprint, and it accepted Ignition's client certificate.")
 }
 
 func (d *Diagnoser) docker(ctx context.Context, r *result) {
@@ -285,7 +285,7 @@ func (d *Diagnoser) compatibility(ctx context.Context, r *result) {
 		problems = append(problems, fmt.Sprintf("Engine API %s is older than %s", info.APIVersion, runtime.MinAPIVersion))
 	}
 	if info.OSType != "linux" {
-		problems = append(problems, "the engine runs "+info.OSType+" containers; IGNITION runs Linux images")
+		problems = append(problems, "the engine runs "+info.OSType+" containers; Ignition runs Linux images")
 	}
 	if info.Arch != "x86_64" && info.Arch != "aarch64" && info.Arch != "amd64" && info.Arch != "arm64" {
 		notes = append(notes, "architecture "+info.Arch+" may not have images for many stacks")
@@ -356,7 +356,7 @@ func (d *Diagnoser) memory(ctx context.Context, r *result) {
 		_, info, ok := d.engine(ctx, r)
 		if ok {
 			r.printf("engine reports %s total memory", bytesText(info.MemTotal))
-			r.unsupported("Memory pressure needs host access IGNITION doesn't have on remote servers. The engine only reports total memory (" + bytesText(info.MemTotal) + ").")
+			r.unsupported("Memory pressure needs host access Ignition doesn't have on remote servers. The engine only reports total memory (" + bytesText(info.MemTotal) + ").")
 		}
 		return
 	}
@@ -544,7 +544,7 @@ func (d *Diagnoser) ports(ctx context.Context, r *result) {
 	case len(conflicts) > 0:
 		r.fail(fmt.Sprintf("%d port conflict(s): %s.", len(conflicts), strings.Join(conflicts, "; ")), "Stop the other container or change the resource's host port on its Networking page.")
 	case len(exposed) > 0:
-		r.warn(fmt.Sprintf("%d container(s) not managed by IGNITION publish ports on every interface.", len(exposed)), "IGNITION doesn't manage the host firewall. If these shouldn't be public, bind them to 127.0.0.1 or block them with your firewall.")
+		r.warn(fmt.Sprintf("%d container(s) not managed by Ignition publish ports on every interface.", len(exposed)), "Ignition doesn't manage the host firewall. If these shouldn't be public, bind them to 127.0.0.1 or block them with your firewall.")
 	default:
 		r.pass(fmt.Sprintf("%d published port(s), no conflicts.", len(keys)))
 	}
@@ -561,7 +561,7 @@ func (d *Diagnoser) consistency(ctx context.Context, r *result) {
 		return
 	}
 	if len(list) == 0 {
-		r.skip("Skipped: no IGNITION workloads are assigned to this server.")
+		r.skip("Skipped: no Ignition workloads are assigned to this server.")
 		return
 	}
 	dk, _, ok := d.engine(ctx, r)

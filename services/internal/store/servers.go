@@ -567,7 +567,7 @@ func (s *Store) LatestServerSample(ctx context.Context, serverID string) (*Serve
 	return &b, nil
 }
 
-// WorkloadUsage sums the newest per-container samples of a server's IGNITION workloads.
+// WorkloadUsage sums the newest per-container samples of a server's Ignition workloads.
 func (s *Store) WorkloadUsage(ctx context.Context, serverID string) (cpu float64, mem int64, n int, err error) {
 	err = s.DB.QueryRow(ctx, `
 		SELECT COALESCE(sum(m.cpu_percent), 0), COALESCE(sum(m.memory_bytes), 0), count(m.at)
@@ -911,7 +911,7 @@ func (s *Store) ResourceIndex(ctx context.Context) (map[string]ResourceRef, erro
 	return out, rows.Err()
 }
 
-// ServerVolumeRows are the volumes IGNITION configured for this server's resources.
+// ServerVolumeRows are the volumes Ignition configured for this server's resources.
 type ServerVolumeRow struct {
 	ResourceID string `json:"resourceId"`
 	Name       string `json:"name"`
@@ -1253,7 +1253,7 @@ type ServerCapacity struct {
 }
 
 // FleetCapacity reads committed limits and window statistics for every server in one pass.
-// External databases aren't run by IGNITION, so they commit nothing.
+// External databases aren't run by Ignition, so they commit nothing.
 func (s *Store) FleetCapacity(ctx context.Context, window time.Duration) (map[string]*ServerCapacity, error) {
 	out := map[string]*ServerCapacity{}
 	rows, err := s.DB.Query(ctx, `

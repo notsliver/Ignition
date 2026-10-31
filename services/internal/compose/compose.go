@@ -1,4 +1,4 @@
-// Package compose turns a Docker Compose file into the resources IGNITION would create for it.
+// Package compose turns a Docker Compose file into the resources Ignition would create for it.
 //
 // Each service becomes one resource on the project's private network, where it answers to its service
 // name, so services keep finding each other the way they did under Compose. What doesn't translate
@@ -59,7 +59,7 @@ type Plan struct {
 	Warnings []string  `json:"warnings"`
 }
 
-// Database images IGNITION recognises; their services become databases.
+// Database images Ignition recognises; their services become databases.
 var databaseImages = []string{"postgres", "postgis", "mysql", "mariadb", "mongo", "redis", "valkey", "dragonfly", "clickhouse", "timescale", "cockroach", "keydb", "memcached", "elasticsearch", "opensearch", "rabbitmq", "nats", "minio"}
 
 var (

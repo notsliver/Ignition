@@ -3,7 +3,7 @@ import { ArrowPathIcon, ArrowTopRightOnSquareIcon, CheckCircleIcon, CodeBracketI
 import { Button, GitHubIcon, GitLabIcon, Notice, Select, TextInput } from '../../../ui';
 import { api } from '../../../api/client';
 import { timeAgo, useQuery } from '../../../api/hooks';
-import { useSession } from '../../../app/AuthGate';
+import { useSession, can } from '../../../app/AuthGate';
 import { SourceSelect } from '../Resources/AddResourceDialog';
 import { SaveBar, SettingsField, SettingsGroup } from '../../settings/SettingsField';
 import { PageIntro } from './shared';
@@ -22,7 +22,7 @@ const short = sha => sha?.slice(0, 7);
 
 export function Source({ resource, onResourceChange }) {
   const { user } = useSession();
-  const canEdit = user.role !== 'viewer';
+  const canEdit = can(user, 'resources.update');
   const git = resource.sourceType === 'git';
   const { data, error, loading, refetch } = useQuery(() => api.resourceSource(resource.id), [resource.id]);
   const initial = git ? { repoUrl: resource.repoUrl, branch: resource.branch, sourceId: resource.sourceId ?? '' } : { image: resource.image, sourceId: resource.sourceId ?? '' };

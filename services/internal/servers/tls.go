@@ -16,7 +16,7 @@ import (
 )
 
 // Credentials for a remote Docker Engine started with --tlsverify. The CA authenticates the
-// engine (host identity); the client certificate authenticates IGNITION.
+// engine (host identity); the client certificate authenticates Ignition.
 type Credentials struct {
 	CACert     string `json:"caCert"`
 	ClientCert string `json:"clientCert"`
@@ -131,7 +131,7 @@ func (e *IdentityError) Error() string {
 
 // ParseEndpoint validates host:port for a remote engine. It refuses addresses that are never a
 // legitimate remote Docker host (loopback, link-local and cloud metadata, unspecified, multicast),
-// so the verification endpoint can't be pointed at IGNITION itself or the metadata service.
+// so the verification endpoint can't be pointed at Ignition itself or the metadata service.
 func ParseEndpoint(raw string) (host string, port int, err error) {
 	raw = strings.TrimSpace(raw)
 	raw = strings.TrimPrefix(strings.TrimPrefix(raw, "tcp://"), "https://")

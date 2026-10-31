@@ -105,7 +105,7 @@ export function Overview({ server, onNavigate, actions }) {
           <header><h2>Workloads</h2><button type="button" className="ov-link" onClick={() => onNavigate('Resources')}>All resources<ArrowRightIcon /></button></header>
           {resources.error ? <p className="ov-empty">Couldn't load workloads: {resources.error.message}</p>
             : !resources.data ? <p className="ov-empty">Loading…</p>
-              : !list.length ? <p className="ov-empty">{server.isLocal ? 'No resources yet. Add one from a project; it will run here.' : 'Remote servers don\'t host IGNITION resources. Their containers are on the Docker page.'}</p>
+              : !list.length ? <p className="ov-empty">{server.isLocal ? 'No resources yet. Add one from a project; it will run here.' : 'Remote servers don\'t host Ignition resources. Their containers are on the Docker page.'}</p>
                 : <div className="sv-counts">
                   <div><strong>{list.length}</strong><span>assigned</span></div>
                   <div><strong>{counts.running}</strong><span>running</span></div>

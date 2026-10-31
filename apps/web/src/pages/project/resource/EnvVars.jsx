@@ -3,7 +3,7 @@ import { ArrowDownTrayIcon, ArrowUpTrayIcon, InformationCircleIcon, DocumentDupl
 import { Avatar, Button, Menu, Notice, SearchField, TextInput, cx } from '../../../ui';
 import { api } from '../../../api/client';
 import { timeAgo, useQuery } from '../../../api/hooks';
-import { useSession } from '../../../app/AuthGate';
+import { useSession, can } from '../../../app/AuthGate';
 import { SaveBar } from '../../settings/SettingsField';
 import { CopyButton, PageIntro } from './shared';
 import { engineEnv, generatePassword } from '../Resources/engineEnv';
@@ -26,8 +26,8 @@ const fromServer = list => list.map(v => ({ key: v.key, value: v.value ?? '', se
 
 export function EnvironmentVariables({ resource, environment }) {
   const { user } = useSession();
-  const canReveal = user.role === 'admin' || user.role === 'owner';
-  const canEdit = user.role !== 'viewer';
+  const canReveal = can(user, 'variables.reveal');
+  const canEdit = can(user, 'variables.update');
   const { data, error, loading, refetch } = useQuery(() => api.env(resource.id), [resource.id]);
   const [saved, setSaved] = useState([]);
   const [vars, setVars] = useState([]);

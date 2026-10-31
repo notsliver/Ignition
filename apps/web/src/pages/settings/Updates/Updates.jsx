@@ -31,7 +31,7 @@ export function Updates() {
   const run = data?.run;
   const updating = starting || run?.state === 'running';
 
-  // While the updater restarts IGNITION the API goes away for a moment; keep asking until it reports back.
+  // While the updater restarts Ignition the API goes away for a moment; keep asking until it reports back.
   useEffect(() => {
     if (!updating) return;
     const t = setInterval(() => api.updates().then(setData).catch(() => {}), 3000);
@@ -124,9 +124,9 @@ export function Updates() {
 
     {(available || updating) && latest && <section className={cx('update-card', updating && 'is-updating')} aria-live="polite">
       <div className="update-copy">
-        <strong>{updating ? `Updating to ${target}…` : `IGNITION ${target} is available`}</strong>
+        <strong>{updating ? `Updating to ${target}…` : `Ignition ${target} is available`}</strong>
         <span>{updating
-          ? 'IGNITION restarts automatically and this page reconnects. Your apps, databases and domains stay online.'
+          ? 'Ignition restarts automatically and this page reconnects. Your apps, databases and domains stay online.'
           : <>
             {latest.updated && <>Published {date(latest.updated)}<span>·</span></>}
             <code>{latest.image}</code>
@@ -151,7 +151,7 @@ export function Updates() {
       onSaved={c => { setData(d => ({ ...d, config: c })); setImageOpen(false); runCheck(); }} />
 
     <Dialog open={confirm} onClose={() => setConfirm(false)} title={`Update to ${target}?`}
-      description="IGNITION pulls the new image and restarts its dashboard and worker. It's unavailable for about a minute; your apps, databases and domains keep running. Database changes apply automatically on start."
+      description="Ignition pulls the new image and restarts its dashboard and worker. It's unavailable for about a minute; your apps, databases and domains keep running. Database changes apply automatically on start."
       footer={<><Button onClick={() => setConfirm(false)}>Cancel</Button><Button variant="primary" icon={ArrowUpIcon} onClick={update}>Update now</Button></>}>
       {installed.fromSource && <Notice tone="info" title="This instance was built from source">Updating switches it to the published image. To go back, remove IGNITION_IMAGE from .env and run the installer.</Notice>}
     </Dialog>
@@ -182,7 +182,7 @@ function ImageDialog({ open, config, onClose, onSaved }) {
     }
   }
 
-  return <Dialog open={open} onClose={onClose} title="Update image" description="The Docker Hub repository IGNITION updates from. Only change this if you publish your own build."
+  return <Dialog open={open} onClose={onClose} title="Update image" description="The Docker Hub repository Ignition updates from. Only change this if you publish your own build."
     footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" type="submit" form="update-image" disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button></>}>
     <form id="update-image" className="update-source" onSubmit={save}>
       <FormField label="Repository" htmlFor="image" error={error} hint="namespace/name, e.g. notsliver/ignition">

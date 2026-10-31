@@ -268,8 +268,8 @@ func (s *Server) putAdvanced(w http.ResponseWriter, r *http.Request, u *store.Us
 	if f := in.validate(); len(f) > 0 {
 		return httpx.Invalid(f)
 	}
-	if in.Privileged != current.Privileged && roleRank[u.Role] < roleRank["admin"] {
-		return httpx.Forbidden("Only admins can change privileged mode: it gives the container control over this machine.")
+	if in.Privileged != current.Privileged && !can(u, "resources.privileged") {
+		return httpx.Forbidden("Changing privileged mode needs the resources.privileged permission (admins by default): it gives the container control over this machine.")
 	}
 	err = s.Store.PutAdvanced(r.Context(), id, in.Name, in.Advanced)
 	var pg *pgconn.PgError

@@ -53,7 +53,7 @@ func (s *Server) importTarget(ctx context.Context, id string) (*store.Resource, 
 	}
 	eng := dbimport.EngineByID(engine)
 	if eng == nil {
-		return nil, nil, httpx.Conflict(res.Name + " isn't a database IGNITION can import into (PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Dragonfly or ClickHouse).")
+		return nil, nil, httpx.Conflict(res.Name + " isn't a database Ignition can import into (PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Dragonfly or ClickHouse).")
 	}
 	if res.ContainerID == "" || (res.Status != "running" && res.Status != "deploying") {
 		return nil, nil, httpx.Conflict(res.Name + " isn't running. Start it, then import.")
@@ -539,7 +539,7 @@ func (s *Server) connection(w http.ResponseWriter, r *http.Request, u *store.Use
 			user = "postgres"
 		}
 	}
-	canReveal := roleRank[u.Role] >= roleRank["admin"]
+	canReveal := can(u, "variables.reveal")
 	full := connectionURL(eng, host, port, user, pass, db, tls)
 	if eng.ID == "mongodb" && res.SourceType != "external" {
 		full += "?authSource=admin"
@@ -583,7 +583,7 @@ func (s *Server) shareConnection(w http.ResponseWriter, r *http.Request, u *stor
 	// Reuse connection() to build the URL with the password.
 	rec := &captureWriter{header: http.Header{}}
 	admin := *u
-	admin.Role = "owner"
+	admin.Role, admin.Permissions = "owner", store.PermOverrides{}
 	if err := s.connection(rec, r, &admin); err != nil {
 		return err
 	}

@@ -1,8 +1,8 @@
-// Package automations defines IGNITION's operations engine: what can trigger an automation, which
+// Package automations defines Ignition's operations engine: what can trigger an automation, which
 // built-in steps it can take, and how each step's outcome is verified. Execution lives in the worker;
 // this package is the shared vocabulary and the rules (validation, policy) the API and worker agree on.
 //
-// Everything listed as available here really runs. Capabilities that need something IGNITION doesn't
+// Everything listed as available here really runs. Capabilities that need something Ignition doesn't
 // have yet (a host agent for OS packages, a load balancer for scaling, provider APIs for power control)
 // are listed in the catalog with what they need, never offered as steps.
 package automations
@@ -119,7 +119,7 @@ var Actions = []Action{
 		Verifies: "Usage is below the threshold.",
 		Params:   []Param{{Key: "threshold", Label: "Healthy below", Kind: "int", Default: 85, Min: 10, Max: 99, Hint: "Percent of the disk"}}},
 	{ID: "docker_cleanup", Scope: []string{ScopeServers}, Label: "Safe Docker cleanup", Risk: "safe",
-		Does:     "Plans, then removes only unused objects: stopped containers IGNITION created, untagged images, build cache. Never volumes, running containers or rollback images.",
+		Does:     "Plans, then removes only unused objects: stopped containers Ignition created, untagged images, build cache. Never volumes, running containers or rollback images.",
 		Verifies: "Each planned object is gone and disk usage dropped.",
 		Params: []Param{{Key: "containers", Label: "Stopped containers", Kind: "bool", Default: true}, {Key: "dangling", Label: "Untagged images", Kind: "bool", Default: true},
 			{Key: "buildCache", Label: "Build cache", Kind: "bool", Default: true}}},
@@ -473,7 +473,7 @@ func Workflow(a *Automation) []string {
 /* ---------------------------- Capability catalog ---------------------------- */
 
 // Capability is one entry of the catalog. Available ones map to a trigger, step or built-in
-// behaviour; the others say what IGNITION would need first.
+// behaviour; the others say what Ignition would need first.
 type Capability struct {
 	Label  string `json:"label"`
 	Status string `json:"status"` // available, builtin, agent, loadbalancer, provider
@@ -486,7 +486,7 @@ type CapabilityGroup struct {
 }
 
 const (
-	needAgent = "Needs the IGNITION server agent (package, kernel and host access), which isn't available yet. Servers are reached through the Docker API only."
+	needAgent = "Needs the Ignition server agent (package, kernel and host access), which isn't available yet. Servers are reached through the Docker API only."
 )
 
 var Catalog = []CapabilityGroup{

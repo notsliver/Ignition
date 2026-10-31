@@ -3,7 +3,7 @@ import { ArrowPathIcon, EyeIcon, EyeSlashIcon, KeyIcon, LinkIcon, PlusIcon, Tras
 import { Avatar, Button, Dialog, Notice, Select, TextInput, cx } from '../../../ui';
 import { api } from '../../../api/client';
 import { timeAgo, useQuery } from '../../../api/hooks';
-import { useSession } from '../../../app/AuthGate';
+import { useSession, can } from '../../../app/AuthGate';
 import { CopyButton } from './shared';
 import './Operations.css';
 
@@ -21,7 +21,7 @@ const masked = (apiBase, hint) => `${apiBase}/hooks/igh_${'•'.repeat(20)}${hin
 
 export function AccessSecrets({ resource }) {
   const { user } = useSession();
-  const canEdit = user.role !== 'viewer';
+  const canEdit = can(user, 'access.manage');
   const { data, error, refetch, setData } = useQuery(() => api.access(resource.id), [resource.id]);
   const [hookUrl, setHookUrl] = useState('');
   const [shown, setShown] = useState(false);

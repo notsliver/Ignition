@@ -10,7 +10,7 @@ import './Dashboard.css';
 /*
  * The dashboard: what needs attention, the numbers that matter, the latest deployments across every
  * resource (same rows as a resource's Deployments page) and this machine's usage over the last hour.
- * Everything is live; anything IGNITION doesn't measure says so instead of showing a number.
+ * Everything is live; anything Ignition doesn't measure says so instead of showing a number.
  */
 
 const statusInfo = {

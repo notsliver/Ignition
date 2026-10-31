@@ -6,7 +6,7 @@ import {
 import { Button, Checkbox, Dialog, FormField, Menu, Notice, Select, Status, Switch, TextInput } from '../../ui';
 import { api } from '../../api/client';
 import { duration, timeAgo, useQuery } from '../../api/hooks';
-import { useSession } from '../../app/AuthGate';
+import { can, useSession } from '../../app/AuthGate';
 import { Table } from '../project/resource/shared';
 import { isAdmin } from './model';
 import { ConfirmDialog, JobProgress } from './shared';
@@ -69,8 +69,8 @@ export function Maintenance({ server, actions, onChanged, onOpenResource, setFee
             <li className={server.maintenance ? 'done' : ''}>{server.maintenance ? <CheckCircleIcon /> : <span className="sv-num">1</span>}<div><strong>Enter maintenance</strong><span>Stops new deployments and scheduled server tasks from starting.</span></div></li>
             <li className={act && !act.deployments.length && !act.jobs.length ? 'done' : ''}>{act && !act.deployments.length && !act.jobs.length ? <CheckCircleIcon /> : <span className="sv-num">2</span>}
               <div><strong>Let in-flight work finish</strong><span>{act ? (act.deployments.length || act.jobs.length ? `${act.deployments.length} deployment(s) and ${act.jobs.length} server job(s) are still running.` : 'Nothing is running.') : 'Checking…'}</span></div></li>
-            <li><span className="sv-num">3</span><div><strong>Review workloads and storage</strong><span>{data ? `${data.workloads} workload(s), ${data.running} running, ${data.volumes} configured volume(s). They stay on this host; IGNITION can't move them elsewhere.` : '…'}</span></div></li>
-            <li><span className="sv-num">4</span><div><strong>Reboot or change the host yourself</strong><span>IGNITION never reboots machines. Containers with a restart policy come back when Docker starts.</span></div></li>
+            <li><span className="sv-num">3</span><div><strong>Review workloads and storage</strong><span>{data ? `${data.workloads} workload(s), ${data.running} running, ${data.volumes} configured volume(s). They stay on this host; Ignition can't move them elsewhere.` : '…'}</span></div></li>
+            <li><span className="sv-num">4</span><div><strong>Reboot or change the host yourself</strong><span>Ignition never reboots machines. Containers with a restart policy come back when Docker starts.</span></div></li>
             <li><span className="sv-num">5</span><div><strong>Check, then exit maintenance</strong><span>Run diagnostics to confirm Docker and workloads are healthy, then exit maintenance.</span></div></li>
           </ol>
         </section>
@@ -96,7 +96,7 @@ const runTone = { queued: 'neutral', running: 'progress', succeeded: 'success', 
 
 export function Tasks({ server, setFeedback }) {
   const { user } = useSession();
-  const admin = isAdmin(user);
+  const admin = can(user, 'servers.tasks');
   const { data, error, refetch } = useQuery(() => api.serverTasks(server.id), [server.id], { pollMs: 5000 });
   const [editing, setEditing] = useState(null);
   const [deleting, setDeleting] = useState(null);
@@ -115,7 +115,7 @@ export function Tasks({ server, setFeedback }) {
 
   return <>
     <div className="rp-intro">
-      <p>Scheduled operations for this server, run by IGNITION's durable job queue. Only built-in task types exist: none runs commands on the host. Tasks other than diagnostics and checks are skipped while the server is in maintenance.</p>
+      <p>Scheduled operations for this server, run by Ignition's durable job queue. Only built-in task types exist: none runs commands on the host. Tasks other than diagnostics and checks are skipped while the server is in maintenance.</p>
       {admin && <div className="rp-intro-actions"><Button variant="primary" icon={PlusIcon} onClick={() => setEditing({})}>New task</Button></div>}
     </div>
     {error && <Notice tone="danger" title="Couldn't load tasks">{error.message}</Notice>}
@@ -184,7 +184,7 @@ function TaskDialog({ server, task, kinds, onClose, onSaved }) {
         <FormField label="If still running" htmlFor="tconc" error={errors.concurrency}><Select id="tconc" label="Concurrency" value={form.concurrency} onChange={v => set('concurrency', v)} options={[{ value: 'skip', label: 'Skip the new run' }, { value: 'queue', label: 'Queue it' }]} /></FormField>
       </div>
       {form.kind === 'docker_cleanup' && <ul className="sv-options">
-        {[['containers', 'Stopped IGNITION containers'], ['dangling', 'Untagged images'], ['buildCache', 'Unused build cache'], ['networks', 'Unused networks']].map(([k, l]) => <li key={k}>
+        {[['containers', 'Stopped Ignition containers'], ['dangling', 'Untagged images'], ['buildCache', 'Unused build cache'], ['networks', 'Unused networks']].map(([k, l]) => <li key={k}>
           <Checkbox label={l} checked={form.options[k] ?? (k !== 'networks')} onChange={v => opt(k, v)} /><div><strong>{l}</strong></div>
         </li>)}
         <li className="sv-locked"><div><strong>Never:</strong><span>volumes or tagged images. Remove those by hand, with a preview, from the Docker page.</span></div></li>

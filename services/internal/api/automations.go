@@ -53,9 +53,17 @@ func (in *automationInput) spec(hasNotify bool) automations.Automation {
 
 func canManageAutomation(u *store.User, scope string) bool {
 	if scope == automations.ScopeServers {
-		return roleRank[u.Role] >= roleRank["admin"]
+		return can(u, "automations.manage") && can(u, "servers.update")
 	}
-	return roleRank[u.Role] >= roleRank["developer"]
+	return can(u, "automations.manage")
+}
+
+// canRunAutomation: running or deciding on server-scoped automations also needs server rights.
+func canRunAutomation(u *store.User, scope string) bool {
+	if scope == automations.ScopeServers {
+		return can(u, "automations.run") && can(u, "servers.update")
+	}
+	return can(u, "automations.run")
 }
 
 func forbiddenFor(scope string) error {
@@ -373,7 +381,7 @@ func (s *Server) runAutomation(w http.ResponseWriter, r *http.Request, u *store.
 	if err != nil {
 		return err
 	}
-	if !canManageAutomation(u, a.Scope) {
+	if !canRunAutomation(u, a.Scope) {
 		return forbiddenFor(a.Scope)
 	}
 	var in struct {
@@ -428,7 +436,7 @@ func (s *Server) decideAutomationRun(decision string) func(http.ResponseWriter, 
 		if err != nil {
 			return notFound(err, "Automation")
 		}
-		if !canManageAutomation(u, a.Scope) {
+		if !canRunAutomation(u, a.Scope) {
 			return forbiddenFor(a.Scope)
 		}
 		var in struct {
@@ -530,7 +538,7 @@ func (s *Server) testAutomationNotify(w http.ResponseWriter, r *http.Request, u 
 	if err != nil {
 		return httpx.Conflict("The webhook URL can't be decrypted. Enter it again.")
 	}
-	text := "Test from IGNITION: notifications for " + a.Name + " arrive here."
+	text := "Test from Ignition: notifications for " + a.Name + " arrive here."
 	b, _ := json.Marshal(map[string]any{"text": text, "content": text, "kind": "test", "automation": a.Name})
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()

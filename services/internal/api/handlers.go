@@ -736,7 +736,7 @@ func (s *Server) createDeployment(w http.ResponseWriter, r *http.Request, u *sto
 		return notFound(err, "Resource")
 	}
 	if res.SourceType == "external" {
-		return httpx.Conflict(res.Name + " is an external database: IGNITION connects to it but doesn't run it, so there's nothing to deploy.")
+		return httpx.Conflict(res.Name + " is an external database: Ignition connects to it but doesn't run it, so there's nothing to deploy.")
 	}
 	trigger, imageRef, branch := "manual", "", res.Branch
 	if strings.HasPrefix(u.Email, tokenActorPrefix) {
@@ -846,6 +846,11 @@ func (s *Server) deploymentLogs(w http.ResponseWriter, r *http.Request, _ *store
 		if logs, err = s.Store.JobLogs(r.Context(), *d.JobID, after); err != nil {
 			return err
 		}
+		if redact := s.redactor(r.Context(), d.ResourceID); redact != nil {
+			for i := range logs {
+				logs[i].Message = redact(logs[i].Message)
+			}
+		}
 	}
 	httpx.JSON(w, 200, map[string]any{"logs": logs, "status": d.Status})
 	return nil
@@ -886,6 +891,11 @@ func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request, _ *store.
 		if err != nil {
 			return err
 		}
+		if redact := s.redactor(r.Context(), id); redact != nil {
+			for i := range lines {
+				lines[i].Message = redact(lines[i].Message)
+			}
+		}
 		reason := ""
 		if len(lines) == 0 {
 			reason = fmt.Sprintf("No logs were kept for deployment #%d. It produced no output, or its archive was pruned.", d.Number)
@@ -901,6 +911,11 @@ func (s *Server) containerLogs(w http.ResponseWriter, r *http.Request, _ *store.
 	if err != nil {
 		httpx.JSON(w, 200, map[string]any{"lines": []any{}, "available": false, "reason": "Docker didn't return logs: " + err.Error()})
 		return nil
+	}
+	if redact := s.redactor(r.Context(), id); redact != nil {
+		for i := range lines {
+			lines[i].Message = redact(lines[i].Message)
+		}
 	}
 	httpx.JSON(w, 200, map[string]any{"lines": lines, "available": true, "archived": false, "retention": retention})
 	return nil

@@ -17,7 +17,7 @@ export function activeNotices({ installed, config, check, lastCheck, run, docker
   if (run?.state === 'failed' && !run.dismissed) list.push({
     id: 'last-update-failed', server: true, tone: 'danger',
     title: 'Last update failed',
-    text: `Updating to ${v(run.version)} didn't finish. IGNITION is still on ${v(installed.version)}.`,
+    text: `Updating to ${v(run.version)} didn't finish. Ignition is still on ${v(installed.version)}.`,
     action: 'View logs', onAction: viewLogs,
   });
   if (installed.fromSource && installed.dirty) list.push({
@@ -28,7 +28,7 @@ export function activeNotices({ installed, config, check, lastCheck, run, docker
   if (dockerMajor && dockerMajor < 24) list.push({
     id: 'docker-incompatible', tone: 'warning',
     title: 'Docker version not supported',
-    text: `IGNITION needs Docker 24.0 or newer. This machine is running Docker ${docker}.`,
+    text: `Ignition needs Docker 24.0 or newer. This machine is running Docker ${docker}.`,
   });
   const failedCheck = lastCheck?.channel === config.channel || !lastCheck?.channel ? lastCheck?.error : '';
   if (failedCheck) list.push({

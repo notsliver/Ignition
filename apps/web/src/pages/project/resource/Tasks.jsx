@@ -3,7 +3,7 @@ import { CalendarDaysIcon, ChevronDownIcon, ChevronRightIcon, PencilSquareIcon, 
 import { Button, Dialog, Notice, Select, Status, Switch, TextInput, cx } from '../../../ui';
 import { api } from '../../../api/client';
 import { timeAgo, useQuery } from '../../../api/hooks';
-import { useSession } from '../../../app/AuthGate';
+import { useSession, can } from '../../../app/AuthGate';
 import { Empty, PageIntro, Table } from './shared';
 import './Operations.css';
 
@@ -46,7 +46,7 @@ const emptyDraft = { name: '', schedule: '0 3 * * *', custom: '', timezone: brow
 
 export function ScheduledTasks({ resource }) {
   const { user } = useSession();
-  const canEdit = user.role !== 'viewer';
+  const canEdit = can(user, 'tasks.manage');
   const [hasRunning, setHasRunning] = useState(false);
   const { data, error, refetch, setData } = useQuery(() => api.tasks(resource.id), [resource.id], { pollMs: hasRunning ? 2000 : 10000 });
   const [editing, setEditing] = useState(null); // 'new' or a task

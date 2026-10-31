@@ -15,13 +15,13 @@ import (
  * are still eligible *and* were in the plan the operator confirmed, and every removal is
  * non-forcing, so Docker itself refuses anything that became busy in between.
  *
- * Never in scope: volumes (persistent data), running containers, containers IGNITION didn't
+ * Never in scope: volumes (persistent data), running containers, containers Ignition didn't
  * create, images a container uses, images a successful deployment ran (rollback targets),
- * Docker's built-in networks, and IGNITION's own networks.
+ * Docker's built-in networks, and Ignition's own networks.
  */
 
 type CleanupOptions struct {
-	Containers   bool `json:"containers"`   // stopped IGNITION-created containers that no resource uses
+	Containers   bool `json:"containers"`   // stopped Ignition-created containers that no resource uses
 	Dangling     bool `json:"dangling"`     // untagged images no container uses
 	UnusedImages bool `json:"unusedImages"` // also tagged images no container uses (re-pulled on next use)
 	Networks     bool `json:"networks"`     // custom networks with no containers
@@ -93,14 +93,14 @@ func PlanCleanup(ctx context.Context, dk *runtime.Docker, st *store.Store, srv *
 		if !o.Containers || c.State == "running" || c.State == "paused" || c.State == "restarting" {
 			continue
 		}
-		// Only containers of this install's own resources: another IGNITION sharing the Docker host
+		// Only containers of this install's own resources: another Ignition sharing the Docker host
 		// (or a resource deleted from the database) may still need its stopped containers.
 		res := c.Labels["ignition.resource"]
 		switch {
 		case c.Labels["ignition.managed"] != "true" || res == "":
 			// Not ours, or a helper (the worker removes stale helpers itself).
 		case !known[res]:
-			plan.Protected = append(plan.Protected, CleanupItem{"container", c.ID, c.Name, -1, "belongs to a resource this IGNITION doesn't know (another install, or deleted)"})
+			plan.Protected = append(plan.Protected, CleanupItem{"container", c.ID, c.Name, -1, "belongs to a resource this Ignition doesn't know (another install, or deleted)"})
 		case current[c.ID]:
 			plan.Protected = append(plan.Protected, CleanupItem{"container", c.ID, c.Name, -1, "current container of a resource"})
 		default:
@@ -143,9 +143,9 @@ func PlanCleanup(ctx context.Context, dk *runtime.Docker, st *store.Store, srv *
 			switch {
 			case systemNetworks[n.Name]:
 			case n.Name == "ignition", n.Labels["ignition.instance"] != "" && n.Labels["ignition.instance"] == instance && usedNetworks[n.Name]:
-				plan.Protected = append(plan.Protected, CleanupItem{"network", n.ID, n.Name, -1, "IGNITION network"})
+				plan.Protected = append(plan.Protected, CleanupItem{"network", n.ID, n.Name, -1, "Ignition network"})
 			case n.Labels["com.docker.compose.project"] != "" && n.Labels["com.docker.compose.project"] == instance:
-				plan.Protected = append(plan.Protected, CleanupItem{"network", n.ID, n.Name, -1, "IGNITION's own compose network"})
+				plan.Protected = append(plan.Protected, CleanupItem{"network", n.ID, n.Name, -1, "Ignition's own compose network"})
 			case usedNetworks[n.Name]:
 			default:
 				plan.Items = append(plan.Items, CleanupItem{"network", n.ID, n.Name, -1, "no containers attached"})

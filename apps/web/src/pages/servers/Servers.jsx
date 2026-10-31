@@ -145,7 +145,7 @@ export function Servers({ onOpen }) {
 
     <section className="sv-summary" aria-label="Summary">
       <button type="button" className={cx(filter === 'all' && 'active')} onClick={() => setFilter('all')}>
-        <span>Total servers</span><strong>{summary ? summary.total : '—'}</strong><small>Registered with this IGNITION</small>
+        <span>Total servers</span><strong>{summary ? summary.total : '—'}</strong><small>Registered with this Ignition</small>
       </button>
       <button type="button" className={cx(filter === 'online' && 'active')} onClick={() => setFilter('online')} title="Reached by a check in the last minute, with a ready Docker Engine.">
         <span>Available</span><strong>{summary ? summary.available : '—'}</strong><small>Reached recently, Docker ready</small>

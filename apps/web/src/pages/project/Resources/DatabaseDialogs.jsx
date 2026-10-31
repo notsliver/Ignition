@@ -181,7 +181,7 @@ export function ImportDataDialog({ project, environmentId, databases, source: in
           {errors.file && <p className="db-error">{errors.file}</p>}
         </>}
         {source === 'url' && <label className="db-label">Download URL<TextInput className="mono" value={url} placeholder="https://… (a presigned link works)" onChange={e => set(setUrl, 'url')(e.target.value)} aria-invalid={!!errors.url} spellCheck={false} />
-          <small className="db-muted">Downloaded by IGNITION, then loaded. Nothing is stored after the import.</small></label>}
+          <small className="db-muted">Downloaded by Ignition, then loaded. Nothing is stored after the import.</small></label>}
         {source === 's3' && <div className="db-grid">
           <label className="db-label">Bucket<TextInput value={s3.bucket} onChange={e => setS3(v => ({ ...v, bucket: e.target.value }))} placeholder="backups" /></label>
           <label className="db-label">Object key<TextInput className="mono" value={s3.key} onChange={e => setS3(v => ({ ...v, key: e.target.value }))} placeholder="nightly/app.dump" spellCheck={false} /></label>
@@ -306,7 +306,7 @@ export function ExternalDatabaseDialog({ project, environmentId, takenNames, onC
     }
   }
   return <Dialog open onClose={onClose} className="db-dialog" title="Connect an external database"
-    description="Register a database that runs elsewhere (a managed service or another server). IGNITION keeps its credentials encrypted, checks it's reachable, and hands its connection URL to your apps. It doesn't run or back it up."
+    description="Register a database that runs elsewhere (a managed service or another server). Ignition keeps its credentials encrypted, checks it's reachable, and hands its connection URL to your apps. It doesn't run or back it up."
     footer={<>
       {failure && <span className="db-footer-error" role="alert">{failure}</span>}
       <Button icon={SignalIcon} onClick={checkIt} disabled={!eng || check?.state === 'running' || (mode === 'url' ? !v.url.trim() : !v.host.trim())}>Check</Button>

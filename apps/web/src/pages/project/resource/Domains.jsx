@@ -3,7 +3,7 @@ import { ArrowPathIcon, ArrowTopRightOnSquareIcon, ChevronRightIcon, GlobeAltIco
 import { Button, Dialog, Notice, Status, Switch, TextInput, cx } from '../../../ui';
 import { api } from '../../../api/client';
 import { timeAgo, useQuery } from '../../../api/hooks';
-import { useSession } from '../../../app/AuthGate';
+import { useSession, can } from '../../../app/AuthGate';
 import { CopyButton, Empty, PageIntro, Table } from './shared';
 
 /*
@@ -30,7 +30,7 @@ const fmtDate = iso => new Date(iso).toLocaleDateString(undefined, { month: 'sho
 
 export function Domains({ resource }) {
   const { user } = useSession();
-  const canEdit = user.role !== 'viewer';
+  const canEdit = can(user, 'domains.manage');
   const { data, error, refetch, setData } = useQuery(() => api.domains(resource.id), [resource.id], { pollMs: 10000 });
   const domains = data?.domains ?? [];
   const proxy = data?.proxy;

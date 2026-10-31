@@ -34,7 +34,7 @@ func NewDockerTLS(endpoint string, cfg *tls.Config, timeout time.Duration) *Dock
 	return &Docker{client: &http.Client{Transport: transport}, base: "https://" + endpoint + "/" + apiVersion, root: "https://" + endpoint}
 }
 
-// MinAPIVersion is the oldest Engine API IGNITION supports.
+// MinAPIVersion is the oldest Engine API Ignition supports.
 const MinAPIVersion = "1.44"
 
 type EngineInfo struct {
@@ -64,7 +64,7 @@ type EngineInfo struct {
 }
 
 // EngineInfo asks the engine about itself. /version is read unversioned so an engine too old for
-// IGNITION still says which version it is, instead of failing with "client version too new".
+// Ignition still says which version it is, instead of failing with "client version too new".
 func (d *Docker) EngineInfo(ctx context.Context) (EngineInfo, error) {
 	var v struct {
 		Version, ApiVersion, MinAPIVersion, Os, Arch, KernelVersion string
@@ -96,7 +96,7 @@ func (d *Docker) EngineInfo(ctx context.Context) (EngineInfo, error) {
 	return out, nil
 }
 
-// APICompatible reports whether the engine speaks an API version IGNITION can use.
+// APICompatible reports whether the engine speaks an API version Ignition can use.
 func APICompatible(version string) bool { return versionAtLeast(version, MinAPIVersion) }
 
 func versionAtLeast(have, want string) bool {

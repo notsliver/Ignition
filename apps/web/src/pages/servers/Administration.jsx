@@ -29,7 +29,7 @@ export function Access({ server, onChanged, setFeedback }) {
   const [tone, label] = trustText[a?.trust] ?? ['neutral', '…'];
 
   return <>
-    <div className="rp-intro"><p>How IGNITION connects to {server.name} and who can act on it. This is about this server only; sign-in, sessions and API tokens are under Settings › Authentication & Security.</p></div>
+    <div className="rp-intro"><p>How Ignition connects to {server.name} and who can act on it. This is about this server only; sign-in, sessions and API tokens are under Settings › Authentication & Security.</p></div>
     {error && <Notice tone="danger" title="Couldn't load access details">{error.message}</Notice>}
     <section className="ov-hero">
       <div className="ov-status">
@@ -96,9 +96,9 @@ export function Access({ server, onChanged, setFeedback }) {
       </div>
     </div>
     {rotating && <RotateDialog server={server} onClose={() => setRotating(false)} onDone={s => { setRotating(false); onChanged(s); refetch(); setFeedback({ tone: 'success', title: 'Credentials rotated', text: 'The new certificate was verified against the engine before the old one was replaced.' }); }} />}
-    {revoking && <ConfirmDialog danger icon={NoSymbolIcon} title={`Revoke IGNITION's credentials for ${server.name}?`} phrase={server.name} confirmLabel="Revoke"
-      description="The stored client key is deleted immediately and IGNITION stops connecting. The server stays registered so you can rotate in new credentials later. This doesn't revoke the certificate at its CA: to cut access completely, also stop trusting it on the daemon."
-      onClose={() => setRevoking(false)} onConfirm={async () => { const out = await api.revokeServerCredentials(server.id, server.name); setRevoking(false); onChanged(out.server); refetch(); setFeedback({ tone: 'warning', title: 'Credentials revoked', text: 'IGNITION can no longer reach this server.' }); }} />}
+    {revoking && <ConfirmDialog danger icon={NoSymbolIcon} title={`Revoke Ignition's credentials for ${server.name}?`} phrase={server.name} confirmLabel="Revoke"
+      description="The stored client key is deleted immediately and Ignition stops connecting. The server stays registered so you can rotate in new credentials later. This doesn't revoke the certificate at its CA: to cut access completely, also stop trusting it on the daemon."
+      onClose={() => setRevoking(false)} onConfirm={async () => { const out = await api.revokeServerCredentials(server.id, server.name); setRevoking(false); onChanged(out.server); refetch(); setFeedback({ tone: 'warning', title: 'Credentials revoked', text: 'Ignition can no longer reach this server.' }); }} />}
   </>;
 }
 
@@ -122,7 +122,7 @@ function RotateDialog({ server, onClose, onDone }) {
     }
   }
   return <Dialog open onClose={onClose} title={`Rotate credentials for ${server.name}`} icon={KeyIcon}
-    description="IGNITION verifies the new certificate and key against the engine first. If that fails, the current credentials stay in place, so a mistake can't lock you out."
+    description="Ignition verifies the new certificate and key against the engine first. If that fails, the current credentials stay in place, so a mistake can't lock you out."
     footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={pending || !form.clientCert || !form.clientKey} onClick={go}>{pending ? 'Verifying…' : 'Verify and rotate'}</Button></>}>
     <div className="sv-form">
       <FormField label="New client certificate (cert.pem)" htmlFor="rc" error={errors.clientCert}><textarea id="rc" className="labels-input" rows={3} value={form.clientCert} onChange={set('clientCert')} spellCheck={false} /></FormField>
@@ -176,8 +176,8 @@ export function Settings({ server, onChanged, actions, setFeedback }) {
   return <form className="settings-page rp-settings sv-settings" onSubmit={save}>
     {!admin && <Notice tone="info" title="Read-only">Only admins can change server settings.</Notice>}
     <SettingsGroup title="General">
-      {field('name', 'Display name', 'Shown everywhere in IGNITION.', { maxLength: 64 })}
-      {field('hostname', 'Hostname', 'For people; IGNITION connects to the address under Connection.', { maxLength: 253 })}
+      {field('name', 'Display name', 'Shown everywhere in Ignition.', { maxLength: 64 })}
+      {field('hostname', 'Hostname', 'For people; Ignition connects to the address under Connection.', { maxLength: 253 })}
       {field('environment', 'Environment', 'e.g. production, staging.', { maxLength: 40 })}
       {field('location', 'Location', 'Region, datacenter or rack, e.g. eu-west · fra1. Servers can be grouped by it.', { maxLength: 64 })}
       {field('description', 'Description', null, { maxLength: 500 })}
@@ -189,7 +189,7 @@ export function Settings({ server, onChanged, actions, setFeedback }) {
       </SettingsField>
     </SettingsGroup>
 
-    <SettingsGroup title="Connection" description="Changing how IGNITION connects is verified before it's applied.">
+    <SettingsGroup title="Connection" description="Changing how Ignition connects is verified before it's applied.">
       <SettingsField label="Method"><span className="readonly-value">{methodLabel[server.connectionMethod]}</span></SettingsField>
       {!server.isLocal && <SettingsField label="Engine address" hint="Moving to a new address requires the same host certificate.">
         <span className="readonly-value mono">{server.endpoint}</span>{admin && <Button type="button" onClick={() => setEndpoint(server.endpoint)}>Change…</Button>}
@@ -233,7 +233,7 @@ export function Settings({ server, onChanged, actions, setFeedback }) {
 function EndpointDialog({ server, onClose, onDone }) {
   const [value, setValue] = useState(server.endpoint);
   return <ConfirmDialog title="Change the engine address" confirmLabel="Verify and change" onClose={onClose}
-    description="IGNITION connects to the new address with the current credentials and only switches if the engine there presents the same host certificate. If it can't connect, nothing changes."
+    description="Ignition connects to the new address with the current credentials and only switches if the engine there presents the same host certificate. If it can't connect, nothing changes."
     onConfirm={async () => onDone((await api.changeServerEndpoint(server.id, value)).server)}>
     <FormField label="New address" htmlFor="newep" hint="host:port"><TextInput id="newep" value={value} onChange={e => setValue(e.target.value)} autoFocus /></FormField>
   </ConfirmDialog>;

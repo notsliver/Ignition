@@ -3,7 +3,7 @@ import { ArrowDownTrayIcon, ArrowPathIcon, ArrowsRightLeftIcon, CheckCircleIcon,
 import { Button, Checkbox, Dialog, Notice, Select, Switch, TextInput, cx } from '../../../ui';
 import { api } from '../../../api/client';
 import { timeAgo, useQuery } from '../../../api/hooks';
-import { useSession } from '../../../app/AuthGate';
+import { useSession, can } from '../../../app/AuthGate';
 import { SaveBar, SettingsField, SettingsGroup } from '../../settings/SettingsField';
 import { CopyButton } from './shared';
 import './Operations.css';
@@ -23,8 +23,9 @@ const shortId = id => (id || '').replace('sha256:', '').slice(0, 12);
 
 export function AdvancedSettings({ resource, onResourceChange, onDeleted }) {
   const { user } = useSession();
-  const canEdit = user.role !== 'viewer';
-  const isAdmin = user.role === 'admin' || user.role === 'owner';
+  const canEdit = can(user, 'resources.update');
+  const isAdmin = can(user, 'resources.delete'); // purge images, move and delete
+  const canPrivileged = can(user, 'resources.privileged');
   const { data, error, refetch } = useQuery(() => api.advanced(resource.id), [resource.id], { pollMs: 10000 });
   const [saved, setSaved] = useState(null);
   const [form, setForm] = useState(null);
@@ -101,8 +102,8 @@ export function AdvancedSettings({ resource, onResourceChange, onDeleted }) {
         <Switch label="Read-only root filesystem" checked={form.readOnlyRoot} disabled={!canEdit} onChange={set('readOnlyRoot')} />)}
       {field('init', 'Init process', 'Runs a tiny init as PID 1: forwards stop signals and cleans up zombie processes. Helps apps that ignore SIGTERM.',
         <Switch label="Init process" checked={form.init} disabled={!canEdit} onChange={set('init')} />)}
-      {field('privileged', 'Privileged', isAdmin ? 'Full access to this machine\'s devices and kernel. Only for trusted system tools.' : 'Only admins can change this.',
-        <Switch label="Privileged mode" checked={form.privileged} disabled={!isAdmin} onChange={set('privileged')} />)}
+      {field('privileged', 'Privileged', canPrivileged ? 'Full access to this machine\'s devices and kernel. Only for trusted system tools.' : 'Needs the resources.privileged permission (admins by default).',
+        <Switch label="Privileged mode" checked={form.privileged} disabled={!canPrivileged} onChange={set('privileged')} />)}
     </SettingsGroup>
     {form.privileged && <Notice tone="warning" title="Privileged containers can control this machine">Anyone who can deploy {resource.name} could take over the host. Leave this off unless the app manages the host on purpose.</Notice>}
 
@@ -143,7 +144,7 @@ export function AdvancedSettings({ resource, onResourceChange, onDeleted }) {
       <h2>Danger zone</h2>
       <div className="settings-card">
         <div className="settings-field"><div className="settings-field-label"><strong>Reset container options</strong><span>Back to the image's defaults: entrypoint, working directory, user, labels and security switches. Save to keep it.</span></div>
-          <div className="settings-field-control"><Button type="button" onClick={() => { setForm(f => ({ ...f, ...DEFAULTS, privileged: isAdmin ? false : f.privileged })); setErrors({}); }}>Reset</Button></div></div>
+          <div className="settings-field-control"><Button type="button" onClick={() => { setForm(f => ({ ...f, ...DEFAULTS, privileged: canPrivileged ? false : f.privileged })); setErrors({}); }}>Reset</Button></div></div>
         {data.sourceType === 'git' && data.images && <div className="settings-field"><div className="settings-field-label"><strong>Remove old images</strong>
           <span>{data.images.count > 1 ? `${data.images.count} built images, about ${bytes(data.images.bytes)} of their own (layers they share aren't counted). Releases whose image is removed can't be rolled back to without a rebuild.` : 'Only the running image is kept. Nothing to remove.'}</span></div>
           <div className="settings-field-control"><Button type="button" disabled={!isAdmin || data.images.count <= 1} title={isAdmin ? undefined : 'Admins only'} onClick={() => setDanger('purge')}>Remove…</Button></div></div>}

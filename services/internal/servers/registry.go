@@ -106,7 +106,7 @@ type Observation struct {
 	SkewMS      *int64
 }
 
-// Probe checks one server: can IGNITION reach it, and is its Docker Engine usable?
+// Probe checks one server: can Ignition reach it, and is its Docker Engine usable?
 func (r *Registry) Probe(ctx context.Context, srv *store.Server) Observation {
 	settings := ParseSettings(srv.Settings)
 	ctx, cancel := context.WithTimeout(ctx, settings.Timeout()+2*time.Second)
@@ -115,7 +115,7 @@ func (r *Registry) Probe(ctx context.Context, srv *store.Server) Observation {
 	var o Observation
 	if srv.IsLocal {
 		o.Procfs = hostinfo.Available()
-		// IGNITION runs on this host, so the host itself is always reachable while the worker reports.
+		// Ignition runs on this host, so the host itself is always reachable while the worker reports.
 		o.Reached = true
 		if sock := r.Local.SocketPath(); sock != "" {
 			if _, err := os.Stat(sock); err != nil {
@@ -158,7 +158,7 @@ func (o *Observation) fill(info runtime.EngineInfo) {
 		o.Runtime = RuntimeReady
 	} else {
 		o.Runtime = RuntimeIncompatible
-		o.Error = fmt.Sprintf("Docker %s speaks Engine API %s; IGNITION needs %s or newer.", info.Version, info.APIVersion, runtime.MinAPIVersion)
+		o.Error = fmt.Sprintf("Docker %s speaks Engine API %s; Ignition needs %s or newer.", info.Version, info.APIVersion, runtime.MinAPIVersion)
 	}
 	if !info.SystemTime.IsZero() {
 		// Half the round trip is the best estimate of when the engine read its clock.
@@ -181,11 +181,11 @@ func Classify(err error) (string, string) {
 	case strings.Contains(msg, "certificate signed by unknown authority"), strings.Contains(msg, "x509:"):
 		return "The engine's certificate doesn't match the CA or hostname: " + cleanErr(err), "identity"
 	case strings.Contains(msg, "bad certificate"), strings.Contains(msg, "unknown certificate"), strings.Contains(msg, "certificate required"):
-		return "The engine rejected IGNITION's client certificate. Check it was signed by the CA the daemon trusts (--tlscacert).", "auth"
+		return "The engine rejected Ignition's client certificate. Check it was signed by the CA the daemon trusts (--tlscacert).", "auth"
 	case strings.Contains(msg, "tls:"), strings.Contains(msg, "first record does not look like a TLS handshake"):
 		return "TLS handshake failed: " + cleanErr(err) + ". Is the daemon started with --tlsverify on this port?", "tls"
 	case errors.Is(err, context.DeadlineExceeded), strings.Contains(msg, "timeout"):
-		return "Connection timed out. Check the address, port and any firewall between IGNITION and the server.", "timeout"
+		return "Connection timed out. Check the address, port and any firewall between Ignition and the server.", "timeout"
 	case errors.As(err, &opErr) && strings.Contains(msg, "refused"):
 		return "Connection refused: nothing is listening on that port.", "refused"
 	case strings.Contains(msg, "no route"), strings.Contains(msg, "unreachable"):

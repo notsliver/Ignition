@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"log/slog"
-	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -46,6 +45,9 @@ type Server struct {
 	setupMu   sync.Mutex
 	setupCode string
 	limiter   *limiter
+	security  policyCache
+	mfa       mfaChallenges
+	sso       ssoState
 }
 
 // PrepareSetup creates a one-time code for first-run setup when no users exist.
@@ -58,7 +60,7 @@ func (s *Server) PrepareSetup(ctx context.Context) error {
 	buf := make([]byte, 4)
 	rand.Read(buf)
 	s.setupCode = strings.ToUpper(hex.EncodeToString(buf))
-	slog.Warn("no users yet: open IGNITION in your browser and enter this setup code", "setup_code", s.setupCode)
+	slog.Warn("no users yet: open Ignition in your browser and enter this setup code", "setup_code", s.setupCode)
 	return nil
 }
 
@@ -69,7 +71,7 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle(pattern, httpx.Handler(func(w http.ResponseWriter, r *http.Request) error { return domainError(fn(w, r)) }))
 	}
 	authed := func(pattern, minRole string, fn func(http.ResponseWriter, *http.Request, *store.User) error) {
-		mux.Handle(pattern, s.requireUser(minRole, func(w http.ResponseWriter, r *http.Request, u *store.User) error { return domainError(fn(w, r, u)) }))
+		mux.Handle(pattern, s.requireUser(permissionFor(pattern, minRole), func(w http.ResponseWriter, r *http.Request, u *store.User) error { return domainError(fn(w, r, u)) }))
 	}
 
 	h("GET /api/health", func(w http.ResponseWriter, r *http.Request) error {
@@ -84,6 +86,26 @@ func (s *Server) Handler() http.Handler {
 	h("GET /api/links/{token}", s.inspectLink)
 	h("POST /api/links/{token}", s.acceptLink)
 	authed("GET /api/auth/me", "viewer", s.me)
+	h("GET /api/auth/methods", s.authMethods)
+	h("POST /api/auth/mfa", s.mfaVerify)
+	h("POST /api/auth/mfa/setup", s.mfaSetupWithTicket)
+	h("POST /api/auth/mfa/setup/confirm", s.mfaConfirmWithTicket)
+	h("GET /api/auth/oidc/start", s.oidcStart)
+	h("GET /api/auth/oidc/callback", s.oidcCallback)
+	authed("GET /api/account/security", "viewer", s.accountSecurity)
+	authed("POST /api/account/mfa/setup", "viewer", s.accountMFASetup)
+	authed("POST /api/account/mfa/enable", "viewer", s.accountMFAEnable)
+	authed("POST /api/account/mfa/disable", "viewer", s.accountMFADisable)
+	authed("POST /api/account/mfa/recovery-codes", "viewer", s.accountRecoveryCodes)
+	authed("GET /api/permissions", "viewer", s.listPermissions)
+	authed("GET /api/settings/security", "admin", s.getSecurity)
+	authed("PUT /api/settings/security", "admin", s.putSecurity)
+	authed("POST /api/settings/security/revoke-sessions", "admin", s.revokeAllSessions)
+	authed("PUT /api/settings/security/oidc", "admin", s.putOIDC)
+	authed("DELETE /api/settings/security/oidc", "admin", s.deleteOIDC)
+	authed("POST /api/settings/security/oidc/test", "admin", s.testOIDC)
+	authed("DELETE /api/users/{id}/mfa", "admin", s.resetUserMFA)
+	authed("PUT /api/users/{id}/permissions", "admin", s.putUserPermissions)
 	authed("GET /api/system", "viewer", s.system)
 
 	authed("GET /api/projects", "viewer", s.listProjects)
@@ -128,7 +150,7 @@ func (s *Server) Handler() http.Handler {
 	authed("DELETE /api/users/{id}", "admin", s.deleteUser)
 	authed("POST /api/users/{id}/sessions/revoke", "admin", s.revokeUserSessions)
 	authed("POST /api/users/{id}/reset-link", "admin", s.createResetLink)
-	authed("POST /api/invites", "admin", s.createInvite)
+	authed("POST /api/invites", "viewer", s.createInvite)
 	authed("DELETE /api/invites/{id}", "admin", s.revokeInvite)
 	authed("GET /api/resources/{id}/source", "viewer", s.resourceSource)
 	authed("GET /api/resources/{id}/limits", "viewer", s.getLimits)
@@ -273,7 +295,7 @@ func (s *Server) Handler() http.Handler {
 	if s.WebDir != "" {
 		mux.Handle("/", s.spa())
 	}
-	return httpx.WithRequestID(httpx.Recover(securityHeaders(s.checkOrigin(mux))))
+	return httpx.WithRequestID(httpx.Recover(securityHeaders(s.ipAllowList(s.checkOrigin(mux)))))
 }
 
 // domainError turns store-level rule violations into the matching API error.
@@ -301,7 +323,6 @@ func securityHeaders(next http.Handler) http.Handler {
 // Combined with SameSite=Lax cookies this blocks cross-site form and fetch attacks.
 func (s *Server) checkOrigin(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		allowed, _ := url.Parse(s.publicURL())
 		if r.Method == http.MethodGet || r.Method == http.MethodHead || r.Method == http.MethodOptions {
 			next.ServeHTTP(w, r)
 			return
@@ -317,9 +338,9 @@ func (s *Server) checkOrigin(next http.Handler) http.Handler {
 			origin = r.Header.Get("Referer")
 		}
 		o, err := url.Parse(origin)
-		ok := err == nil && origin != "" && (o.Host == r.Host || (allowed != nil && o.Host == allowed.Host))
+		ok := err == nil && origin != "" && s.originAllowed(o, r)
 		if !ok {
-			httpx.WriteError(w, r, httpx.Forbidden("Request blocked: it didn't come from the IGNITION dashboard."))
+			httpx.WriteError(w, r, httpx.Forbidden("Request blocked: it didn't come from the Ignition dashboard."))
 			return
 		}
 		next.ServeHTTP(w, r)
@@ -328,14 +349,14 @@ func (s *Server) checkOrigin(next http.Handler) http.Handler {
 
 var roleRank = map[string]int{"viewer": 0, "developer": 1, "admin": 2, "owner": 3}
 
-func (s *Server) requireUser(minRole string, fn func(http.ResponseWriter, *http.Request, *store.User) error) http.Handler {
+func (s *Server) requireUser(perm string, fn func(http.ResponseWriter, *http.Request, *store.User) error) http.Handler {
 	return httpx.Handler(func(w http.ResponseWriter, r *http.Request) error {
 		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
 			user, err := s.tokenUser(r, strings.TrimSpace(strings.TrimPrefix(h, "Bearer ")))
 			if err != nil {
 				return err
 			}
-			if roleRank[user.Role] < roleRank[minRole] {
+			if !allowed(user, perm) {
 				return httpx.Forbidden("This token can't do this.")
 			}
 			return fn(w, r, user)
@@ -344,27 +365,23 @@ func (s *Server) requireUser(minRole string, fn func(http.ResponseWriter, *http.
 		if err != nil || c.Value == "" {
 			return httpx.Unauthorized()
 		}
-		user, err := s.Store.UserBySession(r.Context(), auth.HashToken(c.Value))
+		user, err := s.Store.UserBySession(r.Context(), auth.HashToken(c.Value), s.policy().idle())
 		if errors.Is(err, store.ErrNotFound) {
 			return httpx.Unauthorized()
 		}
 		if err != nil {
 			return err
 		}
-		if roleRank[user.Role] < roleRank[minRole] {
-			return httpx.Forbidden("Your role (" + user.Role + ") can't do this. Ask an admin.")
+		if err := s.mfaDeadlineCheck(w, r, user, c.Value); err != nil {
+			return err
+		}
+		if !allowed(user, perm) {
+			return httpx.Forbidden(deniedMessage(user, perm))
 		}
 		return fn(w, r, user)
 	})
 }
 
-func clientIP(r *http.Request) string {
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
-}
 
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) error {
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
@@ -404,7 +421,10 @@ func newLimiter(max int, window time.Duration) *limiter {
 	return &limiter{max: max, window: window, hits: map[string][]time.Time{}}
 }
 
-func (l *limiter) allow(key string) bool {
+func (l *limiter) allow(key string) bool { return l.allowMax(key, l.max) }
+
+// allowMax is allow with a limit chosen per call (the sign-in rate limit is a setting).
+func (l *limiter) allowMax(key string, max int) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
 	now := time.Now()
@@ -414,7 +434,7 @@ func (l *limiter) allow(key string) bool {
 			recent = append(recent, t)
 		}
 	}
-	if len(recent) >= l.max {
+	if len(recent) >= max {
 		l.hits[key] = recent
 		return false
 	}

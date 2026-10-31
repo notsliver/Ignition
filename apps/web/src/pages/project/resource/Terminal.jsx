@@ -5,7 +5,7 @@ import { FitAddon } from '@xterm/addon-fit';
 import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { Button, Switch, cx } from '../../../ui';
-import { useSession } from '../../../app/AuthGate';
+import { useSession, can } from '../../../app/AuthGate';
 import { PageIntro } from './shared';
 import './Terminal.css';
 
@@ -23,8 +23,8 @@ const FONT_SIZES = [11, 12, 13, 14, 16, 18];
 
 export function Terminal({ resource, onNavigate }) {
   const { user } = useSession();
-  const isAdmin = user.role === 'admin' || user.role === 'owner';
-  const canUse = user.role !== 'viewer';
+  const isAdmin = can(user, 'terminal.root');
+  const canUse = can(user, 'terminal.open');
   const running = resource.status === 'running';
   const hostRef = useRef(null);
   const termRef = useRef(null);

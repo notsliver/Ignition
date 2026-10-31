@@ -19,7 +19,7 @@ import (
 
 /*
  * Server-level Docker inventory. Reads go through the API (never a socket exposed to the browser)
- * and every container is tagged with its owner: an IGNITION resource on this server, an IGNITION
+ * and every container is tagged with its owner: an Ignition resource on this server, an Ignition
  * helper, or unmanaged. Only resource containers can be started, stopped or restarted here, and
  * that goes through the resource's own job queue, exactly like the resource page.
  */
@@ -325,8 +325,8 @@ func (s *Server) inspectServerObject(w http.ResponseWriter, r *http.Request, u *
 	return nil
 }
 
-// serverContainerAction starts, stops or restarts a container IGNITION owns, through the owning
-// resource's job queue. Unmanaged containers are refused: IGNITION isn't authorised to run them.
+// serverContainerAction starts, stops or restarts a container Ignition owns, through the owning
+// resource's job queue. Unmanaged containers are refused: Ignition isn't authorised to run them.
 func (s *Server) serverContainerAction(w http.ResponseWriter, r *http.Request, u *store.User) error {
 	srv, dk, err := s.serverDocker(r)
 	if err != nil {
@@ -348,7 +348,7 @@ func (s *Server) serverContainerAction(w http.ResponseWriter, r *http.Request, u
 		return err
 	}
 	if owner == nil {
-		return httpx.Forbidden("This container isn't an IGNITION resource on this server, so IGNITION won't start or stop it. Manage it on the host.")
+		return httpx.Forbidden("This container isn't an Ignition resource on this server, so Ignition won't start or stop it. Manage it on the host.")
 	}
 	res, err := s.Store.GetResource(r.Context(), owner.ID)
 	if err != nil {
@@ -470,7 +470,7 @@ func (s *Server) getServerStorage(w http.ResponseWriter, r *http.Request, _ *sto
 			}
 		}
 	}
-	// Volumes IGNITION configured but Docker doesn't have (yet): created on the next deploy.
+	// Volumes Ignition configured but Docker doesn't have (yet): created on the next deploy.
 	present := map[string]bool{}
 	for _, v := range vols {
 		present[v.Name] = true
@@ -487,7 +487,7 @@ func (s *Server) getServerStorage(w http.ResponseWriter, r *http.Request, _ *sto
 	}
 	sort.Slice(binds, func(i, j int) bool { return binds[i].Container < binds[j].Container })
 	httpx.JSON(w, 200, map[string]any{"volumes": vols, "mounts": mounts, "binds": binds, "missing": missing,
-		"backups": "IGNITION doesn't schedule volume backups yet. Download a point-in-time archive from the resource's Storage page.",
+		"backups": "Ignition doesn't schedule volume backups yet. Download a point-in-time archive from the resource's Storage page.",
 		"hostPaths": srv.IsLocal})
 	return nil
 }
@@ -561,13 +561,13 @@ func (s *Server) getServerNetworking(w http.ResponseWriter, r *http.Request, _ *
 	}
 	domains, _ := s.Store.ServerDomains(r.Context(), srv.ID)
 	out := map[string]any{"ports": ports, "networks": netsOut, "domains": domains,
-		"hostInterfaces": map[string]any{"available": false, "reason": "IGNITION reads the host through the Docker API (and, for this machine, /proc), which don't expose host interfaces, addresses or routes. Use ip addr and ip route on the host."},
-		"firewall":       map[string]any{"managed": false, "reason": "IGNITION doesn't manage host firewalls. Ports published on all interfaces are reachable from any network that can reach the host unless your firewall blocks them. Note that Docker's published ports bypass ufw by default."},
+		"hostInterfaces": map[string]any{"available": false, "reason": "Ignition reads the host through the Docker API (and, for this machine, /proc), which don't expose host interfaces, addresses or routes. Use ip addr and ip route on the host."},
+		"firewall":       map[string]any{"managed": false, "reason": "Ignition doesn't manage host firewalls. Ports published on all interfaces are reachable from any network that can reach the host unless your firewall blocks them. Note that Docker's published ports bypass ufw by default."},
 	}
 	if srv.IsLocal {
-		out["proxy"] = map[string]any{"httpPort": store.ProxyHTTPPort, "httpsPort": store.ProxyHTTPSPort, "description": "Custom domains are routed by IGNITION's proxy to resources over Docker networks; TLS certificates are issued automatically for HTTPS domains."}
+		out["proxy"] = map[string]any{"httpPort": store.ProxyHTTPPort, "httpsPort": store.ProxyHTTPSPort, "description": "Custom domains are routed by Ignition's proxy to resources over Docker networks; TLS certificates are issued automatically for HTTPS domains."}
 	} else {
-		out["proxy"] = map[string]any{"description": "IGNITION's proxy runs on the local host only; it doesn't route to remote servers."}
+		out["proxy"] = map[string]any{"description": "Ignition's proxy runs on the local host only; it doesn't route to remote servers."}
 	}
 	httpx.JSON(w, 200, out)
 	return nil

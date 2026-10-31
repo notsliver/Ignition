@@ -86,7 +86,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, _ *store.User
 		case servers.StateOnline:
 			st.Online++
 		case servers.StateOffline:
-			alerts = append(alerts, dashAlert{"danger", sv.Name + " is offline", firstNonBlank(sv.LastError, "IGNITION can't reach its Docker Engine."), "Open server", link})
+			alerts = append(alerts, dashAlert{"danger", sv.Name + " is offline", firstNonBlank(sv.LastError, "Ignition can't reach its Docker Engine."), "Open server", link})
 		case servers.StateDegraded:
 			st.Online++
 			alerts = append(alerts, dashAlert{"warning", sv.Name + " is degraded", firstNonBlank(sv.LastError, "Docker isn't fully ready."), "Open server", link})

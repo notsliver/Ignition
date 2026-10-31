@@ -56,15 +56,19 @@ func (s *Store) ListUsers(ctx context.Context) ([]UserRow, error) {
 	out := []UserRow{}
 	for rows.Next() {
 		var r UserRow
-		if err := rows.Scan(&r.ID, &r.Email, &r.Name, &r.Role, &r.Status, &r.PasswordHash, &r.FailedLogins, &r.LockedUntil, &r.CreatedAt, &r.LastSeenAt, &r.Sessions, &r.Locked); err != nil {
+		var perms []byte
+		var subject *string
+		if err := rows.Scan(&r.ID, &r.Email, &r.Name, &r.Role, &r.Status, &r.PasswordHash, &r.FailedLogins, &r.LockedUntil, &r.CreatedAt, &r.MFAEnabledAt, &perms, &subject,
+			&r.LastSeenAt, &r.Sessions, &r.Locked); err != nil {
 			return nil, err
 		}
+		r.finish(perms, subject)
 		out = append(out, r)
 	}
 	return out, rows.Err()
 }
 
-const userColsU = `u.id, u.email, u.name, u.role, u.status, u.password_hash, u.failed_logins, u.locked_until, u.created_at`
+const userColsU = `u.id, u.email, u.name, u.role, u.status, u.password_hash, u.failed_logins, u.locked_until, u.created_at, u.totp_enabled_at, u.permissions, u.oidc_subject`
 
 func (s *Store) GetUser(ctx context.Context, id string) (*User, error) {
 	return scanUser(s.DB.QueryRow(ctx, `SELECT `+userCols+` FROM users WHERE id = $1`, id))

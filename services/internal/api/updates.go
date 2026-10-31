@@ -96,7 +96,7 @@ func installed() map[string]any {
 	}
 }
 
-// localDevelopment unlocks settings only IGNITION developers need, like updating from another image.
+// localDevelopment unlocks settings only Ignition developers need, like updating from another image.
 func localDevelopment() bool { return os.Getenv("IGNITION_LOCAL_DEVELOPMENT") == "true" }
 
 func (s *Server) getUpdates(w http.ResponseWriter, r *http.Request, _ *store.User) error {
@@ -336,7 +336,7 @@ const updaterImage = "docker:27-cli"
 const updaterScript = `set -eu
 step() { printf '==> %s\n' "$1"; }
 cd /work
-[ -f .env ] || { echo "The install folder has no .env, so IGNITION can't be restarted safely. Nothing was changed."; exit 3; }
+[ -f .env ] || { echo "The install folder has no .env, so Ignition can't be restarted safely. Nothing was changed."; exit 3; }
 step "Pulling $IMAGE"
 docker pull "$IMAGE" 2>&1 | tail -3
 step "Recording $IMAGE in .env"
@@ -346,7 +346,7 @@ if grep -q '^IGNITION_IMAGE=' .env; then
 else
   printf '\nIGNITION_IMAGE=%s\n' "$IMAGE" >> .env
 fi
-step "Restarting IGNITION on $VERSION (your apps keep running)"
+step "Restarting Ignition on $VERSION (your apps keep running)"
 if ! docker compose -p "$PROJECT" --env-file .env -f deploy/docker-compose.yml up -d --no-build --no-deps api worker 2>&1 | grep -v -e '^ *$' | tail -15; then
   cp .env.before-update .env
   echo "Restarting failed; .env was put back as it was."
@@ -384,7 +384,7 @@ func (s *Server) updateRunState(ctx context.Context) *updateRun {
 			run.State = "succeeded"
 		} else {
 			run.State = "failed"
-			run.Log = []string{"The updater container is gone and IGNITION is still on the old version."}
+			run.Log = []string{"The updater container is gone and Ignition is still on the old version."}
 		}
 	case st.Running:
 		run.State = "running"

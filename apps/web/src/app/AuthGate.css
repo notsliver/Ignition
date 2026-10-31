@@ -37,3 +37,9 @@
 .auth-foot svg{width:12px}
 
 @media(max-width:420px){.auth-card{padding:22px 18px 18px}}
+.auth-sso{display:flex;align-items:center;justify-content:center;gap:7px;height:34px;text-decoration:none}
+.auth-sso svg{width:14px}
+.auth-or{display:flex;align-items:center;gap:10px;font-size:11.5px;color:var(--muted)}
+.auth-or::before,.auth-or::after{content:'';flex:1;height:1px;background:var(--border)}
+.auth-link{display:inline-flex;align-items:center;gap:5px}
+.auth-link-icon{width:12px}

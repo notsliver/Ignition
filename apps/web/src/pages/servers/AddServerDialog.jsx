@@ -16,10 +16,10 @@ import { IdentityFields } from './shared';
 const steps = ['Identity', 'Connection', 'Verification', 'Capabilities', 'Review'];
 
 const methods = [
-  { id: 'docker-tls', title: 'Docker Engine over mutual TLS', text: 'IGNITION connects to dockerd on port 2376 with a client certificate. The engine proves its identity with a certificate from your CA.', supported: true },
-  { id: 'local', title: 'Local Docker socket', text: 'Already registered as “This machine”: the host IGNITION runs on.', supported: false },
-  { id: 'ssh', title: 'SSH', text: 'Not supported in this version. IGNITION doesn\'t run commands over SSH.', supported: false },
-  { id: 'agent', title: 'IGNITION agent', text: 'Not available: IGNITION has no agent. Remote hosts are reached through the Docker Engine API.', supported: false },
+  { id: 'docker-tls', title: 'Docker Engine over mutual TLS', text: 'Ignition connects to dockerd on port 2376 with a client certificate. The engine proves its identity with a certificate from your CA.', supported: true },
+  { id: 'local', title: 'Local Docker socket', text: 'Already registered as “This machine”: the host Ignition runs on.', supported: false },
+  { id: 'ssh', title: 'SSH', text: 'Not supported in this version. Ignition doesn\'t run commands over SSH.', supported: false },
+  { id: 'agent', title: 'Ignition agent', text: 'Not available: Ignition has no agent. Remote hosts are reached through the Docker Engine API.', supported: false },
 ];
 
 const capabilityLabels = { docker: 'Docker runtime', inspect: 'Resource inspection', logs: 'Log access', metrics: 'Metrics collection', storage: 'Storage inspection',
@@ -128,16 +128,16 @@ export function AddServerDialog({ onClose, onCreated }) {
     {created ? <div className="sv-created">
       <CheckCircleIcon />
       <strong>{created.name} is registered</strong>
-      <p>IGNITION verified the connection again while registering, and the worker will check it every 15 seconds from now on. It's monitoring-only: deployments keep running on this machine.</p>
+      <p>Ignition verified the connection again while registering, and the worker will check it every 15 seconds from now on. It's monitoring-only: deployments keep running on this machine.</p>
     </div>
 
     : step === 0 ? <form className="sv-form" onSubmit={e => { e.preventDefault(); next(); }}>
-      <p className="sv-step-intro">How the server shows up in IGNITION. You can change this later.</p>
+      <p className="sv-step-intro">How the server shows up in Ignition. You can change this later.</p>
       <IdentityFields form={form} set={set} errors={errors} hostnameHint="Leave empty to use the address you enter next." />
     </form>
 
     : step === 1 ? <div className="sv-form">
-      <p className="sv-step-intro">Choose how IGNITION reaches the server. Only methods this version supports can be selected.</p>
+      <p className="sv-step-intro">Choose how Ignition reaches the server. Only methods this version supports can be selected.</p>
       <div className="sv-methods" role="radiogroup" aria-label="Connection method">
         {methods.map(m => <div key={m.id} role="radio" aria-checked={m.id === 'docker-tls'} aria-disabled={!m.supported} className={cx('sv-method', m.id === 'docker-tls' && 'selected', !m.supported && 'disabled')}>
           <strong>{m.title}</strong><span>{m.text}</span>
@@ -146,16 +146,16 @@ export function AddServerDialog({ onClose, onCreated }) {
       <details className="sv-howto">
         <summary>Set up TLS on the server</summary>
         <p>Docker refuses unauthenticated TCP access only when it's started with <code>tlsverify</code>. Never expose port 2375 or the Docker socket without TLS: that's root access to the host for anyone who can reach it.</p>
-        <p className="sv-howto-label">1. Create a CA, a server certificate for the host's name and address, and a client certificate for IGNITION. Replace HOST and ADDRESS.<CopyButton value={certCommands} label="Copy commands" /></p>
+        <p className="sv-howto-label">1. Create a CA, a server certificate for the host's name and address, and a client certificate for Ignition. Replace HOST and ADDRESS.<CopyButton value={certCommands} label="Copy commands" /></p>
         <pre className="sv-pre">{certCommands}</pre>
         <p className="sv-howto-label">2. Point dockerd at them in /etc/docker/daemon.json and restart Docker.<CopyButton value={daemonJson} label="Copy daemon.json" /></p>
         <pre className="sv-pre">{daemonJson}</pre>
-        <p className="sv-howto-label">3. Allow TCP 2376 from IGNITION's address only, then paste ca.pem, cert.pem and key.pem below.</p>
+        <p className="sv-howto-label">3. Allow TCP 2376 from Ignition's address only, then paste ca.pem, cert.pem and key.pem below.</p>
       </details>
       <FormField label="Engine address" htmlFor="ep" error={errors.endpoint} hint="host:port. Port 2376 if omitted. Loopback and link-local addresses aren't accepted.">
         <TextInput id="ep" value={conn.endpoint} onChange={setC('endpoint')} placeholder="docker1.example.com:2376" autoComplete="off" />
       </FormField>
-      <FormField label="CA certificate (ca.pem)" htmlFor="ca" error={errors.caCert} hint="Authenticates the server: IGNITION only trusts an engine certificate signed by this CA and valid for the address.">
+      <FormField label="CA certificate (ca.pem)" htmlFor="ca" error={errors.caCert} hint="Authenticates the server: Ignition only trusts an engine certificate signed by this CA and valid for the address.">
         <textarea id="ca" className="labels-input" rows={3} value={conn.caCert} onChange={setC('caCert')} placeholder="-----BEGIN CERTIFICATE-----" spellCheck={false} />
       </FormField>
       <FormField label="Client certificate (cert.pem)" htmlFor="cc" error={errors.clientCert}>
@@ -167,7 +167,7 @@ export function AddServerDialog({ onClose, onCreated }) {
     </div>
 
     : step === 2 ? <div className="sv-form">
-      <p className="sv-step-intro">IGNITION is connecting to <code>{conn.endpoint}</code> from its worker. Nothing is saved yet.</p>
+      <p className="sv-step-intro">Ignition is connecting to <code>{conn.endpoint}</code> from its worker. Nothing is saved yet.</p>
       {error && <Notice tone="danger" title="Verification couldn't run">{error}</Notice>}
       {pending && !verify && <p className="muted"><ArrowPathIcon className="inline-icon sv-spin" />Testing network, identity, authentication and Docker…</p>}
       {verify && <>
@@ -177,7 +177,7 @@ export function AddServerDialog({ onClose, onCreated }) {
           </li>; })}
         </ul>
         {verify.ok
-          ? <Notice tone="success" title="Connection verified">Continue to see what IGNITION can do on this server.</Notice>
+          ? <Notice tone="success" title="Connection verified">Continue to see what Ignition can do on this server.</Notice>
           : <Notice tone="warning" title="Verification failed" action="Try again" onAction={runVerify}>Fix the failing step (go Back to change the address or certificates), then try again. Nothing was registered.</Notice>}
       </>}
     </div>
@@ -206,7 +206,7 @@ export function AddServerDialog({ onClose, onCreated }) {
         <LockClosedIcon />
         <div>
           <strong>Host identity</strong>
-          <span>SHA-256 of the engine's certificate. IGNITION will refuse to connect if it ever changes, until you rotate credentials.</span>
+          <span>SHA-256 of the engine's certificate. Ignition will refuse to connect if it ever changes, until you rotate credentials.</span>
           <code>{verify?.fingerprint}</code>
           <span>Compare it on the server: <code>openssl x509 -in /etc/docker/tls/server-cert.pem -noout -fingerprint -sha256</code></span>
         </div>

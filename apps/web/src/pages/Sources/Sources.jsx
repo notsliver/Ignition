@@ -5,7 +5,7 @@ import {
 import { Button, Dialog, FormField, GitHubIcon, GitLabIcon, Menu, Notice, SearchField, SegmentedControl, Select, Status, TextInput, cx } from '../../ui';
 import { api } from '../../api/client';
 import { timeAgo, useQuery } from '../../api/hooks';
-import { useSession } from '../../app/AuthGate';
+import { useSession, can } from '../../app/AuthGate';
 import './Sources.css';
 
 /*
@@ -34,8 +34,8 @@ const needsUsername = (provider, auth) => auth !== 'none' && auth !== 'ssh' && (
 
 export function Sources({ onOpenResource }) {
   const { user } = useSession();
-  const isAdmin = user?.role === 'admin' || user?.role === 'owner';
-  const canTest = isAdmin || user?.role === 'developer';
+  const isAdmin = can(user, 'sources.manage');
+  const canTest = can(user, 'sources.use');
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');

@@ -20,6 +20,7 @@ import { ServerWorkspace } from '../pages/servers/Workspace';
 import { useInstanceName } from './instance';
 import { useSidebarWidth, SIDEBAR_MAX, SIDEBAR_MIN } from '../hooks/useSidebarWidth';
 import { AppSidebar } from './AppSidebar';
+import { MfaBanner } from './MfaBanner';
 import { confirmLeave } from './unsaved';
 import { fromUrl, slug, toUrl } from './routing';
 import { api } from '../api/client';
@@ -37,7 +38,7 @@ const preview = node => <><PreviewBanner />{node}</>;
 const LIVE_RESOURCE_VIEWS = ['Overview', 'Deployments', 'Logs', 'Metrics', 'Environment Variables', 'Source', 'Domains', 'Networking', 'Build & Deploy', 'Resource Limits', 'Storage', 'Terminal',
   'Health Checks', 'Rollback History', 'Scheduled Tasks', 'Access & Secrets', 'Advanced Settings', 'Automations', 'Code'];
 // Settings pages backed by the API (the rest are still previews).
-const LIVE_PAGES = ['General', 'Updates', 'Users & Permissions'];
+const LIVE_PAGES = ['General', 'Authentication & Security', 'Updates', 'Users & Permissions'];
 const pages = { Dashboard: <Dashboard />, General: <General />, 'Authentication & Security': <Security />, Updates: <Updates />, 'Users & Permissions': <Users /> };
 
 export function App() {
@@ -143,6 +144,7 @@ export function App() {
     <div className="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" aria-valuemin={SIDEBAR_MIN} aria-valuemax={SIDEBAR_MAX} aria-valuenow={sidebar.width} tabIndex={0} title="Drag to resize · double-click to reset"
       onPointerDown={sidebar.startResize} onKeyDown={sidebar.onKeyDown} onDoubleClick={sidebar.reset} />
     <main className="container">
+      <MfaBanner />
       <header className="page-header">
         <IconButton className={cx('show-sidebar', hidden && 'visible')} icon={hidden ? ViewColumnsIcon : Bars3Icon} label="Show navigation" onClick={() => { setHidden(false); setMobileOpen(true); }} />
         {project && <><button className="page-crumb" onClick={closeProject}>{project.name}</button><span className="page-crumb-sep">/</span></>}

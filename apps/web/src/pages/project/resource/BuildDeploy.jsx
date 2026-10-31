@@ -3,7 +3,7 @@ import { ArrowPathIcon, CheckCircleIcon, CommandLineIcon, CubeIcon, DocumentMagn
 import { Button, Notice, Select, TextInput } from '../../../ui';
 import { api } from '../../../api/client';
 import { timeAgo, useQuery } from '../../../api/hooks';
-import { useSession } from '../../../app/AuthGate';
+import { useSession, can } from '../../../app/AuthGate';
 import { SaveBar, SettingsField, SettingsGroup } from '../../settings/SettingsField';
 import './BuildDeploy.css';
 
@@ -36,7 +36,7 @@ const show = (k, v) => v === '' ? '(empty)' : k === 'mode' ? MODES.find(m => m.v
 
 export function BuildDeploy({ resource, onNavigate, onResourceChange }) {
   const { user } = useSession();
-  const canEdit = user.role !== 'viewer';
+  const canEdit = can(user, 'resources.update');
   const { data, error, refetch } = useQuery(() => api.build(resource.id), [resource.id], { pollMs: 8000 });
   const [saved, setSaved] = useState(null);
   const [form, setForm] = useState(null);

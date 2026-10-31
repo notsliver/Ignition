@@ -1,3 +1,4 @@
+import { can } from '../../app/AuthGate';
 // One definition of server status for every page. The API computes the effective connection state
 // (a stale "online" comes back as "unknown"), so the UI never upgrades an old observation.
 
@@ -38,8 +39,9 @@ export function operational(s) {
 
 export const methodLabel = { local: 'Local Docker socket', 'docker-tls': 'Docker Engine over mutual TLS' };
 
-export const isAdmin = user => user?.role === 'admin' || user?.role === 'owner';
-export const isDeveloper = user => isAdmin(user) || user?.role === 'developer';
+// Server pages check the permissions their API routes need (see Users & Permissions).
+export const isAdmin = user => can(user, 'servers.update');
+export const isDeveloper = user => can(user, 'servers.operate');
 
 export function bytes(n, digits = 1) {
   if (n == null || n < 0) return '—';

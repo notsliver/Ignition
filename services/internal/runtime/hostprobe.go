@@ -11,7 +11,7 @@ import (
 	"strings"
 )
 
-// The host probe is a long-lived busybox container on the host's network namespace. IGNITION
+// The host probe is a long-lived busybox container on the host's network namespace. Ignition
 // execs `cat /proc/...` in it to read host-wide CPU, memory, disk and network counters on any
 // server it can reach through the Engine API, with no agent to install. It has no capabilities,
 // a read-only root filesystem and 16 MB of memory, and only ever runs cat, df and sleep.

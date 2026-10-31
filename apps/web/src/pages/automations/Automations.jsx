@@ -7,15 +7,15 @@ import {
 import { Button, Checkbox, Dialog, Menu, Notice, SegmentedControl, Select, Status, Switch, TextInput, cx } from '../../ui';
 import { api } from '../../api/client';
 import { timeAgo, useQuery } from '../../api/hooks';
-import { useSession } from '../../app/AuthGate';
+import { useSession, can } from '../../app/AuthGate';
 import { CopyButton } from '../project/resource/shared';
 import './automations.css';
 
 /*
- * Automations: IGNITION's operations engine. One page, used in two places: a server's workspace
+ * Automations: Ignition's operations engine. One page, used in two places: a server's workspace
  * (automations that act on servers) and a resource's sidebar (automations that act on that resource).
  * Everything shown is live: counts, runs, plans and verification come from the API; capabilities
- * IGNITION can't perform yet are listed with what they need, never offered.
+ * Ignition can't perform yet are listed with what they need, never offered.
  */
 
 const MODES = [
@@ -62,7 +62,7 @@ function targetText(a, servers) {
 
 export function Automations({ scope, server, resource, onNavigate }) {
   const { user } = useSession();
-  const canManage = scope === 'servers' ? ['admin', 'owner'].includes(user.role) : user.role !== 'viewer';
+  const canManage = can(user, 'automations.manage') && (scope !== 'servers' || can(user, 'servers.update'));
   const query = scope === 'servers' ? { serverId: server.id } : { resourceId: resource.id };
   const [fast, setFast] = useState(false);
   const { data, error, refetch } = useQuery(() => api.automations(query), [server?.id, resource?.id], { pollMs: fast ? 3000 : 10000 });
@@ -145,7 +145,7 @@ export function Automations({ scope, server, resource, onNavigate }) {
 
     <section className="au-section">
       <button type="button" className="au-catalog-toggle" aria-expanded={showCatalog} onClick={() => setShowCatalog(s => !s)}>
-        {showCatalog ? <ChevronDownIcon /> : <ChevronRightIcon />}What IGNITION can automate
+        {showCatalog ? <ChevronDownIcon /> : <ChevronRightIcon />}What Ignition can automate
         <small>{cat.catalog.flatMap(g => g.items).filter(i => i.status === 'available' || i.status === 'builtin').length} of {cat.catalog.flatMap(g => g.items).length} capabilities available</small>
       </button>
       {showCatalog && <Catalog groups={cat.catalog} />}

@@ -57,8 +57,8 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request, u *store.User)
 		return httpx.Conflict(res.Name + " isn't running, so there's no container to open a shell in.")
 	}
 	asRoot := r.URL.Query().Get("root") == "1"
-	if asRoot && u.Role != "admin" && u.Role != "owner" {
-		return httpx.Forbidden("Only admins can open a root shell.")
+	if asRoot && !can(u, "terminal.root") {
+		return httpx.Forbidden("Opening a root shell needs the terminal.root permission (admins by default).")
 	}
 	cols, _ := strconv.Atoi(r.URL.Query().Get("cols"))
 	rows, _ := strconv.Atoi(r.URL.Query().Get("rows"))

@@ -1,9 +1,9 @@
 openapi: 3.1.0
 info:
-  title: IGNITION API
+  title: Ignition API
   version: 0.1.0
   description: |
-    API for IGNITION, a self-hosted PaaS that runs on your own machine.
+    API for Ignition, a self-hosted PaaS that runs on your own machine.
     Authentication is a session cookie (`ignition_session`, HttpOnly, SameSite=Lax) set by
     `/api/setup` or `/api/auth/login`. State-changing requests must send an `Origin` header
     matching the dashboard (CSRF protection). Every error uses the `Error` schema.
@@ -164,7 +164,7 @@ paths:
       responses: { '200': { description: Signed in }, '409': { $ref: '#/components/responses/Error' }, '422': { $ref: '#/components/responses/Error' }, '429': { $ref: '#/components/responses/Error' } }
   /api/auth/login:
     post:
-      summary: Sign in. Rate limited per IP; accounts lock for 15 minutes after 5 failures.
+      summary: Sign in with a password. Rate limit, lockout and allowed methods follow Authentication & Security. With two-factor on (or enforced) the response is { mfaRequired | mfaSetupRequired, ticket } instead of a session.
       security: []
       requestBody: { content: { application/json: { schema: { type: object, required: [email, password], properties: { email: { type: string }, password: { type: string } } } } } }
       responses: { '200': { description: Signed in }, '422': { $ref: '#/components/responses/Error' }, '429': { $ref: '#/components/responses/Error' } }
@@ -172,6 +172,39 @@ paths:
     post: { summary: Sign out, responses: { '204': { description: Signed out } } }
   /api/auth/me:
     get: { summary: Current user, responses: { '200': { description: '{ user: User }' }, '401': { $ref: '#/components/responses/Error' } } }
+  /api/auth/methods:
+    get: { summary: Sign-in methods offered on the sign-in page (password, SSO and its button label), security: [], responses: { '200': { description: '{ password, sso, ssoLabel, requiredMethod }' } } }
+  /api/auth/mfa:
+    post:
+      summary: Second sign-in step. Trades the ticket from a password sign-in and a TOTP or recovery code for a session. Tickets last 5 minutes and allow 5 wrong codes.
+      security: []
+      responses: { '200': { description: '{ user, permissions, usedRecoveryCode }' }, '401': { $ref: '#/components/responses/Error' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/auth/mfa/setup:
+    post:
+      summary: Start enrolling two-factor authentication during a sign-in where it's enforced (ticket from sign-in). Returns the secret and otpauth URL.
+      security: []
+      responses: { '200': { description: '{ secret, url, issuer, account }' }, '401': { $ref: '#/components/responses/Error' } }
+  /api/auth/mfa/setup/confirm:
+    post:
+      summary: Confirm the first code during enforced enrollment. Turns MFA on, signs in and returns ten one-time recovery codes (shown once).
+      security: []
+      responses: { '200': { description: '{ user, permissions, recoveryCodes }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/auth/oidc/start:
+    get: { summary: Begin OpenID Connect sign-in (authorization code with PKCE). Redirects to the identity provider., security: [], responses: { '302': { description: Redirect } } }
+  /api/auth/oidc/callback:
+    get: { summary: OpenID Connect redirect target. Verifies the ID token, finds, links or provisions the account, sets the session and redirects to the dashboard (or back to sign-in with ?sso_error=)., security: [], responses: { '302': { description: Redirect } } }
+  /api/account/security:
+    get: { summary: Your two-factor status, recovery codes left, SSO link and effective permissions, responses: { '200': { description: '{ mfaEnabled, recoveryCodesLeft, mfaEnforced, sso, hasPassword, permissions, role }' } } }
+  /api/account/mfa/setup:
+    post: { summary: Start enrolling two-factor authentication on your account, responses: { '200': { description: '{ secret, url }' }, '409': { $ref: '#/components/responses/Error' } } }
+  /api/account/mfa/enable:
+    post: { summary: Confirm a code to turn two-factor authentication on. Returns ten one-time recovery codes (shown once)., responses: { '200': { description: '{ recoveryCodes }' }, '422': { $ref: '#/components/responses/Error' } } }
+  /api/account/mfa/disable:
+    post: { summary: Turn two-factor authentication off with a current or recovery code. Refused while MFA is enforced., responses: { '204': { description: Off }, '403': { $ref: '#/components/responses/Error' } } }
+  /api/account/mfa/recovery-codes:
+    post: { summary: Replace your recovery codes (needs a current code). The old ones stop working., responses: { '200': { description: '{ recoveryCodes }' } } }
+  /api/permissions:
+    get: { summary: The permission catalog with each permission's default role, responses: { '200': { description: '{ permissions, roles }' } } }
   /api/system:
     get: { summary: Capabilities of this instance (Docker reachable, supported builders, unsupported features), responses: { '200': { description: Capabilities } } }
 
@@ -283,6 +316,20 @@ paths:
     get:
       summary: Matching audit events as CSV (admin, audited; up to 50,000). Same filters as /api/audit.
       responses: { '200': { description: text/csv } }
+  /api/settings/security:
+    get: { summary: Authentication & security policy with live status (HTTPS certificate, encryption, SSO, your address, MFA coverage) and recent security events, responses: { '200': { description: '{ policy, status, events }' } } }
+    put:
+      summary: Save the policy. Refuses changes that would lock out everyone or the caller (no sign-in method, IP allow list without your address, requiring SSO before it's connected).
+      responses: { '200': { description: '{ policy }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/settings/security/revoke-sessions:
+    post: { summary: Sign out every user, including the caller, responses: { '200': { description: '{ revoked }' } } }
+  /api/settings/security/oidc:
+    put:
+      summary: Connect an OpenID Connect provider (issuer, client ID and secret, button label, allowed email domains). Verified by discovery before saving; the secret is sealed.
+      responses: { '200': { description: '{ oidc, redirectUrl }' }, '422': { $ref: '#/components/responses/Error' } }
+    delete: { summary: Disconnect the provider and turn password sign-in back on, responses: { '200': { description: '{ policy }' } } }
+  /api/settings/security/oidc/test:
+    post: { summary: Check an issuer by discovery without saving, responses: { '200': { description: '{ issuer, authorizationEndpoint, tokenEndpoint, redirectUrl }' }, '422': { $ref: '#/components/responses/Error' } } }
   /api/settings/general:
     get:
       summary: Instance name and ID, deployment defaults for new resources, and facts about this install (version, Docker, host, database).
@@ -326,8 +373,16 @@ paths:
       responses: { '200': { description: '{ revoked }' } }
   /api/users/{id}/reset-link:
     post:
-      summary: Create a one-time password reset link (24 hours). Shown once; only its hash is stored.
+      summary: Create a one-time password reset link (expiry set in Authentication & Security). Shown once; only its hash is stored.
       responses: { '201': { description: '{ url, expiresAt }' } }
+  /api/users/{id}/mfa:
+    delete:
+      summary: Reset someone's two-factor authentication (lost device). Ends their sessions; with MFA enforced they enroll again at the next sign-in.
+      responses: { '204': { description: Reset }, '403': { $ref: '#/components/responses/Error' } }
+  /api/users/{id}/permissions:
+    put:
+      summary: Set permissions granted on top of, or denied from, the user's role ({ grant, deny }). You can only grant what you have; their sessions end when revoke-on-change is on.
+      responses: { '200': { description: '{ user, permissions }' }, '403': { $ref: '#/components/responses/Error' }, '422': { $ref: '#/components/responses/Error' } }
   /api/invites:
     post:
       summary: Invite someone by email and role. Returns a one-time join link (7 days) to share; there's no email delivery.
@@ -666,7 +721,7 @@ paths:
     get: { summary: Every container with its owner (resource, helper, ignition, unmanaged), responses: { '200': { description: '{ containers, observedAt }' } } }
   /api/servers/{id}/docker/containers/{cid}/actions:
     parameters: [{ $ref: '#/components/parameters/id' }, { name: cid, in: path, required: true, schema: { type: string } }]
-    post: { summary: Start, stop or restart the current container of an IGNITION resource on this server (developer). Unmanaged containers are refused., responses: { '202': { description: '{ jobId, resourceId }' }, '403': { $ref: '#/components/responses/Error' } } }
+    post: { summary: Start, stop or restart the current container of an Ignition resource on this server (developer). Unmanaged containers are refused., responses: { '202': { description: '{ jobId, resourceId }' }, '403': { $ref: '#/components/responses/Error' } } }
   /api/servers/{id}/docker/images:
     parameters: [{ $ref: '#/components/parameters/id' }]
     get: { summary: Images with tags, digests, sizes, users, and whether a deployment retains them, responses: { '200': { description: '{ images, layersSize, buildCache }' } } }
@@ -830,7 +885,7 @@ paths:
       responses: { '202': { description: '{ status }' } }
   /api/projects/{id}/external-databases:
     post:
-      summary: Register a database running elsewhere. IGNITION checks it's reachable and shares its connection URL with apps; it doesn't run it.
+      summary: Register a database running elsewhere. Ignition checks it's reachable and shares its connection URL with apps; it doesn't run it.
       responses: { '201': { description: '{ resource }' }, '422': { description: validation error } }
   /api/resources/{id}/connection:
     get:

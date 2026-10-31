@@ -1,4 +1,4 @@
-// Package dbimport knows how to load data into each database engine IGNITION runs: from a dump file,
+// Package dbimport knows how to load data into each database engine Ignition runs: from a dump file,
 // or straight from a live database. The scripts run inside the target database's own container (its
 // official image ships the client tools and its credentials are in its environment), except for the
 // Redis family, which runs redis-cli from a small helper container on the same private network.

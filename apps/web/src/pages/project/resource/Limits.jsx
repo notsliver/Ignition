@@ -3,7 +3,7 @@ import { ArrowRightIcon, CheckCircleIcon, ExclamationTriangleIcon, LightBulbIcon
 import { Button, Notice, Select, Switch, TextInput, cx } from '../../../ui';
 import { api } from '../../../api/client';
 import { timeAgo, useQuery } from '../../../api/hooks';
-import { useSession } from '../../../app/AuthGate';
+import { useSession, can } from '../../../app/AuthGate';
 import { SaveBar, SettingsField, SettingsGroup } from '../../settings/SettingsField';
 import './Limits.css';
 
@@ -43,7 +43,7 @@ function UsageBar({ label, now, avg, peak, limit, format }) {
 
 export function ResourceLimits({ resource, onNavigate, onResourceChange }) {
   const { user } = useSession();
-  const canEdit = user.role !== 'viewer';
+  const canEdit = can(user, 'resources.update');
   const { data, error, refetch } = useQuery(() => api.limits(resource.id), [resource.id], { pollMs: 15000 });
   const [saved, setSaved] = useState(null);
   const [form, setForm] = useState(null);

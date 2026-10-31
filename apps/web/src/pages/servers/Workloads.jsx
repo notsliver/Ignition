@@ -6,7 +6,7 @@ import {
 import { Button, Menu, Notice, SearchField, SegmentedControl, Status, cx } from '../../ui';
 import { api } from '../../api/client';
 import { duration, timeAgo, useQuery } from '../../api/hooks';
-import { useSession } from '../../app/AuthGate';
+import { useSession, can } from '../../app/AuthGate';
 import { resourceStatus, sourceLabel } from '../project/Resources/Resources';
 import { Table } from '../project/resource/shared';
 import { bytes, isDeveloper } from './model';
@@ -36,7 +36,7 @@ function observed(r, health) {
 
 export function ServerResources({ server, onNavigate, onOpenResource, setFeedback }) {
   const { user } = useSession();
-  const dev = isDeveloper(user);
+  const dev = can(user, 'resources.control');
   const [category, setCategory] = useState('all');
   const [state, setState] = useState('all');
   const [query, setQuery] = useState('');
@@ -64,7 +64,7 @@ export function ServerResources({ server, onNavigate, onOpenResource, setFeedbac
 
   if (!server.isLocal) return <div className="rp-empty">
     <CubeIcon />
-    <strong>No IGNITION workloads on remote servers</strong>
+    <strong>No Ignition workloads on remote servers</strong>
     <p>The deploy engine only runs resources on this machine. Containers already on {server.name} are listed on its Docker page.</p>
     <Button icon={Square3Stack3DIcon} onClick={() => onNavigate('Docker')}>Open Docker</Button>
   </div>;
@@ -110,7 +110,7 @@ const PAGE = 30;
 
 export function ServerDeployments({ server, onOpenResource, setFeedback }) {
   const { user } = useSession();
-  const dev = isDeveloper(user);
+  const dev = can(user, 'resources.control');
   const [status, setStatus] = useState('');
   const [query, setQuery] = useState('');
   const [debounced, setDebounced] = useState('');

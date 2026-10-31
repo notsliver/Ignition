@@ -488,8 +488,8 @@ func (s *Server) runDiagnostic(w http.ResponseWriter, r *http.Request, u *store.
 			port = *res.Port
 		}
 	case "custom":
-		if u.Role != "admin" && u.Role != "owner" {
-			return httpx.Forbidden("Only admins can test custom hosts.")
+		if !can(u, "resources.privileged") {
+			return httpx.Forbidden("Testing custom hosts needs the resources.privileged permission (admins by default).")
 		}
 		h := strings.TrimSpace(in.Hostname)
 		ip := net.ParseIP(h)

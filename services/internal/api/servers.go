@@ -304,7 +304,7 @@ func (s *Server) getMaintenance(w http.ResponseWriter, r *http.Request, _ *store
 		"server": viewServer(srv), "activity": act, "workloads": len(res), "running": running, "volumes": len(vols), "tasks": len(tasks), "history": history,
 		"policy": map[string]any{
 			"blocksDeployments": true, "pausesServerTasks": true, "stopsWorkloads": false, "drains": false,
-			"text": "While in maintenance, IGNITION refuses new deployments (manual, hooks, tokens, rollbacks) to resources on this server and skips scheduled server tasks except diagnostics and checks. Running workloads keep running. IGNITION can't move workloads to another server or reboot the host: do that yourself, then exit maintenance.",
+			"text": "While in maintenance, Ignition refuses new deployments (manual, hooks, tokens, rollbacks) to resources on this server and skips scheduled server tasks except diagnostics and checks. Running workloads keep running. Ignition can't move workloads to another server or reboot the host: do that yourself, then exit maintenance.",
 		},
 	})
 	return nil
@@ -529,7 +529,7 @@ func (s *Server) serverMetrics(w http.ResponseWriter, r *http.Request, _ *store.
 	}
 	reasons := map[string]string{}
 	if collector != "probe" {
-		reasons["network"] = "Host network throughput comes from the host probe, which isn't running here. IGNITION's own container only sees its own interface. Turn the host probe on in Settings."
+		reasons["network"] = "Host network throughput comes from the host probe, which isn't running here. Ignition's own container only sees its own interface. Turn the host probe on in Settings."
 		if !settings.HostProbe {
 			reasons["network"] = "Host network throughput comes from the host probe, which is off in Settings."
 		}
@@ -781,18 +781,18 @@ func (s *Server) verifyRemote(ctx context.Context, in *serverInput, pinned strin
 			skipRest("engine", "platform", "permissions")
 		default:
 			step("tls", "Server identity", "passed", "Certificate signed by the CA, valid for "+host+".", t0)
-			step("auth", "Authentication", "passed", "The engine accepted IGNITION's client certificate.", t0)
+			step("auth", "Authentication", "passed", "The engine accepted Ignition's client certificate.", t0)
 			step("engine", "Docker Engine", "failed", msg, t0)
 			skipRest("platform", "permissions")
 		}
 		return res, nil
 	}
 	step("tls", "Server identity", "passed", fmt.Sprintf("Certificate signed by the CA and valid for %s. SHA-256 %s.", host, seen), t0)
-	step("auth", "Authentication", "passed", "The engine accepted IGNITION's client certificate.", t0)
+	step("auth", "Authentication", "passed", "The engine accepted Ignition's client certificate.", t0)
 	o := servers.Observation{Reached: true, Runtime: servers.RuntimeReady, Info: info, HasInfo: true}
 	if !runtime.APICompatible(info.APIVersion) {
 		o.Runtime = servers.RuntimeIncompatible
-		step("engine", "Docker Engine", "failed", fmt.Sprintf("Docker %s (API %s) is too old: IGNITION needs API 1.44 or newer.", info.Version, info.APIVersion), t0)
+		step("engine", "Docker Engine", "failed", fmt.Sprintf("Docker %s (API %s) is too old: Ignition needs API 1.44 or newer.", info.Version, info.APIVersion), t0)
 	} else {
 		step("engine", "Docker Engine", "passed", fmt.Sprintf("Docker %s, API %s, storage driver %s.", info.Version, info.APIVersion, info.StorageDriver), t0)
 	}
@@ -800,7 +800,7 @@ func (s *Server) verifyRemote(ctx context.Context, in *serverInput, pinned strin
 	status := "passed"
 	detail := fmt.Sprintf("%s (%s, %s), %d CPUs, %s memory.", info.OS, info.OSType, info.Arch, info.NCPU, servers.BytesText(info.MemTotal))
 	if info.OSType != "linux" {
-		status, detail = "failed", "The engine runs "+info.OSType+" containers. IGNITION manages Linux engines."
+		status, detail = "failed", "The engine runs "+info.OSType+" containers. Ignition manages Linux engines."
 	}
 	step("platform", "Operating system and architecture", status, detail, t0)
 	t0 = time.Now()
@@ -809,7 +809,7 @@ func (s *Server) verifyRemote(ctx context.Context, in *serverInput, pinned strin
 	} else if _, err := dk.DiskUsage(ectx); err != nil {
 		step("permissions", "Runtime permissions", "warning", "Containers are visible, but disk usage can't be read: "+err.Error(), t0)
 	} else {
-		step("permissions", "Runtime permissions", "passed", "IGNITION can list containers, images, networks and volumes.", t0)
+		step("permissions", "Runtime permissions", "passed", "Ignition can list containers, images, networks and volumes.", t0)
 	}
 	res.Info = &info
 	res.Capabilities = servers.DeriveCapabilities(&store.Server{IsLocal: false}, o)
@@ -930,17 +930,17 @@ func (s *Server) buildRemovalPreview(ctx context.Context, srv *store.Server) (re
 	p.Tasks, _ = s.Store.ServerTaskCount(ctx, srv.ID)
 	p.Reachable = p.Server.Available
 	if srv.IsLocal {
-		p.Blockers = append(p.Blockers, "This is the host IGNITION runs on. It can't be removed.")
+		p.Blockers = append(p.Blockers, "This is the host Ignition runs on. It can't be removed.")
 	}
 	if len(p.Resources) > 0 {
-		p.Blockers = append(p.Blockers, fmt.Sprintf("%d resource(s) are assigned to this server. Delete them from their projects first; IGNITION doesn't migrate workloads between servers.", len(p.Resources)))
+		p.Blockers = append(p.Blockers, fmt.Sprintf("%d resource(s) are assigned to this server. Delete them from their projects first; Ignition doesn't migrate workloads between servers.", len(p.Resources)))
 	}
 	if len(p.Activity.Deployments) > 0 || len(p.Activity.Jobs) > 0 {
 		p.Blockers = append(p.Blockers, fmt.Sprintf("%d deployment(s) and %d server job(s) are in progress. Wait for them or cancel them.", len(p.Activity.Deployments), len(p.Activity.Jobs)))
 	}
 	p.Effects = []string{
-		"The server's registration, events, metrics history, diagnostic results and scheduled server tasks are deleted from IGNITION.",
-		"The stored client key is deleted, so IGNITION can no longer connect.",
+		"The server's registration, events, metrics history, diagnostic results and scheduled server tasks are deleted from Ignition.",
+		"The stored client key is deleted, so Ignition can no longer connect.",
 	}
 	if p.Tasks > 0 {
 		p.Effects = append(p.Effects, fmt.Sprintf("%d scheduled server task(s) stop running.", p.Tasks))
@@ -951,7 +951,7 @@ func (s *Server) buildRemovalPreview(ctx context.Context, srv *store.Server) (re
 		"No data moves to another server. Docker volumes belong to this host.",
 	}
 	if !p.Reachable {
-		p.NotDone = append(p.NotDone, "The server isn't reachable now, so IGNITION can't confirm anything about its current state.")
+		p.NotDone = append(p.NotDone, "The server isn't reachable now, so Ignition can't confirm anything about its current state.")
 	}
 	return p, nil
 }
