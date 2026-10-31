@@ -24,11 +24,13 @@ const PROTOCOLS = [{ value: 'tcp', label: 'TCP' }, { value: 'udp', label: 'UDP' 
 const toForm = cfg => ({
   aliases: cfg.aliases,
   networks: cfg.networks,
+  addresses: cfg.addresses ?? {},
   ports: cfg.ports.map((p, i) => ({ key: p.id || `p${i}`, hostPort: p.hostPort ? String(p.hostPort) : '', containerPort: String(p.containerPort), protocol: p.protocol, bindAddress: p.bindAddress })),
 });
 const toBody = f => ({
   aliases: f.aliases,
   networks: f.networks,
+  addresses: Object.fromEntries(Object.entries(f.addresses ?? {}).filter(([n, a]) => f.networks.includes(n) && (a.ipv4 || a.ipv6))),
   ports: f.ports.map(p => ({ hostPort: p.hostPort ? Number(p.hostPort) : null, containerPort: Number(p.containerPort), protocol: p.protocol, bindAddress: p.bindAddress })),
 });
 
@@ -170,6 +172,14 @@ function Networks({ data, form, set, canEdit, resource, errors }) {
           <span>{n.members?.length ? `With ${n.members.filter(m => !m.startsWith(`${resource.name} (`)).join(', ') || 'no other resources yet'}` : 'No other resources yet'}{n.attached && <> · {live(n)}</>}</span></span>
         <Status tone={status(n).tone}>{status(n).label}</Status>
         {canEdit && <button type="button" className="icon-action danger" aria-label={`Leave ${n.name}`} title="Leave" onClick={() => set({ networks: form.networks.filter(x => x !== n.name) })}><XMarkIcon /></button>}
+        <div className="net-fixed">
+          <span>Fixed address</span>
+          <TextInput className="mono" value={form.addresses?.[n.name]?.ipv4 ?? ''} disabled={!canEdit} placeholder="automatic IPv4" aria-label={`Fixed IPv4 on ${n.name}`}
+            onChange={e => set({ addresses: { ...form.addresses, [n.name]: { ...form.addresses?.[n.name], ipv4: e.target.value.trim() } } })} />
+          <TextInput className="mono" value={form.addresses?.[n.name]?.ipv6 ?? ''} disabled={!canEdit} placeholder="automatic IPv6" aria-label={`Fixed IPv6 on ${n.name}`}
+            onChange={e => set({ addresses: { ...form.addresses, [n.name]: { ...form.addresses?.[n.name], ipv6: e.target.value.trim() } } })} />
+          {errors[`addresses.${n.name}`] ? <span className="rp-error">{errors[`addresses.${n.name}`]}</span> : <small>Needs a subnet on the network (Infrastructure › Networking). Applies when {resource.name} is recreated.</small>}
+        </div>
       </div>)}
       {left.map(n => <div key={n.name} className="net-item net-leaving">
         <LinkIcon className="net-icon" />

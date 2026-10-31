@@ -5,6 +5,7 @@ import { api } from '../../../api/client';
 import { timeAgo, useQuery } from '../../../api/hooks';
 import { useSession, can } from '../../../app/AuthGate';
 import { CopyButton, Empty, PageIntro, Table } from './shared';
+import { AddRouteDialog } from '../../network/Domains';
 
 /*
  * Domains are routed by the Caddy proxy bundled with Ignition. Every status comes from a real check:
@@ -41,6 +42,8 @@ export function Domains({ resource }) {
   const [checking, setChecking] = useState(() => new Set());
   const [rowError, setRowError] = useState({});
   const [removing, setRemoving] = useState(null);
+  const [advanced, setAdvanced] = useState(false);
+  const [removeDns, setRemoveDns] = useState(true);
   const suggestion = `${slugify(resource.name)}.localhost`;
 
   const replace = d => setData(cur => cur && { ...cur, domains: cur.domains.map(x => x.id === d.id ? d : x) });
@@ -105,6 +108,7 @@ export function Domains({ resource }) {
     {canEdit && <form className="rp-inline-form" onSubmit={add}>
       <TextInput placeholder="app.example.com" value={draft} onChange={e => { setDraft(e.target.value); setFormError(''); }} aria-label="Domain" aria-invalid={!!formError} autoComplete="off" spellCheck={false} disabled={adding} />
       <Button type="submit" variant="primary" icon={PlusIcon} disabled={adding}>{adding ? 'Adding…' : 'Add domain'}</Button>
+      <Button type="button" onClick={() => setAdvanced(true)} title="Path prefixes, redirects, IP allow lists and DNS records">Advanced…</Button>
     </form>}
     {formError && <p className="rp-error">{formError}</p>}
     {canEdit && !domains.some(d => d.hostname === suggestion) && <p className="domain-suggest">No domain yet? <button type="button" className="inline-link" disabled={adding} onClick={() => add(null, suggestion)}>Use {suggestion}</button> — works on this machine with no DNS setup.</p>}
@@ -118,11 +122,12 @@ export function Domains({ resource }) {
           <div className="rp-row domain-row">
             <button type="button" className="domain-toggle" aria-expanded={expanded} aria-label={`${expanded ? 'Hide' : 'Show'} details for ${d.hostname}`} onClick={() => setOpen(expanded ? null : d.id)}><ChevronRightIcon /></button>
             <span className="rp-row-main">
-              <strong className="domain-host"><a href={url} target="_blank" rel="noreferrer">{d.hostname}</a>{d.primary && <span className="rp-chip accent"><StarIcon />Primary</span>}</strong>
+              <strong className="domain-host"><a href={url + d.pathPrefix} target="_blank" rel="noreferrer">{d.hostname}{d.pathPrefix && <span className="mono muted">{d.pathPrefix}</span>}</a>{d.primary && <span className="rp-chip accent"><StarIcon />Primary</span>}
+                {d.redirectTo && <span className="rp-chip">Redirect {d.redirectCode}</span>}{d.allowIps?.length > 0 && <span className="rp-chip warning" title={d.allowIps.join(', ')}>{d.allowIps.length} allowed network{d.allowIps.length === 1 ? '' : 's'}</span>}</strong>
               <span className="domain-meta">
                 <Status tone={s.tone}>{s.label}</Status>
                 {d.https ? <span className="domain-ssl"><LockClosedIcon />{d.certExpiresAt ? `${d.certIssuer.includes('Caddy Local') ? 'Local certificate' : 'Certificate'} · expires ${fmtDate(d.certExpiresAt)}` : 'HTTPS'}</span> : <span className="domain-ssl"><LockOpenIcon />HTTP only</span>}
-                <span>→ port {d.port ?? resource.port}</span>
+                <span>{d.redirectTo ? `→ ${d.redirectTo.replace('{path}', '…')}` : `→ port ${d.port ?? resource.port}${d.stripPrefix ? `, without ${d.pathPrefix}` : ''}`}</span>
               </span>
             </span>
             <div className="domain-actions">
@@ -153,14 +158,18 @@ export function Domains({ resource }) {
       })}
     </div>}
 
-    <Dialog open={!!removing} onClose={() => setRemoving(null)} title={`Remove ${removing?.hostname}?`} description="The domain stops routing to this resource right away. DNS records at your provider are left untouched."
+    {advanced && <AddRouteDialog resourceId={resource.id} providers={data?.dnsProviders ?? []} onClose={() => setAdvanced(false)} onAdded={(d, dnsError) => { setAdvanced(false); if (dnsError) setFormError(`Added, but DNS records weren't created: ${dnsError}`); refetch(); }} />}
+    <Dialog open={!!removing} onClose={() => setRemoving(null)} title={`Remove ${removing?.hostname}${removing?.pathPrefix ?? ''}?`}
+      description={removing?.dnsRecords?.length ? 'The domain stops routing to this resource right away.' : 'The domain stops routing to this resource right away. DNS records at your provider are left untouched.'}
       footer={<><Button onClick={() => setRemoving(null)}>Cancel</Button><Button className="danger-solid" onClick={async () => {
         const d = removing;
         setRemoving(null);
         setData(cur => ({ ...cur, domains: cur.domains.filter(x => x.id !== d.id) }));
-        try { await api.deleteDomain(d.id); } catch (err) { setFormError(err.message); }
+        try { await api.deleteDomain(d.id, removeDns && d.dnsRecords?.length > 0); } catch (err) { setFormError(err.message); }
         refetch();
-      }}>Remove domain</Button></>} />
+      }}>Remove domain</Button></>}>
+      {removing?.dnsRecords?.length > 0 && <label className="nw-check"><Switch label="Remove DNS records" checked={removeDns} onChange={setRemoveDns} /><span>Also remove {removing.dnsRecords.map(r => `${r.type} ${r.content}`).join(' and ')} at the DNS provider</span></label>}
+    </Dialog>
   </div>;
 }
 

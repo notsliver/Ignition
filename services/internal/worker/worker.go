@@ -367,11 +367,15 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 	}
 	ports, fixed := portSpecs(netcfg.Ports)
 	var shared []string
+	addresses := map[string]runtime.Address{}
 	for _, n := range netcfg.Networks {
-		if err := w.Runtime.EnsureManagedNetwork(ctx, runtime.SharedNetwork(n), sharedLabels(n)); err != nil {
+		if err := w.ensureShared(ctx, n); err != nil {
 			return err
 		}
 		shared = append(shared, runtime.SharedNetwork(n))
+		if a, ok := netcfg.Addresses[n]; ok {
+			addresses[runtime.SharedNetwork(n)] = runtime.Address{IPv4: a.IPv4, IPv6: a.IPv6}
+		}
 	}
 	var cmd []string
 	if res.Command != "" {
@@ -379,7 +383,7 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 	}
 	w.Queue.Log(ctx, job.ID, "info", "rollout", "Starting container "+name)
 	id, err := w.Runtime.CreateContainer(ctx, runtime.ContainerSpec{
-		Name: name, Image: imageRef, Env: env, Cmd: cmd, Ports: ports, MemoryMB: res.MemoryMB, CPUs: res.CPUs, Network: network, Networks: shared,
+		Name: name, Image: imageRef, Env: env, Cmd: cmd, Ports: ports, MemoryMB: res.MemoryMB, CPUs: res.CPUs, Network: network, Networks: shared, Addresses: addresses,
 		Volumes: volumesFor(res, vols), VolumeLabels: map[string]string{"ignition.resource": res.ID},
 		Limits:     RuntimeLimits(lim),
 		Aliases:    append([]string{res.Name}, netcfg.Aliases...),

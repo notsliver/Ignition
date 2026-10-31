@@ -616,6 +616,110 @@ paths:
   # last check is older than staleAfterSeconds), runtimeState (ready, not_installed, unavailable, incompatible,
   # unknown) and operator flags (deploymentsEnabled, maintenance, removing) are independent. Remote servers are
   # Docker Engines reached over mutual TLS; only the local server receives deployments.
+  /api/network/addresses:
+    get:
+      summary: Public IPv4/IPv6 (saved or detected) and the host's interfaces with their addresses and scope (read through the host probe).
+      responses: { '200': { description: '{ public, interfaces, settings }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/network/settings:
+    put:
+      summary: Save public addresses and the host port allocation range.
+      responses: { '200': { description: '{ settings }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/network/ports:
+    get:
+      summary: Port registry: mapped ports per resource (with ports Docker picked), live bindings of every container, reservations, system ports and the next free port in the range.
+      responses: { '200': { description: '{ assignments, live, reservations, system, settings, nextFree }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/network/ports/reservations:
+    post:
+      summary: Reserve a host port so nothing is mapped to it.
+      responses: { '201': { description: '{ id }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/network/ports/reservations/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    delete:
+      summary: Release a reservation.
+      responses: { '204': { description: Released }, '422': { $ref: '#/components/responses/Error' } }
+  /api/networks:
+    get:
+      summary: Shared and environment networks with live subnets, gateways and container addresses, plus every subnet in use on the host.
+      responses: { '200': { description: '{ shared, environments, usedSubnets }' }, '422': { $ref: '#/components/responses/Error' } }
+    post:
+      summary: Create a shared network with an optional IPv4 subnet and gateway, IPv6 range and internal-only isolation (created in Docker immediately).
+      responses: { '201': { description: '{ name }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/networks/{name}:
+    patch:
+      summary: Change a network's description.
+      responses: { '204': { description: Saved }, '422': { $ref: '#/components/responses/Error' } }
+    delete:
+      summary: Delete a shared network nobody uses.
+      responses: { '204': { description: Deleted }, '422': { $ref: '#/components/responses/Error' } }
+  /api/network/proxy:
+    get:
+      summary: Proxy status, whether the running config is current, the route table and proxy settings.
+      responses: { '200': { description: '{ running, current, routes, settings }' }, '422': { $ref: '#/components/responses/Error' } }
+    put:
+      summary: Proxy settings: compression, HSTS, request body limit, ACME email and CA.
+      responses: { '200': { description: '{ settings }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/network/proxy/reload:
+    post:
+      summary: Re-send the proxy config and re-check every domain.
+      responses: { '200': { description: '{ changed }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/network/proxy/logs:
+    get:
+      summary: The proxy container's recent log lines.
+      responses: { '200': { description: '{ lines }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/network/diagnose:
+    post:
+      summary: Run a DNS, TCP, HTTP, ping or traceroute test from a server, on its host network or inside one of Ignition networks.
+      responses: { '200': { description: '{ ok, output, ms, command }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/domains:
+    get:
+      summary: Every domain route on the instance with its resource and project, DNS providers and the public addresses.
+      responses: { '200': { description: '{ domains, dnsProviders, proxy }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/domains/check:
+    post:
+      summary: Re-check every domain in the background.
+      responses: { '200': { description: '{ started }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/domains/{id}/dns:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post:
+      summary: Create or update the hostname's A/AAAA records through a DNS provider.
+      responses: { '200': { description: '{ domain }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/dns-providers:
+    get:
+      summary: Connected DNS providers and the zones they can edit.
+      responses: { '200': { description: '{ providers }' }, '422': { $ref: '#/components/responses/Error' } }
+    post:
+      summary: Connect a Cloudflare API token (verified, token sealed).
+      responses: { '201': { description: '{ id, zones }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/dns-providers/{id}/refresh:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post:
+      summary: Re-read the zones a provider can edit.
+      responses: { '200': { description: '{ zones }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/dns-providers/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    delete:
+      summary: Remove a DNS provider (records stay at the provider).
+      responses: { '204': { description: Removed }, '422': { $ref: '#/components/responses/Error' } }
+  /api/servers/{id}/firewall:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    get:
+      summary: Firewall rules for a server; ?status=1 also reads what's applied on the host.
+      responses: { '200': { description: '{ rules, status, protected, you }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/servers/{id}/firewall/rules:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    put:
+      summary: Create or change the rule for one port/protocol (allowed source ranges). Refuses rules that would lock the caller out of the dashboard or proxy.
+      responses: { '200': { description: '{ id }' }, '422': { $ref: '#/components/responses/Error' } }
+  /api/firewall-rules/{id}:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    delete:
+      summary: Delete a firewall rule.
+      responses: { '204': { description: Deleted }, '422': { $ref: '#/components/responses/Error' } }
+  /api/servers/{id}/firewall/apply:
+    parameters: [{ $ref: '#/components/parameters/id' }]
+    post:
+      summary: Apply the server's rules to its DOCKER-USER chain now.
+      responses: { '200': { description: '{ applied, rules }' }, '422': { $ref: '#/components/responses/Error' } }
   /api/servers:
     get:
       summary: Server inventory, filtered, sorted and paged in the database, with overview counts.

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/notsliver/Ignition/services/internal/runtime"
+	"github.com/notsliver/Ignition/services/internal/store"
 )
 
 func envLabels(environmentID string) map[string]string {
@@ -16,6 +17,16 @@ func envLabels(environmentID string) map[string]string {
 
 func sharedLabels(name string) map[string]string {
 	return map[string]string{"ignition.network": "shared", "ignition.shared": name}
+}
+
+// ensureShared creates a shared network with the subnets, IPv6 and isolation set on the
+// Networking page (Docker picks the subnet when none is set).
+func (w *Worker) ensureShared(ctx context.Context, name string) error {
+	o := runtime.NetworkOptions{}
+	if n, err := w.Store.GetSharedNetwork(ctx, name); err == nil {
+		o = runtime.NetworkOptions{Subnet: n.Subnet, Gateway: n.Gateway, IPv6: n.IPv6, Subnet6: n.Subnet6, Internal: n.Internal}
+	}
+	return w.Runtime.EnsureManagedNetworkWith(ctx, runtime.SharedNetwork(name), sharedLabels(name), o)
 }
 
 // proxyContainer finds the domain proxy of this Ignition install (same compose project as the worker).
@@ -74,11 +85,16 @@ func (w *Worker) ReconcileNetworks(ctx context.Context) {
 			sn := runtime.SharedNetwork(n)
 			want = append(want, sn)
 			inUse[sn] = true
-			w.Runtime.EnsureManagedNetwork(ctx, sn, sharedLabels(n))
+			w.ensureShared(ctx, n)
 		}
+		var addrs map[string]store.NetAddress
 		for _, n := range want {
 			if !attached[n] {
-				if err := w.Runtime.ConnectNetwork(ctx, n, t.ContainerID, t.Aliases); err != nil {
+				if addrs == nil {
+					addrs, _ = w.Store.NetworkAddresses(ctx, t.ResourceID)
+				}
+				a := addrs[strings.TrimPrefix(n, "ign-net-")]
+				if err := w.Runtime.ConnectNetworkAt(ctx, n, t.ContainerID, t.Aliases, runtime.Address{IPv4: a.IPv4, IPv6: a.IPv6}); err != nil {
 					slog.Warn("attach network", "network", n, "resource", t.ResourceID, "error", err)
 					continue
 				}

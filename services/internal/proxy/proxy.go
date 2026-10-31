@@ -56,40 +56,114 @@ func AdminConfig(socket string) map[string]any {
 
 type obj = map[string]any
 
-// Build turns routes into a Caddy config and a short hash identifying it.
-func (c *Client) Build(routes []store.ProxyRoute) ([]byte, string) {
+// Settings apply to every route the proxy serves.
+type Settings struct {
+	Compression bool   `json:"compression"` // gzip/zstd responses
+	HSTS        bool   `json:"hsts"`        // Strict-Transport-Security on HTTPS routes
+	MaxBodyMB   int    `json:"maxBodyMb"`   // request body limit, 0 = none
+	ACMEEmail   string `json:"acmeEmail"`   // contact for certificate expiry notices
+	ACMECA      string `json:"acmeCa"`      // letsencrypt | letsencrypt-staging
+}
+
+var acmeDirectories = map[string]string{
+	"letsencrypt":         "https://acme-v02.api.letsencrypt.org/directory",
+	"letsencrypt-staging": "https://acme-staging-v02.api.letsencrypt.org/directory",
+}
+
+func DefaultSettings() Settings { return Settings{Compression: true, ACMECA: "letsencrypt"} }
+
+// Build turns routes into a Caddy config and a short hash identifying it. Routes arrive sorted by
+// hostname, most specific path first, so a /api route wins over the whole-site one.
+func (c *Client) Build(routes []store.ProxyRoute, set Settings) ([]byte, string) {
 	var handlers []any
-	var skip []string
+	var skip, acme []string
+	httpsHosts := map[string]bool{}
+	for _, r := range routes {
+		if r.HTTPS {
+			httpsHosts[r.Hostname] = true
+		}
+	}
+	seen := map[string]bool{}
 	for _, r := range routes {
 		host := []string{r.Hostname}
-		// 1. Ownership check, answered over plain HTTP so it works before a certificate exists.
-		handlers = append(handlers, obj{"match": []any{obj{"host": host, "path": []string{CheckPath}}},
-			"handle": []any{obj{"handler": "static_response", "status_code": 200, "body": r.Token}}, "terminal": true})
-		if r.HTTPS {
-			loc := "https://{http.request.host}"
-			if c.HTTPSPort != 443 {
-				loc += ":" + strconv.Itoa(c.HTTPSPort)
+		if !seen[r.Hostname] {
+			seen[r.Hostname] = true
+			// 1. Ownership check, answered over plain HTTP so it works before a certificate exists.
+			handlers = append(handlers, obj{"match": []any{obj{"host": host, "path": []string{CheckPath}}},
+				"handle": []any{obj{"handler": "static_response", "status_code": 200, "body": r.Token}}, "terminal": true})
+			if httpsHosts[r.Hostname] {
+				loc := "https://{http.request.host}"
+				if c.HTTPSPort != 443 {
+					loc += ":" + strconv.Itoa(c.HTTPSPort)
+				}
+				handlers = append(handlers, obj{"match": []any{obj{"host": host, "protocol": "http"}},
+					"handle": []any{obj{"handler": "static_response", "status_code": 308, "headers": obj{"Location": []string{loc + "{http.request.uri}"}}}}, "terminal": true})
+				if !IsLocal(r.Hostname) {
+					acme = append(acme, r.Hostname)
+				}
+			} else {
+				skip = append(skip, r.Hostname)
 			}
-			handlers = append(handlers, obj{"match": []any{obj{"host": host, "protocol": "http"}},
-				"handle": []any{obj{"handler": "static_response", "status_code": 308, "headers": obj{"Location": []string{loc + "{http.request.uri}"}}}}, "terminal": true})
-		} else {
-			skip = append(skip, r.Hostname)
 		}
-		var handle any
+		match := obj{"host": host}
+		if r.PathPrefix != "" {
+			match["path"] = []string{r.PathPrefix, r.PathPrefix + "/*"}
+		}
+		// 2. IP allow list: everyone else gets a polite 403 before anything else runs.
+		if len(r.AllowIPs) > 0 {
+			blocked := obj{"host": host, "not": []any{obj{"remote_ip": obj{"ranges": r.AllowIPs}}}}
+			if r.PathPrefix != "" {
+				blocked["path"] = match["path"]
+			}
+			handlers = append(handlers, obj{"match": []any{blocked}, "terminal": true, "handle": []any{unavailable(403, page{Status: "Not allowed", Tone: "warn",
+				Title: "This address isn’t allowed here", Message: "The owner of " + r.Hostname + " only lets certain networks reach it.",
+				Hint: "Need access? Ask whoever runs this site to add your network to its allow list."})}})
+		}
+		// Uploads over the limit are refused up front when they declare their size; request_body
+		// below also cuts off bodies that don't (chunked) once the app reads past the limit.
+		if set.MaxBodyMB > 0 && r.RedirectTo == "" {
+			tooBig := obj{"host": host, "expression": fmt.Sprintf("int({http.request.header.Content-Length}) > %d", set.MaxBodyMB<<20)}
+			if r.PathPrefix != "" {
+				tooBig["path"] = match["path"]
+			}
+			handlers = append(handlers, obj{"match": []any{tooBig}, "terminal": true, "handle": []any{obj{"handler": "static_response", "status_code": 413,
+				"body": fmt.Sprintf("Request body too large: this server accepts up to %d MB.", set.MaxBodyMB)}}})
+		}
+		// 3. The route itself, with the proxy-wide settings in front of it.
+		var chain []any
+		if set.MaxBodyMB > 0 {
+			chain = append(chain, obj{"handler": "request_body", "max_size": set.MaxBodyMB << 20})
+		}
+		if set.HSTS && r.HTTPS && !IsLocal(r.Hostname) {
+			chain = append(chain, obj{"handler": "headers", "response": obj{"set": obj{"Strict-Transport-Security": []string{"max-age=31536000"}}}})
+		}
 		switch {
+		case r.RedirectTo != "":
+			code := r.RedirectCode
+			if code == 0 {
+				code = 308
+			}
+			loc := strings.ReplaceAll(r.RedirectTo, "{path}", "{http.request.uri}")
+			chain = append(chain, obj{"handler": "static_response", "status_code": code, "headers": obj{"Location": []string{loc}}})
 		case r.Port == 0:
-			handle = unavailable(503, page{Status: "No port", Tone: "warn", Title: r.Resource + " has no port to route to",
+			chain = append(chain, unavailable(503, page{Status: "No port", Tone: "warn", Title: r.Resource + " has no port to route to",
 				Message: "Ignition doesn't know which port this app listens on, so " + r.Hostname + " can't reach it yet.",
-				Hint:    "Run this app? Set its port under Networking in your Ignition dashboard."})
+				Hint:    "Run this app? Set its port under Networking in your Ignition dashboard."}))
 		case r.ContainerID == "":
-			handle = unavailable(503, page{Status: "Stopped", Tone: "dot", Title: r.Resource + " isn’t running right now",
+			chain = append(chain, unavailable(503, page{Status: "Stopped", Tone: "dot", Title: r.Resource + " isn’t running right now",
 				Message: "This app is stopped, so " + r.Hostname + " has nothing to show yet. It will load here as soon as it’s back.",
-				Hint:    "Run this app? Start or deploy <code>" + html.EscapeString(r.Resource) + "</code> from your Ignition dashboard.", RawHint: true})
+				Hint:    "Run this app? Start or deploy <code>" + html.EscapeString(r.Resource) + "</code> from your Ignition dashboard.", RawHint: true}))
 		default:
+			if set.Compression {
+				chain = append(chain, obj{"handler": "encode", "encodings": obj{"zstd": obj{}, "gzip": obj{}}, "prefer": []string{"zstd", "gzip"}})
+			}
+			if r.StripPrefix && r.PathPrefix != "" {
+				chain = append(chain, obj{"handler": "rewrite", "strip_path_prefix": r.PathPrefix})
+			}
 			// Docker adds the short container ID as a DNS alias on user-defined networks.
-			handle = obj{"handler": "reverse_proxy", "upstreams": []any{obj{"dial": shortID(r.ContainerID) + ":" + strconv.Itoa(r.Port)}}}
+			chain = append(chain, obj{"handler": "reverse_proxy", "upstreams": []any{obj{"dial": shortID(r.ContainerID) + ":" + strconv.Itoa(r.Port)}}})
 		}
-		handlers = append(handlers, obj{"match": []any{obj{"host": host}}, "handle": []any{handle}, "terminal": true})
+		handlers = append(handlers, obj{"match": []any{match}, "handle": chain, "terminal": true})
 	}
 	// Anything else that reaches the proxy gets an explanation instead of an empty response.
 	handlers = append(handlers, obj{"handle": []any{unavailable(404, page{Status: "Not set up", Tone: "dot", Title: "This domain isn’t set up",
@@ -97,7 +171,19 @@ func (c *Client) Build(routes []store.ProxyRoute) ([]byte, string) {
 		Hint:    "Run this server? Add the domain to an app under Domains in your Ignition dashboard."})}})
 	server := obj{"listen": []string{":80", ":443"}, "routes": handlers, "automatic_https": obj{"disable_redirects": true, "skip": nonNil(skip)}}
 	// The local CA signs certificates for *.localhost; installing its root into the container's trust store is pointless.
-	body := obj{"apps": obj{"http": obj{"servers": obj{"ignition": server}}, "pki": obj{"certificate_authorities": obj{"local": obj{"install_trust": false}}}}}
+	apps := obj{"http": obj{"servers": obj{"ignition": server}}, "pki": obj{"certificate_authorities": obj{"local": obj{"install_trust": false}}}}
+	// Public names get certificates from the chosen ACME CA, with the contact email when set.
+	if len(acme) > 0 {
+		issuer := obj{"module": "acme"}
+		if dir, ok := acmeDirectories[set.ACMECA]; ok {
+			issuer["ca"] = dir
+		}
+		if set.ACMEEmail != "" {
+			issuer["email"] = set.ACMEEmail
+		}
+		apps["tls"] = obj{"automation": obj{"policies": []any{obj{"subjects": acme, "issuers": []any{issuer}}}}}
+	}
+	body := obj{"apps": apps}
 	raw, _ := json.Marshal(body)
 	sum := sha256.Sum256(raw)
 	hash := hex.EncodeToString(sum[:6])
@@ -105,6 +191,27 @@ func (c *Client) Build(routes []store.ProxyRoute) ([]byte, string) {
 	body["admin"] = AdminConfig(c.Socket)
 	raw, _ = json.Marshal(body)
 	return raw, hash
+}
+
+// Config is what the proxy runs right now (for the routes table), without the admin block.
+func (c *Client) Config(ctx context.Context) (json.RawMessage, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+origin+"/config/apps", nil)
+	if err != nil {
+		return nil, err
+	}
+	res, err := c.http.Do(req)
+	if err != nil {
+		return nil, errors.New("the proxy isn't running")
+	}
+	defer res.Body.Close()
+	return io.ReadAll(io.LimitReader(res.Body, 8<<20))
+}
+
+// RunningHash is the id of the loaded config ("" when unknown).
+func (c *Client) RunningHash(ctx context.Context, routes []store.ProxyRoute, set Settings) (want string, current bool) {
+	_, want = c.Build(routes, set)
+	code, err := c.admin(ctx, http.MethodGet, "/id/ignition-"+want, nil)
+	return want, err == nil && code == http.StatusOK
 }
 
 //go:embed unavailable.html
@@ -158,8 +265,8 @@ func shortID(id string) string {
 }
 
 // Sync loads the config unless Caddy already runs this exact one. It reports whether it changed anything.
-func (c *Client) Sync(ctx context.Context, routes []store.ProxyRoute) (bool, error) {
-	raw, hash := c.Build(routes)
+func (c *Client) Sync(ctx context.Context, routes []store.ProxyRoute, set Settings) (bool, error) {
+	raw, hash := c.Build(routes, set)
 	if res, err := c.admin(ctx, http.MethodGet, "/id/ignition-"+hash, nil); err == nil && res == http.StatusOK {
 		return false, nil
 	}
@@ -306,4 +413,11 @@ func preferIPv4(addrs []string) string {
 		}
 	}
 	return addrs[0]
+}
+
+// LoadSettings reads the proxy settings saved on the Domains page.
+func LoadSettings(ctx context.Context, st *store.Store) Settings {
+	s := DefaultSettings()
+	st.GetSetting(ctx, "proxy", &s)
+	return s
 }

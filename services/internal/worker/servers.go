@@ -79,6 +79,8 @@ func (w *Worker) ServerLoop(ctx context.Context) {
 	defer tick.Stop()
 	prune := time.NewTicker(time.Hour)
 	defer prune.Stop()
+	fw := time.NewTicker(10 * time.Minute)
+	defer fw.Stop()
 	hs := newHostState()
 	w.checkAll(ctx, hs)
 	for {
@@ -90,6 +92,8 @@ func (w *Worker) ServerLoop(ctx context.Context) {
 			w.Store.PruneServerEvents(ctx, serverEventRetention)
 		case <-tick.C:
 			w.checkAll(ctx, hs)
+		case <-fw.C:
+			w.ReconcileFirewalls(ctx)
 		}
 	}
 }

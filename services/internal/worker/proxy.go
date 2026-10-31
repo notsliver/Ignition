@@ -4,6 +4,8 @@ import (
 	"context"
 	"log/slog"
 	"time"
+
+	"github.com/notsliver/Ignition/services/internal/proxy"
 )
 
 // ProxyLoop keeps the domain proxy's routes in step with the database (containers change on every deploy,
@@ -25,7 +27,7 @@ func (w *Worker) ProxyLoop(ctx context.Context) {
 			if err != nil {
 				continue
 			}
-			if changed, err := w.Proxy.Sync(ctx, routes); err != nil {
+			if changed, err := w.Proxy.Sync(ctx, routes, proxy.LoadSettings(ctx, w.Store)); err != nil {
 				slog.Debug("proxy sync failed", "error", err)
 			} else if changed {
 				slog.Info("proxy routes updated", "domains", len(routes))

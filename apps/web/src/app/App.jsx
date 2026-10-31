@@ -2,6 +2,8 @@ import { useEffect, useRef, useState } from 'react';
 import { Bars3Icon, ViewColumnsIcon } from '@heroicons/react/20/solid';
 import { Badge, IconButton, Notice, cx } from '../ui';
 import { ComingSoon } from '../pages/ComingSoon';
+import { Domains as DomainsHub } from '../pages/network/Domains';
+import { Networking } from '../pages/network/Networking';
 import { Dashboard } from '../pages/Dashboard/Dashboard';
 import { Monitor } from '../pages/Monitor/Monitor';
 import { Sources } from '../pages/Sources/Sources';
@@ -133,6 +135,8 @@ export function App() {
         : active === 'Dashboard' ? <Dashboard onOpenResource={openResourceFromAnywhere} onOpenServer={openServer} onNavigate={navigate} />
         : active === 'Monitor' ? <Monitor onOpenResource={openResourceFromAnywhere} />
         : active === 'Sources' ? <Sources onOpenResource={openResourceFromAnywhere} />
+        : active === 'Domains' ? <DomainsHub onOpenResource={openResourceFromAnywhere} />
+        : active === 'Networking' ? <Networking onOpenResource={openResourceFromAnywhere} />
           : active === 'Audit Log' ? <AuditLog onOpenResource={openResourceFromAnywhere} />
             : LIVE_PAGES.includes(active) ? pages[active] : pages[active] && preview(pages[active]);
 

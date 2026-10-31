@@ -18,11 +18,12 @@ type ContainerSpec struct {
 	Limits       Limits // reservation, PIDs, swap, restart policy
 	Labels       map[string]string
 	Network      string
-	Networks     []string          // extra networks to join besides Network
-	Aliases      []string          // DNS names on every network, stable across deployments
-	Volumes      map[string]string // named volume -> mount path; created on demand, kept across containers
-	VolumeLabels map[string]string // labels for volumes created on demand
-	Binds        []string          // host:container[:ro] bind mounts (only Ignition's own helpers use these)
+	Networks     []string           // extra networks to join besides Network
+	Aliases      []string           // DNS names on every network, stable across deployments
+	Addresses    map[string]Address // fixed addresses per network
+	Volumes      map[string]string  // named volume -> mount path; created on demand, kept across containers
+	VolumeLabels map[string]string  // labels for volumes created on demand
+	Binds        []string           // host:container[:ro] bind mounts (only Ignition's own helpers use these)
 	AutoRemove   bool
 	Entrypoint   []string // overrides the image's ENTRYPOINT when non-empty
 	WorkingDir   string
@@ -209,6 +210,11 @@ type Runtime interface {
 	RemoveNetwork(ctx context.Context, name string) error
 	// ConnectNetwork attaches a running container live; it's a no-op when already attached.
 	ConnectNetwork(ctx context.Context, network, container string, aliases []string) error
+	// EnsureManagedNetworkWith also sets subnets, IPv6 and isolation when it creates the network.
+	EnsureManagedNetworkWith(ctx context.Context, name string, labels map[string]string, o NetworkOptions) error
+	// ConnectNetworkAt attaches a running container with fixed addresses.
+	ConnectNetworkAt(ctx context.Context, network, container string, aliases []string, a Address) error
+	NetworkEndpoints(ctx context.Context, name string) ([]NetworkEndpoint, error)
 	DisconnectNetwork(ctx context.Context, network, container string) error
 	ContainerLabels(ctx context.Context, id string) (map[string]string, error)
 	// Instance is this install's compose project; managed networks are labelled with it.

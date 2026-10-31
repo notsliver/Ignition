@@ -256,6 +256,12 @@ func (s *Server) hostPortConflict(ctx context.Context, res *store.Resource, host
 	if what, ok := reserved[hostPort]; ok && protocol == "tcp" {
 		return fmt.Sprintf("Port %d is used by %s.", hostPort, what)
 	}
+	if note, ok := s.Store.ReservedPort(ctx, hostPort, protocol); ok {
+		if note == "" {
+			note = "no note"
+		}
+		return fmt.Sprintf("Port %d/%s is reserved (%s). Release it under Networking › Ports first.", hostPort, protocol, note)
+	}
 	if name, err := s.Store.TakenHostPort(ctx, res.ID, hostPort, protocol); err == nil && name != "" {
 		return fmt.Sprintf("Port %d/%s is already mapped by %s.", hostPort, protocol, name)
 	}
@@ -277,9 +283,10 @@ func (s *Server) putNetworking(w http.ResponseWriter, r *http.Request, u *store.
 		return notFound(err, "Resource")
 	}
 	var in struct {
-		Ports    []portInput `json:"ports"`
-		Networks []string    `json:"networks"`
-		Aliases  []string    `json:"aliases"`
+		Ports     []portInput                 `json:"ports"`
+		Networks  []string                    `json:"networks"`
+		Aliases   []string                    `json:"aliases"`
+		Addresses map[string]store.NetAddress `json:"addresses"` // fixed addresses per shared network
 	}
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
@@ -287,7 +294,7 @@ func (s *Server) putNetworking(w http.ResponseWriter, r *http.Request, u *store.
 	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
 	defer cancel()
 	f := map[string]string{}
-	cfg := store.Networking{Ports: []store.PortMapping{}, Networks: []string{}, Aliases: []string{}}
+	cfg := store.Networking{Ports: []store.PortMapping{}, Networks: []string{}, Aliases: []string{}, Addresses: map[string]store.NetAddress{}}
 
 	// Aliases: valid DNS names, unique, and not already answered by another resource on a shared network.
 	peers, _ := s.Store.Peers(r.Context(), id)
@@ -325,6 +332,44 @@ func (s *Server) putNetworking(w http.ResponseWriter, r *http.Request, u *store.
 	if len(cfg.Networks) > 5 {
 		f["networks"] = "Up to 5 shared networks."
 	}
+	// Fixed addresses: only on networks with a subnet set, inside it, and not taken.
+	for name, a := range in.Addresses {
+		a.IPv4, a.IPv6 = strings.TrimSpace(a.IPv4), strings.TrimSpace(a.IPv6)
+		if (a.IPv4 == "" && a.IPv6 == "") || !slices.Contains(cfg.Networks, name) {
+			continue
+		}
+		key := "addresses." + name
+		n, err := s.Store.GetSharedNetwork(ctx, name)
+		switch {
+		case err != nil:
+			f[key] = "Create " + name + " under Networking with a subnet to give it fixed addresses."
+			continue
+		case a.IPv4 != "" && n.Subnet == "":
+			f[key] = name + " has no IPv4 subnet set, so Docker can't hand out a fixed IPv4 address on it."
+			continue
+		case a.IPv6 != "" && n.Subnet6 == "":
+			f[key] = name + " has no IPv6 range set."
+			continue
+		}
+		for _, pair := range [][2]string{{a.IPv4, n.Subnet}, {a.IPv6, n.Subnet6}} {
+			if pair[0] == "" {
+				continue
+			}
+			ip := net.ParseIP(pair[0])
+			_, subnet, _ := net.ParseCIDR(pair[1])
+			switch {
+			case ip == nil || subnet == nil || !subnet.Contains(ip):
+				f[key] = fmt.Sprintf("%s isn't inside %s.", pair[0], pair[1])
+			case ip.Equal(subnet.IP) || (n.Gateway != "" && ip.Equal(net.ParseIP(n.Gateway))):
+				f[key] = pair[0] + " is the network or gateway address."
+			default:
+				if who, _ := s.Store.TakenAddress(ctx, name, id, ip.String()); who != "" {
+					f[key] = fmt.Sprintf("%s already has %s.", who, pair[0])
+				}
+			}
+		}
+		cfg.Addresses[name] = a
+	}
 
 	// Ports: valid, not duplicated, and not taken by anything else on this machine.
 	bindings, _ := s.Runtime.HostBindings(ctx)
@@ -348,6 +393,17 @@ func (s *Server) putNetworking(w http.ResponseWriter, r *http.Request, u *store.
 		}
 		if p.BindAddress != "127.0.0.1" && p.BindAddress != "0.0.0.0" {
 			f[key("bindAddress")] = "Choose this machine only or all interfaces."
+		}
+		// With an allocation range, a mapping without a host port gets the next free one now.
+		if p.HostPort == nil && s.netSettings(ctx).PortRangeStart > 0 {
+			if free, err := s.nextFreePort(ctx, p.Protocol, bindings); err == nil {
+				for seen[fmt.Sprintf("%d/%s", free, p.Protocol)] {
+					free++
+				}
+				p.HostPort = &free
+			} else {
+				f[key("hostPort")] = "No port left to allocate: " + err.Error() + "."
+			}
 		}
 		if p.HostPort != nil {
 			hp := *p.HostPort
@@ -374,13 +430,14 @@ func (s *Server) putNetworking(w http.ResponseWriter, r *http.Request, u *store.
 	} else if err != nil {
 		return err
 	}
-	s.Store.Audit(r.Context(), u, "resource.networking", "resource", id, map[string]any{"ports": len(cfg.Ports), "networks": cfg.Networks, "aliases": cfg.Aliases}, clientIP(r))
+	s.Store.Audit(r.Context(), u, "resource.networking", "resource", id, map[string]any{"ports": len(cfg.Ports), "networks": cfg.Networks, "aliases": cfg.Aliases, "addresses": cfg.Addresses}, clientIP(r))
 	if saved, err := s.Store.GetNetworking(r.Context(), id); err == nil {
 		cfg = saved // with the new mapping IDs
 	}
 	// Joining or leaving networks applies now, without a restart. Ports and aliases need the container recreated.
 	applyErr := s.applyNetworks(r.Context(), res, cfg)
-	redeploy := res.ContainerID != "" && (!slices.Equal(before.Aliases, cfg.Aliases) || !samePorts(before.Ports, cfg.Ports))
+	// Fixed addresses on networks the container is already on take effect when it's recreated.
+	redeploy := res.ContainerID != "" && (!slices.Equal(before.Aliases, cfg.Aliases) || !samePorts(before.Ports, cfg.Ports) || fmt.Sprint(before.Addresses) != fmt.Sprint(cfg.Addresses))
 	out := map[string]any{"config": cfg, "requiresRedeploy": redeploy}
 	if applyErr != nil {
 		out["applyError"] = "Saved, but joining the networks failed: " + applyErr.Error() + ". It's retried automatically."
@@ -626,13 +683,18 @@ func (s *Server) applyNetworks(ctx context.Context, res *store.Resource, cfg sto
 		attached[a.Network] = true
 	}
 	for _, n := range cfg.Networks {
-		if err := s.Runtime.EnsureManagedNetwork(ctx, runtime.SharedNetwork(n), map[string]string{"ignition.network": "shared", "ignition.shared": n}); err != nil {
+		o := runtime.NetworkOptions{}
+		if spec, err := s.Store.GetSharedNetwork(ctx, n); err == nil {
+			o = runtime.NetworkOptions{Subnet: spec.Subnet, Gateway: spec.Gateway, IPv6: spec.IPv6, Subnet6: spec.Subnet6, Internal: spec.Internal}
+		}
+		if err := s.Runtime.EnsureManagedNetworkWith(ctx, runtime.SharedNetwork(n), map[string]string{"ignition.network": "shared", "ignition.shared": n}, o); err != nil {
 			return err
 		}
 	}
 	for _, n := range want {
 		if !attached[n] {
-			if err := s.Runtime.ConnectNetwork(ctx, n, res.ContainerID, aliases); err != nil {
+			a := cfg.Addresses[strings.TrimPrefix(n, "ign-net-")]
+			if err := s.Runtime.ConnectNetworkAt(ctx, n, res.ContainerID, aliases, runtime.Address{IPv4: a.IPv4, IPv6: a.IPv6}); err != nil {
 				return err
 			}
 		}

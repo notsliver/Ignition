@@ -13,14 +13,21 @@ type PortMapping struct {
 	BindAddress   string `json:"bindAddress"`
 }
 
+// NetAddress is a fixed address for a resource on one shared network ("" = assigned by Docker).
+type NetAddress struct {
+	IPv4 string `json:"ipv4"`
+	IPv6 string `json:"ipv6"`
+}
+
 type Networking struct {
-	Ports    []PortMapping `json:"ports"`
-	Networks []string      `json:"networks"` // extra networks besides "ignition"
-	Aliases  []string      `json:"aliases"`  // extra DNS names besides the resource name
+	Addresses map[string]NetAddress `json:"addresses"` // shared network name -> fixed addresses
+	Ports     []PortMapping         `json:"ports"`
+	Networks  []string              `json:"networks"` // extra networks besides "ignition"
+	Aliases   []string              `json:"aliases"`  // extra DNS names besides the resource name
 }
 
 func (s *Store) GetNetworking(ctx context.Context, resourceID string) (Networking, error) {
-	n := Networking{Ports: []PortMapping{}, Networks: []string{}, Aliases: []string{}}
+	n := Networking{Ports: []PortMapping{}, Networks: []string{}, Aliases: []string{}, Addresses: map[string]NetAddress{}}
 	rows, err := s.DB.Query(ctx, `SELECT id, host_port, container_port, protocol, bind_address FROM resource_ports WHERE resource_id = $1 ORDER BY container_port, created_at`, resourceID)
 	if err != nil {
 		return n, err
@@ -34,17 +41,21 @@ func (s *Store) GetNetworking(ctx context.Context, resourceID string) (Networkin
 		n.Ports = append(n.Ports, p)
 	}
 	rows.Close()
-	rows, err = s.DB.Query(ctx, `SELECT n.name FROM resource_networks m JOIN shared_networks n ON n.id = m.network_id WHERE m.resource_id = $1 ORDER BY n.name`, resourceID)
+	rows, err = s.DB.Query(ctx, `SELECT n.name, m.ipv4, m.ipv6 FROM resource_networks m JOIN shared_networks n ON n.id = m.network_id WHERE m.resource_id = $1 ORDER BY n.name`, resourceID)
 	if err != nil {
 		return n, err
 	}
 	for rows.Next() {
 		var name string
-		if err := rows.Scan(&name); err != nil {
+		var a NetAddress
+		if err := rows.Scan(&name, &a.IPv4, &a.IPv6); err != nil {
 			rows.Close()
 			return n, err
 		}
 		n.Networks = append(n.Networks, name)
+		if a.IPv4 != "" || a.IPv6 != "" {
+			n.Addresses[name] = a
+		}
 	}
 	rows.Close()
 	err = s.DB.QueryRow(ctx, `SELECT aliases FROM resources WHERE id = $1`, resourceID).Scan(&n.Aliases)
@@ -75,11 +86,13 @@ func (s *Store) SetNetworking(ctx context.Context, resourceID, userID string, n 
 		if _, err := tx.Exec(ctx, `INSERT INTO shared_networks (name, created_by) VALUES ($1, $2) ON CONFLICT (name) DO NOTHING`, name, nullable(userID)); err != nil {
 			return err
 		}
-		if _, err := tx.Exec(ctx, `INSERT INTO resource_networks (resource_id, network_id) SELECT $1, id FROM shared_networks WHERE name = $2`, resourceID, name); err != nil {
+		a := n.Addresses[name]
+		if _, err := tx.Exec(ctx, `INSERT INTO resource_networks (resource_id, network_id, ipv4, ipv6) SELECT $1, id, $3, $4 FROM shared_networks WHERE name = $2`, resourceID, name, a.IPv4, a.IPv6); err != nil {
 			return err
 		}
 	}
-	if _, err := tx.Exec(ctx, `DELETE FROM shared_networks n WHERE NOT EXISTS (SELECT 1 FROM resource_networks m WHERE m.network_id = n.id)`); err != nil {
+	// Networks created on the fly from a resource go when their last member leaves; pinned ones stay.
+	if _, err := tx.Exec(ctx, `DELETE FROM shared_networks n WHERE NOT pinned AND NOT EXISTS (SELECT 1 FROM resource_networks m WHERE m.network_id = n.id)`); err != nil {
 		return err
 	}
 	if _, err := tx.Exec(ctx, `UPDATE resources SET aliases = $2, updated_at = now() WHERE id = $1`, resourceID, n.Aliases); err != nil {

@@ -282,9 +282,9 @@ func (d *Docker) CreateContainer(ctx context.Context, s ContainerSpec) (string, 
 	}
 	if s.Network != "" {
 		// API 1.44+ accepts every network at create time, each with the same aliases.
-		endpoints := map[string]any{s.Network: map[string]any{"Aliases": s.Aliases}}
+		endpoints := map[string]any{s.Network: endpoint(s.Aliases, s.Addresses[s.Network])}
 		for _, n := range s.Networks {
-			endpoints[n] = map[string]any{"Aliases": s.Aliases}
+			endpoints[n] = endpoint(s.Aliases, s.Addresses[n])
 		}
 		body["NetworkingConfig"] = map[string]any{"EndpointsConfig": endpoints}
 	}

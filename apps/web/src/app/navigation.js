@@ -14,7 +14,7 @@ export const topItems = [
 
 export const groups = [
   { label: 'Resources', items: ['Applications', 'Databases', 'Services', 'Scheduled jobs', 'Deployments'] },
-  { label: 'Infrastructure', items: ['Servers', 'Sources', 'Domains', 'Logs & monitoring'] },
+  { label: 'Infrastructure', items: ['Servers', 'Sources', 'Domains', 'Networking', 'Logs & monitoring'] },
   { label: 'Discover', items: ['Templates', 'Changelog', 'Documentation'] },
 ];
 
