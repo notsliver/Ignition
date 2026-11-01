@@ -157,6 +157,7 @@ var accountRoutes = map[string]bool{
 	"PUT /api/projects/{id}/favorite": true, "DELETE /api/projects/{id}/favorite": true, "GET /api/cron/preview": true, "GET /api/databases/engines": true,
 	"GET /api/automations/catalog": true,
 	"GET /api/games":               true, "GET /api/games/{game}/versions": true, "GET /api/games/{game}/modpacks": true, "GET /api/games/{game}/modpacks/{project}/versions": true,
+	"POST /api/setup/complete": true, // the owner check is in the handler
 	"GET /api/account/preferences": true, "PUT /api/account/preferences": true,
 	"POST /api/invites": true, // who may invite is a setting; checked in createInvite
 }

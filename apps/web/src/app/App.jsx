@@ -172,7 +172,7 @@ export function App() {
         : active === 'Servers' ? (server
           ? <ServerWorkspace key={server.id} server={server} view={serverView} onNavigate={showServerView} onServerChange={setServerState} onRemoved={() => { setServerState(null); setServerView('Overview'); }} onOpenResource={openResourceFromAnywhere} />
           : <Servers onOpen={openServer} />)
-        : active === 'Dashboard' ? <Dashboard onOpenResource={openResourceFromAnywhere} onOpenServer={openServer} onNavigate={navigate} />
+        : active === 'Dashboard' ? <Dashboard onOpenResource={openResourceFromAnywhere} onOpenProject={openProject} onOpenServer={openServer} onNavigate={navigate} />
         : active === 'Monitor' ? <Monitor onOpenResource={openResourceFromAnywhere} />
         : active === 'Sources' ? <Sources onOpenResource={openResourceFromAnywhere} />
         : active === 'Domains' ? <DomainsHub onOpenResource={openResourceFromAnywhere} />

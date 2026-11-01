@@ -1,8 +1,9 @@
-import { createContext, useContext, useEffect, useState } from 'react';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
 import { ArrowRightEndOnRectangleIcon, EyeIcon, EyeSlashIcon, KeyIcon, LockClosedIcon } from '@heroicons/react/16/solid';
 import { Button, FormField, Logo, Notice, TextInput } from '../ui';
 import { api, onUnauthenticated } from '../api/client';
 import { EnrollTwoFactor, RecoveryCodes } from './TwoFactor';
+import { Onboarding } from './Onboarding';
 import { adoptServerPreferences, setPreferenceSaver } from './preferences';
 import './AuthGate.css';
 
@@ -23,6 +24,8 @@ const withPermissions = out => {
 export function AuthGate({ children }) {
   const [state, setState] = useState({ phase: 'loading' });
   const [instance, setInstance] = useState('Ignition');
+  // First run isn't over until the owner has secured the instance; they land back there until then.
+  const onboarding = useRef({ pending: false, useCase: '' });
 
   async function check() {
     // Invite and password reset links (/join/<token>) work whether or not someone is signed in here.
@@ -31,8 +34,9 @@ export function AuthGate({ children }) {
     try {
       const status = await api.setupStatus();
       if (status.instanceName) setInstance(status.instanceName);
+      onboarding.current = { pending: !!status.onboarding, useCase: status.useCase };
       if (status.required) return setState({ phase: 'setup' });
-      setState({ phase: 'ready', user: withPermissions(await api.me()) });
+      enter(withPermissions(await api.me()));
     } catch (e) {
       setState(e.status === 401 ? { phase: 'login' } : { phase: 'error', error: e });
     }
@@ -45,8 +49,13 @@ export function AuthGate({ children }) {
     if (out.mfaRequired) return setState({ phase: 'mfa', ticket: out.ticket });
     if (out.mfaSetupRequired) return setState({ phase: 'enroll', ticket: out.ticket });
     after?.();
-    setState({ phase: 'ready', user: withPermissions(out) });
+    enter(withPermissions(out));
   };
+  function enter(user) {
+    if (onboarding.current.pending && user.role === 'owner') return setState({ phase: 'secure', user });
+    setState({ phase: 'ready', user });
+  }
+  const finishSetup = async () => { onboarding.current.pending = false; setState({ phase: 'ready', user: withPermissions(await api.me()) }); };
   const restart = message => setState({ phase: 'login', message });
 
   if (state.phase === 'ready') return <SessionContext.Provider value={{
@@ -54,6 +63,8 @@ export function AuthGate({ children }) {
     refresh: async () => setState({ phase: 'ready', user: withPermissions(await api.me()) }),
     signOut: async () => { await api.logout().catch(() => {}); setPreferenceSaver(null); setState({ phase: 'login' }); },
   }}>{children}</SessionContext.Provider>;
+  if (state.phase === 'setup' || state.phase === 'secure') return <Onboarding instance={instance} user={state.phase === 'secure' ? state.user : null}
+    useCase={onboarding.current.useCase} onDone={finishSetup} />;
   return <div className="auth-screen">
     <main className="auth-column">
       <div className="auth-brand"><Logo className="auth-logo" /><span>{instance}</span></div>
@@ -64,7 +75,6 @@ export function AuthGate({ children }) {
           <Notice tone="danger" title="The API didn't answer">{state.error.message}</Notice>
           <Button variant="primary" onClick={check}>Try again</Button>
         </div>}
-        {state.phase === 'setup' && <SetupForm onDone={out => proceed(out)} />}
         {state.phase === 'join' && <JoinForm token={state.token} onInstance={setInstance}
           onDone={out => proceed(out, () => history.replaceState(null, '', '/'))}
           onCancel={() => { history.replaceState(null, '', '/'); setState({ phase: 'loading' }); check(); }} />}
@@ -178,23 +188,6 @@ function EnrollForm({ ticket, instance, onDone, onRestart }) {
       confirm={async code => setDone(await api.mfaConfirmTicket(ticket, code))} />
     <button type="button" className="auth-link" onClick={() => onRestart()}>Back to sign in</button>
   </div>;
-}
-
-function SetupForm({ onDone }) {
-  const f = useForm({ code: '', name: '', email: '', password: '' });
-  return <form className="auth-form" onSubmit={e => { e.preventDefault(); f.submit(async v => onDone(await api.setup(v))); }}>
-    <header><h1>Set up Ignition</h1><p>Create the owner account for this machine.</p></header>
-    <div className="auth-step">
-      <span>The one-time setup code is in the API logs:</span>
-      <code>docker compose logs api | grep setup_code</code>
-    </div>
-    {f.message && <Notice tone="danger" title={f.message} />}
-    <FormField label="Setup code" htmlFor="code" error={f.errors.code}><TextInput className="mono" autoComplete="off" autoFocus placeholder="A1B2C3D4" {...f.bind('code')} /></FormField>
-    <FormField label="Your name" htmlFor="name" error={f.errors.name}><TextInput autoComplete="name" {...f.bind('name')} /></FormField>
-    <FormField label="Email" htmlFor="email" error={f.errors.email}><TextInput type="email" autoComplete="username" placeholder="you@example.com" {...f.bind('email')} /></FormField>
-    <FormField label="Password" htmlFor="password" error={f.errors.password}><PasswordInput autoComplete="new-password" count {...f.bind('password')} /></FormField>
-    <Button type="submit" variant="primary" disabled={f.pending}>{f.pending ? 'Creating…' : 'Create owner account'}</Button>
-  </form>;
 }
 
 const ROLE_NAMES = { owner: 'Owner', admin: 'Admin', developer: 'Developer', viewer: 'Viewer' };

@@ -50,17 +50,11 @@ const addMenu = [
 const importSources = { 'Upload a dump file': 'upload', 'From S3-compatible storage': 's3', 'Migrate from a live database': 'live' };
 
 export function Resources({ project, environment, environmentId, onOpen, onCreateGame }) {
-  const [flowKey, setFlowKey] = useState(null);
-  const [notice, setNotice] = useState(null);
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [deleting, setDeleting] = useState(null);
   const [actionError, setActionError] = useState('');
   const [highlight, setHighlight] = useState(null);
-  const [importing, setImporting] = useState(null); // { source }
-  const [external, setExternal] = useState(false);
-  const [staticOpen, setStaticOpen] = useState(false);
-  const [functionOpen, setFunctionOpen] = useState(false);
 
   const { data, error, loading, refetch } = useQuery(() => api.resources(project.id, { environment: environmentId }), [project.id, environmentId], { pollMs: 3000 });
   const all = data?.resources ?? [];
@@ -72,25 +66,9 @@ export function Resources({ project, environment, environmentId, onOpen, onCreat
     return all.filter(r => (filter === 'all' || r.type === filter) && (!q || r.name.includes(q) || sourceLabel(r).toLowerCase().includes(q)));
   }, [all, filter, query]);
 
-  const addOptions = useMemo(() => withPaths(addMenu, (path, label) => {
-    if (path.startsWith('Database/Import existing data/')) setImporting({ source: importSources[label] ?? 'upload' });
-    else if (path === 'Database/Connect external database') setExternal(true);
-    else if (path === 'Function') setFunctionOpen(true);
-    else if (label === 'Upload your static files') setStaticOpen(true);
-    else if (path.startsWith('Game server/')) onCreateGame?.({ Minecraft: 'minecraft' }[label]);
-    else if (flows[path]) setFlowKey(path);
-    else setNotice({ title: `${label} isn't available yet`, body: unsupported[label] ?? 'This option isn\'t supported in this version.' });
-  }), [onCreateGame]); // eslint-disable-line react-hooks/exhaustive-deps
-  const add = <Menu className="button primary" label="Add resource" items={addOptions}><PlusIcon />Add resource</Menu>;
-
-  async function create(payload) {
-    const { resource } = await api.createResource(project.id, { ...payload, environmentId });
-    setFlowKey(null);
-    setFilter('all');
-    setQuery('');
-    setHighlight(resource.id);
-    refetch();
-  }
+  const creation = useResourceCreation({ project, environment, environmentId, resources: all, onOpen, onCreateGame,
+    onCreated: resource => { setFilter('all'); setQuery(''); setHighlight(resource.id); refetch(); }, onRefresh: refetch });
+  const add = <Menu className="button primary" label="Add resource" items={creation.items}><PlusIcon />Add resource</Menu>;
 
   async function run(fn) {
     setActionError('');
@@ -112,19 +90,8 @@ export function Resources({ project, environment, environmentId, onOpen, onCreat
     ];
   };
 
-  const dialog = flowKey && flows[flowKey] && <AddResourceDialog key={flowKey} flow={flows[flowKey]} projectName={project.name} environment={environment}
-    takenNames={all.map(r => r.name)} onClose={() => setFlowKey(null)} onCreate={create} />;
   const shared = <>
-    {dialog}
-    <Unsupported info={notice} onClose={() => setNotice(null)} />
-    {importing && <ImportDataDialog project={project} environmentId={environmentId} databases={all.filter(r => r.type === 'database')} source={importing.source}
-      onClose={() => setImporting(null)} onDone={refetch} onOpen={id => { setImporting(null); const r = all.find(x => x.id === id); if (r) onOpen(r); else refetch(); }} />}
-    {external && <ExternalDatabaseDialog project={project} environmentId={environmentId} takenNames={all.map(r => r.name)} onClose={() => setExternal(false)}
-      onCreated={r => { setExternal(false); setFilter('all'); setHighlight(r.id); refetch(); }} />}
-    {functionOpen && <FunctionDialog projectName={project.name} environment={environment} takenNames={all.map(r => r.name)} onClose={() => setFunctionOpen(false)}
-      onCreate={async payload => { await create(payload); setFunctionOpen(false); }} />}
-    {staticOpen && <StaticSiteDialog project={project} environment={environment} environmentId={environmentId} takenNames={all.map(r => r.name)} onClose={() => setStaticOpen(false)}
-      onCreated={r => { setStaticOpen(false); setFilter('all'); setHighlight(r.id); refetch(); onOpen(r); }} />}
+    {creation.dialogs}
     {deleting && <DeleteDialog resource={deleting} onClose={() => setDeleting(null)} onDeleted={() => { setDeleting(null); refetch(); }} />}
   </>;
 
@@ -207,4 +174,48 @@ export function DeleteDialog({ resource, onClose, onDeleted }) {
     <TextInput value={confirm} onChange={e => setConfirm(e.target.value)} aria-label={`Type ${resource.name} to confirm`} autoComplete="off" autoFocus />
     {error && <p className="rp-error">{error}</p>}
   </Dialog>;
+}
+
+// Shared by project resources and dashboard quick actions.
+export function useResourceCreation({ project, environment, environmentId, resources: all, onOpen, onCreateGame, onCreated, onRefresh, onClose, initialAction }) {
+  const [flowKey, setFlowKey] = useState(null);
+  const [notice, setNotice] = useState(null);
+  const [importing, setImporting] = useState(null); // { source }
+  const [external, setExternal] = useState(false);
+  const [staticOpen, setStaticOpen] = useState(false);
+  const [functionOpen, setFunctionOpen] = useState(false);
+  const dismiss = () => {
+    setFlowKey(null); setNotice(null); setImporting(null); setExternal(false); setFunctionOpen(false); setStaticOpen(false);
+    onClose?.();
+  };
+  const pick = (path, label) => {
+    if (path.startsWith('Database/Import existing data/')) setImporting({ source: importSources[label] ?? 'upload' });
+    else if (path === 'Database/Connect external database') setExternal(true);
+    else if (path === 'Function') setFunctionOpen(true);
+    else if (label === 'Upload your static files') setStaticOpen(true);
+    else if (path.startsWith('Game server/')) onCreateGame?.({ Minecraft: 'minecraft' }[label]);
+    else if (flows[path]) setFlowKey(path);
+    else setNotice({ title: `${label} isn't available yet`, body: unsupported[label] ?? 'This option isn\'t supported in this version.' });
+  };
+  const addOptions = withPaths(addMenu, pick);
+  useEffect(() => { if (initialAction) pick(initialAction.path, initialAction.label); }, [initialAction]); // eslint-disable-line react-hooks/exhaustive-deps
+  async function create(payload) {
+    const { resource } = await api.createResource(project.id, { ...payload, environmentId });
+    setFlowKey(null);
+    onCreated(resource);
+  }
+  const dialog = flowKey && flows[flowKey] && <AddResourceDialog key={flowKey} flow={flows[flowKey]} projectName={project.name} environment={environment}
+    takenNames={all.map(r => r.name)} onClose={dismiss} onCreate={create} />;
+  return { items: addOptions, dialogs: <>
+    {dialog}
+    <Unsupported info={notice} onClose={dismiss} />
+    {importing && <ImportDataDialog project={project} environmentId={environmentId} databases={all.filter(r => r.type === 'database')} source={importing.source}
+      onClose={dismiss} onDone={onRefresh} onOpen={id => { setImporting(null); const r = all.find(x => x.id === id); if (r) onOpen?.(r); else onRefresh?.(); }} />}
+    {external && <ExternalDatabaseDialog project={project} environmentId={environmentId} takenNames={all.map(r => r.name)} onClose={dismiss}
+      onCreated={r => { setExternal(false); onCreated(r); }} />}
+    {functionOpen && <FunctionDialog projectName={project.name} environment={environment} takenNames={all.map(r => r.name)} onClose={dismiss}
+      onCreate={async payload => { await create(payload); setFunctionOpen(false); }} />}
+    {staticOpen && <StaticSiteDialog project={project} environment={environment} environmentId={environmentId} takenNames={all.map(r => r.name)} onClose={dismiss}
+      onCreated={r => { setStaticOpen(false); onCreated(r); onOpen?.(r); }} />}
+  </> };
 }

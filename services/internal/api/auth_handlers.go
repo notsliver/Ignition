@@ -20,7 +20,8 @@ func (s *Server) setupStatus(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	httpx.JSON(w, 200, map[string]any{"required": n == 0, "instanceName": s.instance(r.Context()).Name})
+	ob := s.onboarding(r.Context())
+	httpx.JSON(w, 200, map[string]any{"required": n == 0, "instanceName": s.instance(r.Context()).Name, "onboarding": ob.Pending, "useCase": ob.UseCase})
 	return nil
 }
 
@@ -29,6 +30,7 @@ type credentials struct {
 	Email    string `json:"email"`
 	Name     string `json:"name"`
 	Password string `json:"password"`
+	UseCase  string `json:"useCase"` // first-run only: infrastructure | hosting
 }
 
 func (s *Server) setup(w http.ResponseWriter, r *http.Request) error {
@@ -52,6 +54,15 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) error {
 	if msg := s.checkPassword(r.Context(), in.Password); msg != "" {
 		fields["password"] = msg
 	}
+	if strings.TrimSpace(in.Name) == "" {
+		fields["name"] = "Enter your name."
+	}
+	if in.UseCase == "" {
+		in.UseCase = "infrastructure"
+	}
+	if in.UseCase != "infrastructure" && in.UseCase != "hosting" {
+		fields["useCase"] = "Choose what you'll use Ignition for."
+	}
 	if len(fields) > 0 {
 		return httpx.Invalid(fields)
 	}
@@ -69,7 +80,9 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) error {
 	s.setupMu.Lock()
 	s.setupCode = ""
 	s.setupMu.Unlock()
-	s.Store.Audit(r.Context(), user, "instance.setup", "user", user.ID, nil, clientIP(r))
+	// Setup isn't finished until the owner account is protected (Secure your instance).
+	s.Store.SetSetting(r.Context(), "onboarding", onboardingState{UseCase: in.UseCase, Pending: true})
+	s.Store.Audit(r.Context(), user, "instance.setup", "user", user.ID, map[string]any{"useCase": in.UseCase}, clientIP(r))
 	return s.startSession(w, r, user, "password", nil)
 }
 

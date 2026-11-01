@@ -1,9 +1,12 @@
+import { useState } from 'react';
 import { CircleStackIcon, CloudArrowUpIcon, FolderPlusIcon, ServerIcon } from '@heroicons/react/20/solid';
 import { ArrowRightIcon, ClipboardDocumentIcon, DocumentTextIcon, EllipsisHorizontalIcon, ExclamationTriangleIcon, RocketLaunchIcon, XCircleIcon } from '@heroicons/react/16/solid';
 import { Avatar, BranchIcon, CommitIcon, Menu, Notice, Section, Sparkline, Status, cx } from '../../ui';
 import { api } from '../../api/client';
 import { duration, timeAgo, useQuery } from '../../api/hooks';
-import { databaseOptions, deployOptions, projectOptions, serverOptions } from '../../app/createMenus';
+import { databaseOptions, deployOptions, serverOptions } from '../../app/createMenus';
+import { useProjectCreation } from '../Projects/Projects';
+import { ResourceQuickCreate } from './ResourceQuickCreate';
 import '../project/Deployments/Deployments.css';
 import './Dashboard.css';
 
@@ -22,8 +25,15 @@ const triggerLabel = { manual: 'Manual', create: 'First deploy', redeploy: 'Rede
 const percent = v => `${v.toFixed(1)}%`;
 const gb = b => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `${Math.round(b / (1 << 20))} MB`;
 
-export function Dashboard({ onOpenResource, onOpenServer, onNavigate }) {
+export function Dashboard({ onOpenResource, onOpenProject, onOpenServer, onNavigate }) {
+  const [resourceAction, setResourceAction] = useState(null);
   const { data, error, refetch } = useQuery(() => api.dashboard(), [], { pollMs: 5000 });
+  const projectsQuery = useQuery(() => api.projects(), []);
+  const projectCreation = useProjectCreation({ projects: projectsQuery.data?.projects ?? [],
+    onCreated: p => { projectsQuery.refetch(); refetch(); onOpenProject?.(p); } });
+  const resourceMenu = (items, prefix) => items.map(item => item === 'separator' ? item
+    : item.items ? { ...item, items: resourceMenu(item.items, `${prefix}${item.label}/`) }
+      : { ...item, onSelect: () => setResourceAction({ path: `${prefix}${item.label}`, label: item.label }) });
   const localId = data?.localServer?.id;
   const metrics = useQuery(() => (localId ? api.serverMetrics(localId, '1h') : Promise.resolve(null)), [localId], { pollMs: 30000 });
 
@@ -41,9 +51,9 @@ export function Dashboard({ onOpenResource, onOpenServer, onNavigate }) {
 
   return <div className="dashboard">
     <div className="quick-actions">
-      <Menu className="button primary" label="Deploy application" items={deployOptions} align="start"><CloudArrowUpIcon />Deploy application</Menu>
-      <Menu className="button" label="New project" items={projectOptions} align="start"><FolderPlusIcon />New project</Menu>
-      <Menu className="button" label="New database" items={databaseOptions} align="start"><CircleStackIcon />New database</Menu>
+      <Menu className="button primary" label="Deploy application" items={resourceMenu(deployOptions, 'Application/')} align="start"><CloudArrowUpIcon />Deploy application</Menu>
+      <Menu className="button" label="New project" items={projectCreation.items} align="start"><FolderPlusIcon />New project</Menu>
+      <Menu className="button" label="New database" items={resourceMenu(databaseOptions, 'Database/')} align="start"><CircleStackIcon />New database</Menu>
       <Menu className="button" label="Add server" items={serverOptions} align="start"><ServerIcon />Add server</Menu>
     </div>
 
@@ -102,6 +112,11 @@ export function Dashboard({ onOpenResource, onOpenServer, onNavigate }) {
     <Section title={data?.localServer ? `Server resources · ${data.localServer.name}` : 'Server resources'} action="All servers" onAction={() => onNavigate?.('Servers')}>
       <ServerUsage m={metrics.data} />
     </Section>
+    {projectCreation.dialogs}
+    {resourceAction && <ResourceQuickCreate action={resourceAction} projectsQuery={projectsQuery} onClose={() => setResourceAction(null)}
+      onCreateProject={() => { setResourceAction(null); projectCreation.createEmpty(); }}
+      onCreated={r => { setResourceAction(null); refetch(); onOpenResource?.(r); }}
+      onOpen={r => { setResourceAction(null); onOpenResource?.(r); }} />}
   </div>;
 }
 

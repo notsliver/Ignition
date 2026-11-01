@@ -68,22 +68,7 @@ export function Projects({ onOpen }) {
     { label: 'Delete project', icon: TrashIcon, danger: true, onSelect: () => setDeleting(p) },
   ];
 
-  // Empty, Git, Compose and Duplicate are backed by the API; the rest explain why they're unavailable.
-  const providerOf = { 'Continue with GitHub': 'github', 'Continue with GitLab': 'gitlab', 'Continue with other source': 'other' };
-  const notYet = item => ({ ...item, items: undefined, onSelect: () => setUnsupported({ title: `${item.label} isn't available yet`, body: 'Create an empty project, then add resources from a Git repository or a container image.' }) });
-  const newProjectMenu = projectOptions.map(item => {
-    if (item === 'separator') return item;
-    switch (item.label) {
-      case 'Empty project': return { ...item, onSelect: () => setEditing({}) };
-      case 'Import from Git repository': return { ...item, items: item.items.map(g => g === 'separator' ? g : providerOf[g.label]
-        ? { ...g, onSelect: () => setImporting({ kind: 'git', provider: providerOf[g.label] }) }
-        : { ...g, onSelect: () => setUnsupported({ title: `${g.label.replace('Continue with ', '')} isn't supported yet`, body: 'Import from GitHub, GitLab or any https/SSH Git URL instead.' }) }) };
-      case 'From a Docker Compose file': return { ...item, onSelect: () => setImporting({ kind: 'compose' }) };
-      case 'Duplicate an existing project': return { ...item, onSelect: () => setImporting({ kind: 'duplicate' }) };
-      default: return notYet(item);
-    }
-  });
-  const created = p => { setImporting(null); refetch(); onOpen(p); };
+  const creation = useProjectCreation({ projects: rows, onCreated: p => { refetch(); onOpen(p); } });
 
   function changeView(value) {
     setView(value);
@@ -97,14 +82,14 @@ export function Projects({ onOpen }) {
       <SearchField value={query} onChange={setQuery} placeholder="Search projects" className="projects-search" />
       <Select label="Show" value={archived ? 'archived' : 'active'} onChange={v => setArchived(v === 'archived')} className="projects-scope" options={[{ value: 'active', label: 'Active projects' }, { value: 'archived', label: 'Archived' }]} />
       <SegmentedControl label="Layout" options={views} value={view} onChange={changeView} className="view-toggle" />
-      <Menu className="button primary" label="New project" items={newProjectMenu}><PlusIcon />New project</Menu>
+      <Menu className="button primary" label="New project" items={creation.items}><PlusIcon />New project</Menu>
     </div>
     {actionError && <Notice tone="danger" title="That didn't work">{actionError}</Notice>}
     {error && !data && <Notice tone="danger" title="Couldn't load projects">{error.message} <button type="button" className="inline-link" onClick={refetch}>Retry</button></Notice>}
 
     {loading && !data ? <p className="projects-empty">Loading projects…</p>
       : rows.length === 0
-        ? <div className="projects-empty">{debounced ? <>No projects match “{debounced}”.</> : archived ? 'No archived projects.' : <>No projects yet. <button type="button" className="inline-link" onClick={() => setEditing({})}>Create your first project</button></>}</div>
+        ? <div className="projects-empty">{debounced ? <>No projects match “{debounced}”.</> : archived ? 'No archived projects.' : <>No projects yet. <button type="button" className="inline-link" onClick={creation.createEmpty}>Create your first project</button></>}</div>
         : view === 'grid'
           ? <div className="project-grid">
             {rows.map(p => {
@@ -147,10 +132,38 @@ export function Projects({ onOpen }) {
       description={deleting?.resourceCount ? `It still has ${deleting.resourceCount} resources. Delete them first so their containers and data aren't left running.` : 'This removes the project and its environments. It can\'t be undone.'}
       footer={<><Button onClick={() => setDeleting(null)}>Cancel</Button><Button className="danger-solid" disabled={!!deleting?.resourceCount} onClick={() => { const p = deleting; setDeleting(null); run(() => api.deleteProject(p.id)); }}>Delete project</Button></>} />
     <Unsupported info={unsupported} onClose={() => setUnsupported(null)} />
+    {importing?.kind === 'duplicate' && <DuplicateProjectDialog projects={rows.length || !archived ? rows : []} project={importing.project} onClose={() => setImporting(null)} onCreated={p => { setImporting(null); refetch(); onOpen(p); }} />}
+    {creation.dialogs}
+  </div>;
+}
+
+export function useProjectCreation({ projects, onCreated }) {
+  const [editing, setEditing] = useState(null);
+  const [importing, setImporting] = useState(null);
+  const [unsupported, setUnsupported] = useState(null);
+  // Empty, Git, Compose and Duplicate are backed by the API; the rest explain why they're unavailable.
+  const providerOf = { 'Continue with GitHub': 'github', 'Continue with GitLab': 'gitlab', 'Continue with other source': 'other' };
+  const notYet = item => ({ ...item, items: undefined, onSelect: () => setUnsupported({ title: `${item.label} isn't available yet`, body: 'Create an empty project, then add resources from a Git repository or a container image.' }) });
+  const newProjectMenu = projectOptions.map(item => {
+    if (item === 'separator') return item;
+    switch (item.label) {
+      case 'Empty project': return { ...item, onSelect: () => setEditing({}) };
+      case 'Import from Git repository': return { ...item, items: item.items.map(g => g === 'separator' ? g : providerOf[g.label]
+        ? { ...g, onSelect: () => setImporting({ kind: 'git', provider: providerOf[g.label] }) }
+        : { ...g, onSelect: () => setUnsupported({ title: `${g.label.replace('Continue with ', '')} isn't supported yet`, body: 'Import from GitHub, GitLab or any https/SSH Git URL instead.' }) }) };
+      case 'From a Docker Compose file': return { ...item, onSelect: () => setImporting({ kind: 'compose' }) };
+      case 'Duplicate an existing project': return { ...item, onSelect: () => setImporting({ kind: 'duplicate' }) };
+      default: return notYet(item);
+    }
+  });
+  const created = p => { setEditing(null); setImporting(null); onCreated(p); };
+  return { items: newProjectMenu, createEmpty: () => setEditing({}), dialogs: <>
+    {editing && <ProjectDialog project={editing} onClose={() => setEditing(null)} onSaved={created} />}
+    <Unsupported info={unsupported} onClose={() => setUnsupported(null)} />
     {importing?.kind === 'git' && <ImportGitDialog provider={importing.provider} onClose={() => setImporting(null)} onCreated={created} />}
     {importing?.kind === 'compose' && <ImportComposeDialog onClose={() => setImporting(null)} onCreated={created} />}
-    {importing?.kind === 'duplicate' && <DuplicateProjectDialog projects={rows.length || !archived ? rows : []} project={importing.project} onClose={() => setImporting(null)} onCreated={created} />}
-  </div>;
+    {importing?.kind === 'duplicate' && <DuplicateProjectDialog projects={projects} onClose={() => setImporting(null)} onCreated={created} />}
+  </> };
 }
 
 function ProjectDialog({ project, onClose, onSaved }) {

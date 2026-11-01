@@ -93,6 +93,7 @@ func (s *Server) Handler() http.Handler {
 	h("GET /api/auth/oidc/start", s.oidcStart)
 	h("GET /api/auth/oidc/callback", s.oidcCallback)
 	authed("GET /api/account/security", "viewer", s.accountSecurity)
+	authed("POST /api/setup/complete", "viewer", s.completeOnboarding)
 	authed("GET /api/account/preferences", "viewer", s.getPreferences)
 	authed("PUT /api/account/preferences", "viewer", s.putPreferences)
 	authed("POST /api/account/mfa/setup", "viewer", s.accountMFASetup)

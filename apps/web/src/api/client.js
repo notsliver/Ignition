@@ -60,6 +60,7 @@ const q = params => {
 export const api = {
   setupStatus: () => request('GET', '/setup'),
   setup: input => request('POST', '/setup', input),
+  completeSetup: () => request('POST', '/setup/complete'),
   login: (email, password) => request('POST', '/auth/login', { email, password }),
   logout: () => request('POST', '/auth/logout'),
   me: () => request('GET', '/auth/me'),

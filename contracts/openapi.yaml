@@ -156,11 +156,11 @@ paths:
   /api/ready:
     get: { summary: Readiness (database reachable), security: [], responses: { '200': { description: Ready }, '503': { $ref: '#/components/responses/Error' } } }
   /api/setup:
-    get: { summary: Whether first-run setup is required, security: [], responses: { '200': { description: '{ required: boolean }' } } }
+    get: { summary: Whether first-run setup is required (and whether the owner still has to secure it), security: [], responses: { '200': { description: '{ required, onboarding, useCase, instanceName }' } } }
     post:
       summary: Create the first owner using the one-time code from the API logs
       security: []
-      requestBody: { content: { application/json: { schema: { type: object, required: [code, email, password], properties: { code: { type: string }, email: { type: string }, name: { type: string }, password: { type: string, minLength: 12 } } } } } }
+      requestBody: { content: { application/json: { schema: { type: object, required: [code, email, password], properties: { code: { type: string }, email: { type: string }, name: { type: string }, password: { type: string, minLength: 12 }, useCase: { type: string, enum: [infrastructure, hosting] } } } } } }
       responses: { '200': { description: Signed in }, '409': { $ref: '#/components/responses/Error' }, '422': { $ref: '#/components/responses/Error' }, '429': { $ref: '#/components/responses/Error' } }
   /api/auth/login:
     post:
@@ -1186,3 +1186,7 @@ paths:
     get:
       summary: Download a backup archive.
       responses: { '200': { description: a .tar.gz stream } }
+  /api/setup/complete:
+    post:
+      summary: Finish first-run setup. Only the owner, and only once two-factor authentication is on.
+      responses: { '200': { description: '{ useCase, pending, completedAt }' }, '409': { description: two-factor is off } }
