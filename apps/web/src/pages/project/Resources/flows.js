@@ -123,7 +123,6 @@ export const flows = {
 export const unsupported = {
   'Continue with Artifacts': 'Artifacts isn\'t a supported Git provider yet. Use GitHub, GitLab or any public https Git URL.',
   'Select a template': 'Templates aren\'t available yet. Deploy a container image or a Git repository instead.',
-  'Upload your static files': 'Uploading files isn\'t supported yet. Put the site in a Git repository with a Dockerfile (for example, nginx serving the files).',
   'Import existing data': 'Importing data isn\'t automated yet. Create the database, then restore your dump with its own tools.',
   'Restore from an Ignition backup': 'Backups aren\'t implemented yet, so there\'s nothing to restore from.',
   'Connect external database': 'External databases can\'t be registered yet. Store the connection URL as an environment variable on the apps that use it.',

@@ -17,3 +17,5 @@ export { AccessSecrets } from './Access';
 export { AdvancedSettings } from './Advanced';
 export { ResourceAutomations } from './Automations';
 export { FunctionCode } from './Function';
+export { Files } from './files/Files';
+export { Backups } from './Backups';

@@ -5,7 +5,7 @@
 //   /projects/{projectId}/deployments?env=…      a project page
 //   /projects/{projectId}/resources/{resourceId}/environment-variables?env=…
 //   /servers/{serverId}/diagnostics                a server workspace page
-import { groups, projectItems, resourceSections, serverViews, settingsPages, topItems } from './navigation';
+import { gameSections, groups, projectItems, resourceSections, serverViews, settingsPages, topItems } from './navigation';
 
 export const slug = title => title.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
@@ -13,7 +13,7 @@ const bySlug = titles => Object.fromEntries(titles.map(t => [slug(t), t]));
 const globalPages = bySlug([...topItems.map(i => i.title).filter(t => t !== 'Settings'), ...groups.flatMap(g => g.items)]);
 const settings = bySlug(settingsPages);
 const projectPages = bySlug(projectItems.map(i => i.title));
-const resourcePages = bySlug(resourceSections.flat().map(i => i.title));
+const resourcePages = bySlug([...resourceSections.flat(), ...gameSections.flat()].map(i => i.title));
 const serverPages = bySlug(serverViews);
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 

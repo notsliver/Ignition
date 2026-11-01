@@ -289,7 +289,7 @@ func (in *resourceInput) validate() map[string]string {
 		in.SourceType, in.Image = "image", "placeholder:function" // filled in by functions.Prepare
 		return f
 	}
-	if in.Type != "application" && in.Type != "database" && in.Type != "worker" {
+	if in.Type != "application" && in.Type != "database" && in.Type != "worker" && in.Type != "game" {
 		f["type"] = "Unsupported resource type."
 	}
 	switch in.SourceType {
@@ -363,6 +363,9 @@ func (s *Server) createResource(w http.ResponseWriter, r *http.Request, u *store
 	}
 	if in.CPUs == 0 {
 		in.CPUs = defs.CPUs
+	}
+	if in.Type == "game" {
+		return httpx.Invalid(map[string]string{"type": "Create game servers with POST /api/projects/{id}/games."})
 	}
 	if err := s.checkResourceSource(r.Context(), &in); err != nil {
 		return err

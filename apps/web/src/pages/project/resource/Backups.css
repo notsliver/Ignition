@@ -1,0 +1,16 @@
+/* Backups. Prefixed bk-. */
+.bk-muted{color:var(--muted)}
+.bk-small{margin:0;font-size:12px}
+.bk-inline{width:12px;margin:0 5px -2px 0}
+.bk-icon{width:16px;flex-shrink:0;color:var(--muted)}
+.bk-label{margin-left:8px;font-weight:400;color:var(--muted)}
+.bk-error{margin:0;font-size:12px;color:var(--danger)}
+.bk-spacer{flex:1}
+.bk-form,.bk-schedule{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:10px 12px}
+.bk-form .input{flex:1;min-width:200px}
+.bk-schedule .bk-full{flex-basis:100%}
+.bk-toggle{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);white-space:nowrap}
+.bk-check{display:flex;align-items:flex-start;gap:10px;cursor:pointer;user-select:none}
+.bk-check>span{display:flex;flex-direction:column;gap:2px}
+.bk-check strong{font-size:12.5px;font-weight:500}
+.bk-check small{font-size:12px;color:var(--muted)}

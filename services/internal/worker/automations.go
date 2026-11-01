@@ -671,6 +671,10 @@ func (w *Worker) runStep(ctx context.Context, p parsed, run *store.AutomationRun
 		return w.stepDeploy(ctx, p, run, t, s.Action)
 	case "run_command":
 		return w.stepCommand(ctx, t, s)
+	case "backup":
+		return w.stepBackup(ctx, t, s)
+	case "game_restart", "game_backup", "game_announce", "game_command":
+		return w.stepGame(ctx, t, s)
 	case "collect_diagnostics":
 		return w.stepCollect(ctx, t)
 	case "notify":

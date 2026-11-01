@@ -15,6 +15,7 @@ import { Projects } from '../pages/Projects/Projects';
 import { Resources } from '../pages/project/Resources/Resources';
 import { ResourceDetail } from '../pages/project/ResourceDetail/ResourceDetail';
 import * as ResourcePages from '../pages/project/resource';
+import * as GamePages from '../pages/project/game';
 import { General } from '../pages/settings/General/General';
 import { Security } from '../pages/settings/Security/Security';
 import { Updates } from '../pages/settings/Updates/Updates';
@@ -39,12 +40,14 @@ const resourcePageComponents = {
   Logs: 'Logs', Metrics: 'Metrics', Terminal: 'Terminal',
   Source: 'Source', 'Build & Deploy': 'BuildDeploy', 'Environment Variables': 'EnvironmentVariables', Domains: 'Domains',
   Networking: 'Networking', Storage: 'Storage', 'Health Checks': 'HealthChecks', 'Resource Limits': 'ResourceLimits',
-  'Rollback History': 'RollbackHistory', 'Scheduled Tasks': 'ScheduledTasks', 'Access & Secrets': 'AccessSecrets', 'Advanced Settings': 'AdvancedSettings', Automations: 'ResourceAutomations', Code: 'FunctionCode',
+  'Rollback History': 'RollbackHistory', 'Scheduled Tasks': 'ScheduledTasks', 'Access & Secrets': 'AccessSecrets', 'Advanced Settings': 'AdvancedSettings', Automations: 'ResourceAutomations', Code: 'FunctionCode', Files: 'Files', Backups: 'Backups',
 };
+// A game server's own pages; the rest of its sidebar is the usual resource pages.
+const gamePageComponents = { Console: 'GameConsole', Players: 'GamePlayers', 'Mods & Plugins': 'GameContent', Worlds: 'GameWorlds', 'Server Settings': 'GameProperties', Schedules: 'GameSchedules' };
 // Pages still running on sample data are labelled so nothing pretends to be live.
 const preview = node => <><PreviewBanner />{node}</>;
 const LIVE_RESOURCE_VIEWS = ['Overview', 'Deployments', 'Logs', 'Metrics', 'Environment Variables', 'Source', 'Domains', 'Networking', 'Build & Deploy', 'Resource Limits', 'Storage', 'Terminal',
-  'Health Checks', 'Rollback History', 'Scheduled Tasks', 'Access & Secrets', 'Advanced Settings', 'Automations', 'Code'];
+  'Health Checks', 'Rollback History', 'Scheduled Tasks', 'Access & Secrets', 'Advanced Settings', 'Automations', 'Code', 'Files', 'Backups'];
 // Settings pages backed by the API (the rest are still previews).
 const LIVE_PAGES = ['General', 'Authentication & Security', 'Updates', 'Users & Permissions', 'Preferences'];
 const pages = { Dashboard: <Dashboard />, General: <General />, 'Authentication & Security': <Security />, Updates: <Updates />, 'Users & Permissions': <Users />, Preferences: <Preferences /> };
@@ -53,6 +56,11 @@ export function App() {
   const instanceName = useInstanceName();
   const [active, setActive] = useState('Dashboard');
   const [hidden, setHidden] = useState(() => getPreferences().sidebar === 'collapsed');
+  // Game server setup is a page of its own; the sidebar is tucked away while it's open and comes back after.
+  const [gameSetup, setGameSetup] = useState(null);
+  const hiddenBefore = useRef(false);
+  const openGameSetup = id => { hiddenBefore.current = hidden; setHidden(true); setMobileOpen(false); setGameSetup(id); };
+  const closeGameSetup = () => { setGameSetup(null); setHidden(hiddenBefore.current); };
   const [mobileOpen, setMobileOpen] = useState(false);
   const [project, setProject] = useState(null);
   const appRef = useRef(null);
@@ -68,6 +76,8 @@ export function App() {
   const navigate = title => { if (!confirmLeave()) return; setActive(title); setResourceState(null); setServerState(null); setMissing(''); setMobileOpen(false); };
   useShortcuts({ navigate, closeProject: () => { setProject(null); }, toggleSidebar: () => setHidden(h => !h) });
   const [environment, setEnvironment] = useState(null);
+  // Leaving for another page (or project) ends the setup and brings the sidebar back.
+  useEffect(() => { if (gameSetup) closeGameSetup(); }, [project?.id, active, environment, resource?.id]); // eslint-disable-line react-hooks/exhaustive-deps
   const openProject = p => { setProject(p); setEnvironment(p.environments[0]?.name ?? 'Production'); navigate('Resources'); };
   const environmentId = project?.environments.find(e => e.name === environment)?.id;
   const closeProject = () => { if (!confirmLeave()) return; setProject(null); setActive('Projects'); setResourceState(null); setMobileOpen(false); };
@@ -136,7 +146,9 @@ export function App() {
   };
   const projectPages = project && { Resources: resource
     ? renderResourcePage()
-    : <Resources project={project} environment={environment} environmentId={environmentId} onOpen={setResource} />,
+    : gameSetup ? <GamePages.GameWizard key={gameSetup} gameId={gameSetup} project={project} environment={environment} environmentId={environmentId}
+      takenNames={[]} onClose={closeGameSetup} onCreated={r => { closeGameSetup(); setResource(r); }} />
+    : <Resources project={project} environment={environment} environmentId={environmentId} onOpen={setResource} onCreateGame={openGameSetup} />,
     Deployments: <ProjectDeployments key={`${project.id}:${environment}`} project={project} environment={environment} onOpenResource={openResourceFromAnywhere} />,
     Domains: <DomainsHub key={`${project.id}:${environment}`} project={project} environment={environment} onOpenResource={openResourceFromAnywhere} />,
     Monitoring: <ProjectMonitoring key={`${project.id}:${environment}`} project={project} environment={environment} onOpenResource={openResourceFromAnywhere} />,
@@ -144,6 +156,11 @@ export function App() {
     'Project Settings': <ProjectSettings key={project.id} project={project} onProjectChange={setProject} onDeleted={() => { setProject(null); setActive('Projects'); }} /> };
   function renderResourcePage() {
     const props = { key: `${resource.id ?? resource.name}:${resourceView}`, project, environment, resource, onNavigate: showResourceView, onResourceChange: setResourceState, onDeleted: () => setResourceState(null) };
+    if (resource.type === 'game') {
+      if (resourceView === 'Overview') return <GamePages.GameOverview {...props} />;
+      const GamePage = GamePages[gamePageComponents[resourceView]];
+      if (GamePage) return <GamePage {...props} />;
+    }
     if (resourceView === 'Overview') return <ResourceDetail {...props} />;
     if (resourceView === 'Deployments') return <ResourcePages.ResourceDeployments {...props} />;
     const Page = ResourcePages[resourcePageComponents[resourceView]];

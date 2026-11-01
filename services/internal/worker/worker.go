@@ -329,6 +329,11 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 	if err != nil {
 		return err
 	}
+	if res.Type == "game" {
+		if env, err = w.gameEnv(ctx, job.ID, res, env); err != nil {
+			return err
+		}
+	}
 	w.Store.SnapshotEnv(ctx, dep.ID, res.ID) // kept so a rollback can restore exactly these variables
 	adv, err := w.Store.GetAdvanced(ctx, res.ID)
 	if err != nil {
@@ -395,8 +400,13 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 	}
 	// A fixed host port can only be bound by one container, so the old one has to let go first.
 	// That means a few seconds of downtime; if the new release fails, the old one is started again.
+	// A game server's world must never be open in two servers at once.
 	stoppedOld := false
-	if len(fixed) > 0 && res.ContainerID != "" {
+	if res.Type == "game" && res.ContainerID != "" {
+		w.Queue.Log(ctx, job.ID, "info", "rollout", "Stopping the running server first so it saves the world (two servers must never share it)")
+		w.Runtime.Stop(ctx, res.ContainerID, grace)
+		stoppedOld = true
+	} else if len(fixed) > 0 && res.ContainerID != "" {
 		w.Queue.Log(ctx, job.ID, "info", "rollout", fmt.Sprintf("Stopping the previous container first: host port %s is fixed (brief downtime)", strings.Join(fixed, ", ")))
 		w.Runtime.Stop(ctx, res.ContainerID, grace)
 		stoppedOld = true
@@ -596,6 +606,11 @@ func (w *Worker) action(ctx context.Context, job *jobs.Job) error {
 		w.refreshStatus(ctx, job.ResourceID)
 		return nil
 	}
+	// The stop grace from Build & Deploy: a game server needs time to save its world.
+	grace := 15 * time.Second
+	if ds, err := w.Store.GetBuildSettings(ctx, res.ID); err == nil && ds.StopGrace > 15 {
+		grace = time.Duration(ds.StopGrace) * time.Second
+	}
 	switch p.Action {
 	case "start":
 		if res.Status == "paused" {
@@ -608,9 +623,9 @@ func (w *Worker) action(ctx context.Context, job *jobs.Job) error {
 	case "resume":
 		err = w.Runtime.Unpause(ctx, res.ContainerID)
 	case "stop":
-		err = w.Runtime.Stop(ctx, res.ContainerID, 15*time.Second)
+		err = w.Runtime.Stop(ctx, res.ContainerID, grace)
 	case "restart":
-		err = w.Runtime.Restart(ctx, res.ContainerID, 15*time.Second)
+		err = w.Runtime.Restart(ctx, res.ContainerID, grace)
 	default:
 		return fmt.Errorf("%w: unknown action %q", jobs.ErrPermanent, p.Action)
 	}

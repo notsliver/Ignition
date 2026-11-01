@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   ArrowPathIcon, ArrowTopRightOnSquareIcon, CircleStackIcon, CodeBracketIcon, CogIcon, CubeIcon,
-  DocumentTextIcon, EllipsisHorizontalIcon, PlayIcon, PlusIcon, StopIcon, TrashIcon,
+  DocumentTextIcon, EllipsisHorizontalIcon, PlayIcon, PlusIcon, PuzzlePieceIcon, StopIcon, TrashIcon,
 } from '@heroicons/react/16/solid';
 import { Button, Checkbox, Dialog, Menu, Notice, SearchField, SegmentedControl, Status, TextInput, cx } from '../../../ui';
 import { api } from '../../../api/client';
@@ -12,6 +12,7 @@ import { flows, unsupported } from './flows';
 import { AddResourceDialog } from './AddResourceDialog';
 import { ExternalDatabaseDialog, ImportDataDialog } from './DatabaseDialogs';
 import { FunctionDialog } from '../resource/Function';
+import { StaticSiteDialog } from './StaticSiteDialog';
 import './Resources.css';
 
 const groups = [
@@ -19,6 +20,7 @@ const groups = [
   { type: 'database', label: 'Databases', icon: CircleStackIcon },
   { type: 'worker', label: 'Workers', icon: CogIcon },
   { type: 'function', label: 'Functions', icon: CodeBracketIcon },
+  { type: 'game', label: 'Game servers', icon: PuzzlePieceIcon },
 ];
 export const resourceStatus = {
   created: { tone: 'neutral', label: 'Created' },
@@ -29,7 +31,7 @@ export const resourceStatus = {
   removing: { tone: 'warning', label: 'Removing' },
   paused: { tone: 'warning', label: 'Paused' },
 };
-export const sourceLabel = r => r.sourceType === 'git' ? r.repoUrl.replace(/^https:\/\//, '') : r.sourceType === 'external' ? `${r.engine || 'database'} · external` : r.type === 'function' ? `${r.engine === 'python' ? 'Python' : 'Node.js'} function` : r.image;
+export const sourceLabel = r => r.type === 'game' ? `${r.engine === 'minecraft' ? 'Minecraft' : r.engine} server` : r.sourceType === 'git' ? r.repoUrl.replace(/^https:\/\//, '') : r.sourceType === 'external' ? `${r.engine || 'database'} · external` : r.type === 'function' ? `${r.engine === 'python' ? 'Python' : 'Node.js'} function` : r.image;
 // A working domain wins over the published host port.
 export const publicUrl = (r, host = 'localhost') => r.domain || (r.hostPort ? `http://${host}:${r.hostPort}` : null);
 
@@ -43,10 +45,11 @@ const addMenu = [
   { label: 'Database', icon: CircleStackIcon, items: databaseOptions },
   { label: 'Worker', icon: CogIcon },
   { label: 'Function', icon: CodeBracketIcon },
+  { label: 'Game server', icon: PuzzlePieceIcon, items: [{ label: 'Minecraft' }] },
 ];
 const importSources = { 'Upload a dump file': 'upload', 'From S3-compatible storage': 's3', 'Migrate from a live database': 'live' };
 
-export function Resources({ project, environment, environmentId, onOpen }) {
+export function Resources({ project, environment, environmentId, onOpen, onCreateGame }) {
   const [flowKey, setFlowKey] = useState(null);
   const [notice, setNotice] = useState(null);
   const [query, setQuery] = useState('');
@@ -56,6 +59,7 @@ export function Resources({ project, environment, environmentId, onOpen }) {
   const [highlight, setHighlight] = useState(null);
   const [importing, setImporting] = useState(null); // { source }
   const [external, setExternal] = useState(false);
+  const [staticOpen, setStaticOpen] = useState(false);
   const [functionOpen, setFunctionOpen] = useState(false);
 
   const { data, error, loading, refetch } = useQuery(() => api.resources(project.id, { environment: environmentId }), [project.id, environmentId], { pollMs: 3000 });
@@ -72,9 +76,11 @@ export function Resources({ project, environment, environmentId, onOpen }) {
     if (path.startsWith('Database/Import existing data/')) setImporting({ source: importSources[label] ?? 'upload' });
     else if (path === 'Database/Connect external database') setExternal(true);
     else if (path === 'Function') setFunctionOpen(true);
+    else if (label === 'Upload your static files') setStaticOpen(true);
+    else if (path.startsWith('Game server/')) onCreateGame?.({ Minecraft: 'minecraft' }[label]);
     else if (flows[path]) setFlowKey(path);
     else setNotice({ title: `${label} isn't available yet`, body: unsupported[label] ?? 'This option isn\'t supported in this version.' });
-  }), []);
+  }), [onCreateGame]); // eslint-disable-line react-hooks/exhaustive-deps
   const add = <Menu className="button primary" label="Add resource" items={addOptions}><PlusIcon />Add resource</Menu>;
 
   async function create(payload) {
@@ -117,6 +123,8 @@ export function Resources({ project, environment, environmentId, onOpen }) {
       onCreated={r => { setExternal(false); setFilter('all'); setHighlight(r.id); refetch(); }} />}
     {functionOpen && <FunctionDialog projectName={project.name} environment={environment} takenNames={all.map(r => r.name)} onClose={() => setFunctionOpen(false)}
       onCreate={async payload => { await create(payload); setFunctionOpen(false); }} />}
+    {staticOpen && <StaticSiteDialog project={project} environment={environment} environmentId={environmentId} takenNames={all.map(r => r.name)} onClose={() => setStaticOpen(false)}
+      onCreated={r => { setStaticOpen(false); setFilter('all'); setHighlight(r.id); refetch(); onOpen(r); }} />}
     {deleting && <DeleteDialog resource={deleting} onClose={() => setDeleting(null)} onDeleted={() => { setDeleting(null); refetch(); }} />}
   </>;
 

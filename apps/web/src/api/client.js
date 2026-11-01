@@ -39,6 +39,19 @@ async function request(method, path, body) {
   return data;
 }
 
+/** Sends a file as the raw request body (uploads up to several GB without multipart). */
+async function upload(path, file) {
+  let res;
+  try {
+    res = await fetch(`/api${path}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+  } catch {
+    throw new ApiError(0, { error: { code: 'offline', message: 'The upload was interrupted. Check your connection and try again.' } });
+  }
+  const data = await res.json().catch(() => null);
+  if (!res.ok) throw new ApiError(res.status, data);
+  return data;
+}
+
 const q = params => {
   const s = new URLSearchParams(Object.entries(params).filter(([, v]) => v !== undefined && v !== '' && v !== null)).toString();
   return s ? `?${s}` : '';
@@ -281,4 +294,44 @@ export const api = {
   revokeServerCredentials: (id, confirm) => request('DELETE', `/servers/${id}/credentials${q({ confirm })}`),
   changeServerEndpoint: (id, endpoint) => request('PUT', `/servers/${id}/endpoint`, { endpoint }),
   bulkServers: body => request('POST', '/servers/bulk', body),
+  // Backups of any resource's volumes
+  backups: (id, volume) => request('GET', `/resources/${id}/backups${q({ volume })}`),
+  createBackup: (id, volume, body = {}) => request('POST', `/resources/${id}/backups${q({ volume })}`, body),
+  restoreBackup: (id, volume, name, backupFirst) => request('POST', `/resources/${id}/backups/${encodeURIComponent(name)}/restore${q({ volume })}`, { backupFirst }),
+  deleteBackup: (id, volume, name) => request('DELETE', `/resources/${id}/backups/${encodeURIComponent(name)}${q({ volume })}`),
+  backupDownloadUrl: (id, volume, name) => `/api/resources/${id}/backups/${encodeURIComponent(name)}/download${q({ volume })}`,
+  // Files in any resource's volumes
+  fileVolumes: id => request('GET', `/resources/${id}/files/volumes`),
+  files: (id, volume, path) => request('GET', `/resources/${id}/files${q({ volume, path })}`),
+  fileContent: (id, volume, path, text) => request('GET', `/resources/${id}/files/content${q({ volume, path, text: text ? 1 : undefined })}`),
+  saveFile: (id, volume, path, content) => request('PUT', `/resources/${id}/files/content${q({ volume, path })}`, { content }),
+  uploadFile: (id, volume, path, file) => upload(`/resources/${id}/files/upload${q({ volume, path, name: file.name })}`, file),
+  fileStat: (id, volume, path) => request('GET', `/resources/${id}/files/stat${q({ volume, path })}`),
+  fileTrash: (id, volume) => request('GET', `/resources/${id}/files/trash${q({ volume })}`),
+  fileOp: (id, volume, body) => request('POST', `/resources/${id}/files/ops${q({ volume })}`, body),
+  shareFile: (id, volume, path, hours) => request('POST', `/resources/${id}/files/share${q({ volume })}`, { path, hours }),
+  fileDownloadUrl: (id, volume, path, inline) => `/api/resources/${id}/files/download${q({ volume, path, inline: inline ? 1 : undefined })}`,
+  // Game servers
+  games: () => request('GET', '/games'),
+  gameVersions: (game, edition) => request('GET', `/games/${game}/versions${q({ edition })}`),
+  gameModpacks: (game, params = {}) => request('GET', `/games/${game}/modpacks${q(params)}`),
+  gameModpackVersions: (game, project) => request('GET', `/games/${game}/modpacks/${encodeURIComponent(project)}/versions`),
+  createGame: (projectId, body) => request('POST', `/projects/${projectId}/games`, body),
+  game: id => request('GET', `/resources/${id}/game`),
+  updateGame: (id, body) => request('PATCH', `/resources/${id}/game`, body),
+  gameConsole: (id, command) => request('POST', `/resources/${id}/game/console`, { command }),
+  gamePlayers: id => request('GET', `/resources/${id}/game/players`),
+  gamePlayerAction: (id, body) => request('POST', `/resources/${id}/game/players`, body),
+  gameContent: id => request('GET', `/resources/${id}/game/content`),
+  gameContentSearch: (id, params) => request('GET', `/resources/${id}/game/content/search${q(params)}`),
+  gameContentVersions: (id, params) => request('GET', `/resources/${id}/game/content/versions${q(params)}`),
+  gameContentInstall: (id, body) => request('POST', `/resources/${id}/game/content`, body),
+  gameContentChange: (id, body) => request('PATCH', `/resources/${id}/game/content`, body),
+  gameContentUpload: (id, kind, file) => upload(`/resources/${id}/game/content/upload${q({ kind, name: file.name })}`, file),
+  gameProperties: id => request('GET', `/resources/${id}/game/properties`),
+  saveGameProperties: (id, body) => request('PUT', `/resources/${id}/game/properties`, body),
+  gameWorlds: id => request('GET', `/resources/${id}/game/worlds`),
+  gameWorldAction: (id, action, body) => request('POST', `/resources/${id}/game/worlds/${action}`, body),
+  gameWorldUpload: (id, name, file) => upload(`/resources/${id}/game/worlds/upload${q({ name })}`, file),
+  gameWorldDownloadUrl: (id, world) => `/api/resources/${id}/game/worlds/download${q({ world })}`,
 };

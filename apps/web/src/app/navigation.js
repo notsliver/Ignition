@@ -3,6 +3,7 @@ import {
   CodeBracketIcon, LockClosedIcon, ServerStackIcon, VariableIcon, CommandLineIcon, CubeIcon, GlobeAltIcon, RocketLaunchIcon, ArchiveBoxIcon, ArrowPathIcon, BellIcon, ChartBarIcon, ClipboardDocumentListIcon, Cog6ToothIcon,
   KeyIcon, RectangleStackIcon, ShieldCheckIcon, Squares2X2Icon, UserCircleIcon, UsersIcon, WrenchScrewdriverIcon,
   BeakerIcon, BoltIcon, ClockIcon, PresentationChartLineIcon, ShareIcon, Square3Stack3DIcon,
+  AdjustmentsVerticalIcon, FolderIcon, MapIcon, PuzzlePieceIcon, UserGroupIcon,
 } from '@heroicons/react/20/solid';
 
 export const topItems = [
@@ -65,6 +66,8 @@ export const resourceSections = [
     { title: 'Domains', icon: GlobeAltIcon },
     { title: 'Networking', icon: ServerStackIcon },
     { title: 'Storage', icon: CircleStackIcon },
+    { title: 'Files', icon: FolderIcon },
+    { title: 'Backups', icon: ArchiveBoxIcon },
     { title: 'Health Checks', icon: HeartIcon },
     { title: 'Resource Limits', icon: CpuChipIcon },
   ],
@@ -83,11 +86,22 @@ const hiddenByType = {
   database: ['Code', 'Build & Deploy', 'Domains'],
   worker: ['Code', 'Domains'],
   cron: ['Code', 'Domains', 'Networking', 'Health Checks', 'Scheduled Tasks'],
-  function: ['Source', 'Build & Deploy', 'Storage'],
+  function: ['Source', 'Build & Deploy', 'Storage', 'Files', 'Backups'],
 };
 // External databases run elsewhere: only what Ignition does with them applies.
 const externalSections = ['Overview', 'Environment Variables', 'Automations'];
-export const resourceSectionsFor = (type, sourceType) => resourceSections
+// A game server's sidebar: playing first, then how it runs. Titles double as URL slugs.
+export const gameSections = [
+  [{ title: 'Overview', icon: HomeIcon }, { title: 'Console', icon: CommandLineIcon }, { title: 'Players', icon: UserGroupIcon },
+    { title: 'Mods & Plugins', icon: PuzzlePieceIcon }, { title: 'Worlds', icon: MapIcon }],
+  [{ title: 'Server Settings', icon: AdjustmentsVerticalIcon }, { title: 'Files', icon: FolderIcon }, { title: 'Backups', icon: ArchiveBoxIcon }, { title: 'Schedules', icon: ClockIcon }],
+  [{ title: 'Deployments', icon: RocketLaunchIcon }, { title: 'Logs', icon: DocumentTextIcon }, { title: 'Metrics', icon: ChartBarIcon }, { title: 'Terminal', icon: CommandLineIcon }],
+  [{ title: 'Environment Variables', icon: VariableIcon }, { title: 'Networking', icon: ServerStackIcon }, { title: 'Storage', icon: CircleStackIcon },
+    { title: 'Resource Limits', icon: CpuChipIcon }, { title: 'Automations', icon: BoltIcon }, { title: 'Access & Secrets', icon: LockClosedIcon }, { title: 'Advanced Settings', icon: WrenchScrewdriverIcon }],
+];
+export const gameViews = gameSections[0].concat(gameSections[1]).map(i => i.title).filter(t => t !== 'Overview');
+
+export const resourceSectionsFor = (type, sourceType) => type === 'game' ? gameSections : resourceSections
   .map(section => section.filter(item => sourceType === 'external' ? externalSections.includes(item.title) : !hiddenByType[type]?.includes(item.title)))
   .filter(section => section.length > 0);
 

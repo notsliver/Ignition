@@ -1040,3 +1040,149 @@ paths:
     post:
       summary: Send one request to the function from inside its network and return status, headers and body.
       responses: { '200': { description: '{ result }' } }
+  /api/games:
+    get:
+      summary: Supported games and each one's manifest (editions, setup fields, slots, memory hint, EULA, pages).
+      responses: { '200': { description: '{ games }' } }
+  /api/games/{game}/versions:
+    get:
+      summary: Versions of one edition (?edition=), newest first, with loader versions where the edition has them. Cached for an hour.
+      responses: { '200': { description: '{ versions, latest, loaders, note }' }, '503': { description: the version source is down } }
+  /api/games/{game}/modpacks:
+    get:
+      summary: Search server-compatible modpacks on Modrinth (?q, sort, offset).
+      responses: { '200': { description: '{ hits, total, offset }' } }
+  /api/games/{game}/modpacks/{project}/versions:
+    get:
+      summary: A modpack's versions, newest first.
+      responses: { '200': { description: '{ versions }' } }
+  /api/projects/{id}/games:
+    post:
+      summary: Create a game server (game, spec, name, memory, CPUs, acceptEula) and deploy it. A free host port near the game's usual one is published on every interface.
+      responses: { '201': { description: '{ resource, deploymentId }' }, '422': { description: invalid choices } }
+  /api/resources/{id}/game:
+    get:
+      summary: The game server's type, version, the address players use, live status (players online), content kinds and console quick commands.
+      responses: { '200': { description: '{ game, edition, editions, spec, running, status, address, content, quick }' } }
+    patch:
+      summary: Change type, version, loader, Java, modpack or JAR (the world stays); deploy=true redeploys now.
+      responses: { '200': { description: '{ spec, image, deploymentId }' } }
+  /api/resources/{id}/game/console:
+    post:
+      summary: Send one console line. Java servers reply (RCON); Bedrock replies only in the log.
+      responses: { '200': { description: '{ output, replies, at }' }, '409': { description: not running or still starting } }
+  /api/resources/{id}/game/players:
+    get:
+      summary: Players online and the player lists (whitelist, operators, bans) read from the game's files.
+      responses: { '200': { description: '{ running, online, lists, actions, nameRule }' } }
+    post:
+      summary: Add to or remove from a list, switch a list on or off, or act on a player (kick, ban, message, game mode). Goes through the console.
+      responses: { '200': { description: '{ output, command }' }, '409': { description: the server is not running } }
+  /api/resources/{id}/game/content:
+    get:
+      summary: Installed mods and plugins, identified on Modrinth by hash, with available updates.
+      responses: { '200': { description: '{ kinds, items, gameVersion, sourceError }' } }
+    post:
+      summary: Install a Modrinth project (or an exact version) with its required dependencies.
+      responses: { '200': { description: '{ installed, restartNeeded }' }, '409': { description: no compatible version } }
+    patch:
+      summary: Turn a jar on or off, update it to the newest compatible version, or remove it.
+      responses: { '200': { description: '{ file, restartNeeded }' } }
+  /api/resources/{id}/game/content/search:
+    get:
+      summary: Search Modrinth for content of one kind that fits this server's loader and version.
+      responses: { '200': { description: '{ hits, total, offset }' } }
+  /api/resources/{id}/game/content/versions:
+    get:
+      summary: A project's versions that fit this server.
+      responses: { '200': { description: '{ versions }' } }
+  /api/resources/{id}/game/content/upload:
+    post:
+      summary: Upload a .jar (raw body, ?kind=&name=) into the kind's folder.
+      responses: { '200': { description: '{ file, restartNeeded }' } }
+  /api/resources/{id}/game/properties:
+    get:
+      summary: The game's settings file with the friendly schema and the keys Ignition manages.
+      responses: { '200': { description: '{ config, values, keys, raw, exists, running }' } }
+    put:
+      summary: Save values (validated against the schema) or the whole file; managed keys can't change.
+      responses: { '200': { description: '{ changed, restartNeeded }' }, '422': { description: invalid or managed values } }
+  /api/resources/{id}/game/worlds:
+    get:
+      summary: Worlds on the server, the active one and its seed.
+      responses: { '200': { description: '{ config, worlds, active, seed, running }' } }
+  /api/resources/{id}/game/worlds/upload:
+    post:
+      summary: Upload a world as a .zip (raw body, ?name=). The world may be inside a folder in the zip.
+      responses: { '200': { description: '{ world }' } }
+  /api/resources/{id}/game/worlds/download:
+    get:
+      summary: Download a world and its dimensions (?world=) as .tar.gz.
+      responses: { '200': { description: a .tar.gz stream } }
+  /api/resources/{id}/game/worlds/{action}:
+    post:
+      summary: reset, activate or delete a world, optionally backing up first. The server is stopped and started around it.
+      responses: { '200': { description: '{ ok, backup }' } }
+  /api/resources/{id}/files/volumes:
+    get:
+      summary: The resource's volumes, whose files can be browsed.
+      responses: { '200': { description: '{ volumes, running }' } }
+  /api/resources/{id}/files:
+    get:
+      summary: List a folder (?volume=&path=) with sizes, permissions and times.
+      responses: { '200': { description: '{ path, entries }' } }
+  /api/resources/{id}/files/content:
+    get:
+      summary: Read a file up to 5 MB as text (?text=1 forces text for binary files).
+      responses: { '200': { description: '{ path, size, content, binary, tooLarge }' } }
+    put:
+      summary: Save (or create) a text file.
+      responses: { '200': { description: '{ path }' } }
+  /api/resources/{id}/files/upload:
+    post:
+      summary: Upload a file (raw body) into ?path= as ?name=.
+      responses: { '200': { description: '{ path }' } }
+  /api/resources/{id}/files/download:
+    get:
+      summary: Download a file, or a folder as .tar.gz. inline=1 shows a file in the browser, sandboxed.
+      responses: { '200': { description: the file } }
+  /api/resources/{id}/files/stat:
+    get:
+      summary: Details of one item: size (measured for folders), contents, permissions, owner, times, SHA-256.
+      responses: { '200': { description: FileInfo } }
+  /api/resources/{id}/files/trash:
+    get:
+      summary: Items in the volume's trash.
+      responses: { '200': { description: '{ items }' } }
+  /api/resources/{id}/files/ops:
+    post:
+      summary: mkdir, touch, rename, copy, move, duplicate, compress, extract, unpack (extract in place and remove the archive), chmod, trash, delete, restore or empty-trash.
+      responses: { '200': { description: '{ path, paths }' } }
+  /api/resources/{id}/files/share:
+    post:
+      summary: A download link for a file or folder that works without signing in, until it expires (1 hour to 7 days).
+      responses: { '200': { description: '{ url, path, expiresAt }' } }
+  /api/shared-files/{token}:
+    get:
+      summary: Download a shared file. The sealed token is the permission.
+      security: []
+      responses: { '200': { description: the file }, '404': { description: unknown or expired link } }
+  /api/resources/{id}/backups:
+    get:
+      summary: Backups of one volume (?volume=), kept in the resource's backups volume on this machine.
+      responses: { '200': { description: '{ backups, totalSize, running, type }' } }
+    post:
+      summary: Back up a volume now. Game servers save first; stop=true pauses any other resource while it's copied.
+      responses: { '201': { description: the backup } }
+  /api/resources/{id}/backups/{name}/restore:
+    post:
+      summary: Replace the volume's files with a backup (optionally backing up first). The resource is stopped and started around it.
+      responses: { '200': { description: '{ restored, backup }' } }
+  /api/resources/{id}/backups/{name}:
+    delete:
+      summary: Delete a backup.
+      responses: { '204': { description: deleted } }
+  /api/resources/{id}/backups/{name}/download:
+    get:
+      summary: Download a backup archive.
+      responses: { '200': { description: a .tar.gz stream } }
