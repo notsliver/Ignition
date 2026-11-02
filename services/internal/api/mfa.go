@@ -277,6 +277,9 @@ func (s *Server) accountSecurity(w http.ResponseWriter, r *http.Request, u *stor
 }
 
 func (s *Server) accountMFASetup(w http.ResponseWriter, r *http.Request, u *store.User) error {
+	if err := s.requireRecentAccount(r, u); err != nil {
+		return err
+	}
 	out, _, err := s.enrollStart(r, u)
 	if err != nil {
 		return err
@@ -286,6 +289,9 @@ func (s *Server) accountMFASetup(w http.ResponseWriter, r *http.Request, u *stor
 }
 
 func (s *Server) accountMFAEnable(w http.ResponseWriter, r *http.Request, u *store.User) error {
+	if !s.limiter.allowMax("account-mfa:"+u.ID, s.policy().MaxAttempts) {
+		return httpx.TooMany("Too many attempts. Wait a minute.")
+	}
 	var in struct{ Code string }
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
@@ -299,6 +305,9 @@ func (s *Server) accountMFAEnable(w http.ResponseWriter, r *http.Request, u *sto
 }
 
 func (s *Server) accountMFADisable(w http.ResponseWriter, r *http.Request, u *store.User) error {
+	if !s.limiter.allowMax("account-mfa:"+u.ID, s.policy().MaxAttempts) {
+		return httpx.TooMany("Too many attempts. Wait a minute.")
+	}
 	var in struct{ Code string }
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
@@ -318,6 +327,9 @@ func (s *Server) accountMFADisable(w http.ResponseWriter, r *http.Request, u *st
 }
 
 func (s *Server) accountRecoveryCodes(w http.ResponseWriter, r *http.Request, u *store.User) error {
+	if !s.limiter.allowMax("account-mfa:"+u.ID, s.policy().MaxAttempts) {
+		return httpx.TooMany("Too many attempts. Wait a minute.")
+	}
 	var in struct{ Code string }
 	if err := httpx.Decode(r, &in); err != nil {
 		return err

@@ -140,6 +140,7 @@ type Claims struct {
 	Audience      json.RawMessage `json:"aud"`
 	Expiry        int64           `json:"exp"`
 	IssuedAt      int64           `json:"iat"`
+	AuthTime      int64           `json:"auth_time"`
 	Nonce         string          `json:"nonce"`
 	Email         string          `json:"email"`
 	EmailVerified *bool           `json:"email_verified"`

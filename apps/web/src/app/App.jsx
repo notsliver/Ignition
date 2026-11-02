@@ -29,6 +29,8 @@ import { AppSidebar } from './AppSidebar';
 import { MfaBanner } from './MfaBanner';
 import { getPreferences } from './preferences';
 import { useShortcuts } from './shortcuts';
+import { Profile } from '../pages/settings/Profile/Profile';
+import { AccountSecurity } from '../pages/settings/Profile/AccountSecurity';
 import { Preferences } from '../pages/settings/Preferences/Preferences';
 import { TeamMembers, TeamSettings } from '../pages/settings/Team/Team';
 import { AdminTeams } from '../pages/admin/AdminTeams';
@@ -59,8 +61,8 @@ const preview = node => <><PreviewBanner />{node}</>;
 const LIVE_RESOURCE_VIEWS = ['Overview', 'Deployments', 'Logs', 'Metrics', 'Environment Variables', 'Source', 'Domains', 'Networking', 'Build & Deploy', 'Resource Limits', 'Storage', 'Terminal',
   'Health Checks', 'Rollback History', 'Scheduled Tasks', 'Access & Secrets', 'Advanced Settings', 'Automations', 'Code', 'Files', 'Backups'];
 // Settings pages backed by the API (the rest are still previews).
-const LIVE_PAGES = ['Team', 'Team Members', 'Team Sources', 'General', 'Authentication & Security', 'Updates', 'Users', 'Teams', 'Limits', 'Preferences'];
-const pages = { Team: <TeamSettings />, 'Team Members': <TeamMembers />, Dashboard: <Dashboard />, General: <General />, 'Authentication & Security': <Security />, Updates: <Updates />, Users: <Users />, Teams: <AdminTeams />, Limits: <Limits />, Preferences: <Preferences /> };
+const LIVE_PAGES = ['Team', 'Team Members', 'Team Sources', 'General', 'Authentication & Security', 'Updates', 'Users', 'Teams', 'Limits', 'Preferences', 'Profile', 'Security'];
+const pages = { Profile: <Profile />, Security: <AccountSecurity />, Team: <TeamSettings />, 'Team Members': <TeamMembers />, Dashboard: <Dashboard />, General: <General />, 'Authentication & Security': <Security />, Updates: <Updates />, Users: <Users />, Teams: <AdminTeams />, Limits: <Limits />, Preferences: <Preferences /> };
 
 export function App() {
   const { team } = useTeam();

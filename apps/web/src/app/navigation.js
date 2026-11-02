@@ -29,6 +29,7 @@ export const settingsSections = [
   ],
   [
     { title: 'Profile', icon: UserCircleIcon },
+    { title: 'Security', icon: ShieldCheckIcon },
     { title: 'Preferences', icon: AdjustmentsHorizontalIcon },
     { title: 'API Tokens', icon: KeyIcon },
   ],

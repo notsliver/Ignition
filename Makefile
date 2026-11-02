@@ -1,6 +1,6 @@
 # IGNITION tasks. Everything runs in Docker, so only Docker (and make) is needed on your machine.
 COMPOSE = docker compose --env-file .env -f deploy/docker-compose.yml
-GO      = docker run --rm -v "$(CURDIR):/repo" -v ignition-gomod:/go/pkg/mod -v ignition-gocache:/root/.cache/go-build -w /repo/services golang:1.23-alpine
+GO      = docker run --rm -v "$(CURDIR):/repo" -v ignition-gomod:/go/pkg/mod -v ignition-gocache:/root/.cache/go-build -w /repo/services golang:1.26-alpine
 
 install: ## Set up and start everything (same as ./install.sh)
 	./install.sh
@@ -40,7 +40,7 @@ test-go:
 	docker run --rm --network ignition-test -v "$(CURDIR):/repo" -v ignition-gomod:/go/pkg/mod -v ignition-gocache:/root/.cache/go-build -w /repo/services \
 	  -e IGNITION_TEST_DATABASE_URL="postgres://postgres:test@ignition-test-db:5432/ignition_test?sslmode=disable" \
 	  -e IGNITION_TEST_MIGRATION_DATABASE_URL="postgres://postgres:test@ignition-test-db:5432/ignition_migration_test?sslmode=disable" \
-	  golang:1.23-alpine sh -c 'test -z "$$(gofmt -l .)" || (gofmt -l . && echo "run make fmt" && exit 1); go vet ./... && go test -count=1 ./...'
+	  golang:1.26-alpine sh -c 'test -z "$$(gofmt -l .)" || (gofmt -l . && echo "run make fmt" && exit 1); go vet ./... && go test -count=1 ./...'
 
 test-db-down:
 	-docker rm -f ignition-test-db >/dev/null 2>&1

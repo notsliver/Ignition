@@ -2,7 +2,7 @@
 
 ## Requirements
 
-Docker and `make`. Go 1.23 and Node 22 run in containers, so local versions don't matter.
+Docker and `make`. Go 1.26 and Node 22 run in containers, so local versions don't matter.
 
 ## Running locally
 
@@ -69,3 +69,36 @@ endpoints. Responses use `Cache-Control: private, no-store` and
 `Cross-Origin-Resource-Policy: same-origin`; authorization is checked before GET, HEAD,
 conditional and range responses. Removing membership immediately denies subsequent
 image requests, including previously issued URLs.
+
+
+### Account profile and security
+
+Profile (`/teams/<team>/settings/profile`) edits the signed-in account across every
+team. Name changes save directly. Email changes require recent identity confirmation
+and revoke other sessions and pending password-reset links. Avatar files continue to
+use the private uploads volume. Self-deletion requires explicit email confirmation and
+recent authentication; it cannot remove the last active instance owner or leave a team
+without an active owner. Shared workloads remain with their teams.
+
+Security (`/teams/<team>/settings/security`) manages passwords, authenticator-based
+2FA, recovery codes, passkeys, and the account's own sessions. Sensitive changes use
+five-minute confirmation bound to the current session: password plus the configured
+second factor, a user-verified passkey, or fresh sign-in through the linked SSO identity.
+Passkeys require HTTPS or localhost and use the hostname in the configured public
+URL as their relying-party ID. Changing that hostname requires registering new passkeys.
+The browser retains the private key; PostgreSQL stores the public credential, counters,
+and metadata. Challenges are stored server-side, bound to a session/browser, consumed
+once, and expire after five minutes. Passkey login honors instance SSO restrictions
+and continues through TOTP when the account or instance requires it.
+
+Account Integrations uses the instance's existing OIDC provider. Configure it in
+Instance administration > Authentication & Security. Connecting is an explicit,
+recently authenticated action; issuer and subject together identify the account.
+Existing local accounts must sign in normally and connect in Profile rather than being
+automatically linked by a matching email. Disconnecting cannot remove the last usable
+sign-in method or bypass an SSO-only policy. OIDC access/refresh tokens are not stored.
+
+The account flow browser test is `e2e/account-profile.mjs`. Run it only with disposable
+fixtures via `IGNITION_TEST_ACCOUNT_FIXTURE` (session, user UUID, team slug, password,
+email), `IGNITION_URL`, and optionally `IGNITION_BROWSER_EXECUTABLE`. It uses Chromium's
+virtual authenticator and deletes the fixture account after testing the complete flow.

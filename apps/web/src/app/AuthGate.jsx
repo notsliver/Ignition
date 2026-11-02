@@ -7,6 +7,7 @@ import { Onboarding } from './Onboarding';
 import { AuthShell } from './AuthShell';
 import { adoptServerPreferences, setPreferenceSaver } from './preferences';
 import './AuthGate.css';
+import { signInWithPasskey, supportsPasskeys } from './passkeys';
 
 export const SessionContext = createContext(null);
 export const useSession = () => useContext(SessionContext);
@@ -153,6 +154,7 @@ function LoginForm({ instance, expired, message, onDone }) {
     {ssoError && <Notice tone="danger" title="Single sign-on didn't work">{ssoError}</Notice>}
     {f.message && <Notice tone="danger" title={f.message} />}
     {methods?.sso && <a className="button primary auth-sso" href={api.ssoStartUrl}><ArrowRightEndOnRectangleIcon />{ssoButtonLabel(methods.ssoLabel, 'Sign in')}</a>}
+    {methods?.passkeys && supportsPasskeys() && <Button type="button" icon={KeyIcon} disabled={f.pending} onClick={() => f.submit(async () => onDone(await signInWithPasskey()))}>Sign in with a passkey</Button>}
     {methods?.sso && <div className="auth-or"><span>{ssoOnly ? 'Owners only' : 'or'}</span></div>}
     <FormField label="Email" htmlFor="email" error={f.errors.email}><TextInput type="email" autoComplete="username" autoFocus={!methods?.sso} placeholder="you@example.com" {...f.bind('email')} /></FormField>
     <FormField label="Password" htmlFor="password" error={f.errors.password}><PasswordInput autoComplete="current-password" {...f.bind('password')} /></FormField>

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useId, useRef } from 'react';
 import { XMarkIcon } from '@heroicons/react/16/solid';
 import { cx } from '../../utils/cx';
 import './Dialog.css';
@@ -6,6 +6,7 @@ import './Dialog.css';
 /** Modal dialog built on <dialog>, which provides focus trapping and Escape handling. */
 export function Dialog({ open, onClose, title, description, icon: Icon, children, footer, className }) {
   const ref = useRef(null);
+  const titleId = useId();
 
   useEffect(() => {
     const dialog = ref.current;
@@ -13,13 +14,13 @@ export function Dialog({ open, onClose, title, description, icon: Icon, children
     if (!open && dialog.open) dialog.close();
   }, [open]);
 
-  return <dialog ref={ref} className={cx('dialog', className)} aria-labelledby="dialog-title"
+  return <dialog ref={ref} className={cx('dialog', className)} aria-labelledby={titleId}
     onCancel={event => { event.preventDefault(); onClose(); }}
     onClick={event => { if (event.target === ref.current) onClose(); }}>
     {open && <div className="dialog-body">
       <header className="dialog-header">
         {Icon && <span className="dialog-icon"><Icon /></span>}
-        <div><h2 id="dialog-title">{title}</h2>{description && <p>{description}</p>}</div>
+        <div><h2 id={titleId}>{title}</h2>{description && <p>{description}</p>}</div>
         <button type="button" className="dialog-close" aria-label="Close" onClick={onClose}><XMarkIcon /></button>
       </header>
       <div className="dialog-content">{children}</div>

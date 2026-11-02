@@ -5,8 +5,7 @@ import { useInfrastructureAdminOnly } from './instance';
 import { useTheme } from '../hooks/useTheme';
 import { useSession } from './AuthGate';
 import { ArrowRightStartOnRectangleIcon, CheckIcon, Cog6ToothIcon, ServerStackIcon, ShieldCheckIcon, UsersIcon } from '@heroicons/react/16/solid';
-import { useEffect, useState } from 'react';
-import { AccountDialog } from './AccountDialog';
+import { useEffect } from 'react';
 import { adminPages, adminSections, infrastructurePages, infrastructureSection, groups, projectItems, resourceSectionsFor, serverSections, settingsPages, settingsSections, topItems } from './navigation';
 import { connection } from '../pages/servers/model';
 
@@ -23,8 +22,7 @@ export function AppSidebar({ active, project, environment, onEnvironmentChange, 
   const infraAdmin = useInfrastructureAdminOnly();
   const inAdmin = (adminPages.includes(active) || (infraAdmin && infrastructurePages.includes(active))) && !project && !resource && !server;
   const adminGroups = infraAdmin ? [...adminSections, infrastructureSection] : adminSections;
-  const [account, setAccount] = useState(false);
-  useEffect(() => { const open = () => setAccount(true); addEventListener('ignition:open-account', open); return () => removeEventListener('ignition:open-account', open); }, []);
+  useEffect(() => { const open = () => onNavigate('Security'); addEventListener('ignition:open-account', open); return () => removeEventListener('ignition:open-account', open); }, []);
   const footer = <SidebarFooter><SegmentedControl label="Theme" options={themeOptions} value={theme} onChange={setTheme} /></SidebarFooter>;
 
   if (server) return <Sidebar label={`${server.name} navigation`}>
@@ -95,7 +93,6 @@ export function AppSidebar({ active, project, environment, onEnvironmentChange, 
       </SidebarGroup>)}
     </SidebarNav>
     {footer}
-    {account && <AccountDialog onClose={() => setAccount(false)} />}
   </Sidebar>;
 
   if (settingsPages.includes(active)) return <Sidebar label="Settings navigation">
@@ -110,7 +107,6 @@ export function AppSidebar({ active, project, environment, onEnvironmentChange, 
       </div>)}
     </SidebarNav>
     {footer}
-    {account && <AccountDialog onClose={() => setAccount(false)} />}
   </Sidebar>;
 
   return <Sidebar>
@@ -125,8 +121,8 @@ export function AppSidebar({ active, project, environment, onEnvironmentChange, 
         { label: 'Team members', icon: UsersIcon, onSelect: () => onNavigate('Team Members') },
         'separator',
         ...(['owner', 'admin'].includes(platformRole) ? [{ label: 'Instance administration', icon: ServerStackIcon, onSelect: () => onNavigate('General') }, 'separator'] : []),
-        { label: `Account: ${user.email}`, mark: <Avatar name={user.name || user.email} src={user.avatarUrl} size={20} />, onSelect: () => setAccount(true) },
-        { label: 'Two-factor authentication', icon: ShieldCheckIcon, onSelect: () => setAccount(true) },
+        { label: `Account: ${user.email}`, mark: <Avatar name={user.name || user.email} src={user.avatarUrl} size={20} />, onSelect: () => onNavigate('Profile') },
+        { label: 'Two-factor authentication', icon: ShieldCheckIcon, onSelect: () => onNavigate('Security') },
         'separator',
         { label: 'Sign out', icon: ArrowRightStartOnRectangleIcon, onSelect: signOut },
       ]}><TeamMark team={teamsContext.team} size={20} /><span className="workspace-name">{teamsContext.team.name}</span><ChevronDownIcon className="workspace-caret" /></Menu>
@@ -139,6 +135,5 @@ export function AppSidebar({ active, project, environment, onEnvironmentChange, 
       </SidebarGroup>)}
     </SidebarNav>
     {footer}
-    {account && <AccountDialog onClose={() => setAccount(false)} />}
   </Sidebar>;
 }

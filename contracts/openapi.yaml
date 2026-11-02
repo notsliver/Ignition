@@ -49,6 +49,7 @@ components:
               - offline
               - team_required
               - team_access_lost
+              - reauth_required
             message: {type: string}
             fields: {type: object, additionalProperties: {type: string}, description: Per-field messages for 422 responses}
             requestId: {type: string}
@@ -193,7 +194,314 @@ components:
         role: {type: string, enum: *id001}
         permissionOverrides: *id002
 paths:
-
+  /api/account/profile:
+    get:
+      summary: Read your account profile
+      responses:
+        '200': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+    patch:
+      summary: Update your account name and email
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: {type: string, minLength: 1, maxLength: 80}
+                email: {type: string, format: email}
+      responses:
+        '200': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+    delete:
+      summary: Permanently delete your account after confirmation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                email: {type: string, format: email}
+      responses:
+        '204': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/account/reauth:
+    post:
+      summary: Confirm your identity for five minutes on this session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                password: {type: string, format: password}
+                code: {type: string}
+      responses:
+        '200': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/account/password:
+    put:
+      summary: Set or change your password and rotate sessions
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                password: {type: string, format: password}
+      responses:
+        '200': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/account/sessions:
+    get:
+      summary: List only your active sessions
+      responses:
+        '200': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/account/sessions/{id}:
+    parameters:
+    - {name: id, in: path, required: true, schema: {type: string}}
+    delete:
+      summary: Revoke one of your sessions or all others
+      responses:
+        '204': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/account/integrations:
+    get:
+      summary: Read the configured SSO provider and your connection
+      responses:
+        '200': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/account/integrations/sso:
+    delete:
+      summary: Disconnect SSO while preserving a usable sign-in method
+      responses:
+        '204': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/account/integrations/sso/{action}:
+    parameters:
+    - {name: action, in: path, required: true, schema: {type: string, enum: [connect, reauth]}}
+    post:
+      summary: Start explicit SSO linking or identity confirmation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                returnTo: {type: string, pattern: '^/teams/[a-zA-Z0-9-]+/settings/(profile|security)$'}
+      responses:
+        '200': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/account/passkeys:
+    get:
+      summary: List your passkey names and usage metadata
+      responses:
+        '200': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/account/passkeys/{id}:
+    parameters:
+    - {name: id, in: path, required: true, schema: {type: string}}
+    delete:
+      summary: Remove your passkey after confirming your identity
+      responses:
+        '204': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/account/passkeys/register/begin:
+    post:
+      summary: Begin user-verified resident passkey registration
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                name: {type: string, minLength: 1, maxLength: 80}
+      responses:
+        '200': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/account/passkeys/register/finish:
+    post:
+      summary: Verify and save the registered passkey
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                flowId: {type: string}
+                credential: {type: object, description: Serialized PublicKeyCredential response}
+      responses:
+        '201': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/account/passkeys/reauth/begin:
+    post:
+      summary: Begin confirmation with one of your passkeys
+      responses:
+        '200': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/account/passkeys/reauth/finish:
+    post:
+      summary: Verify the passkey and confirm this session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                flowId: {type: string}
+                credential: {type: object, description: Serialized PublicKeyCredential response}
+      responses:
+        '200': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/auth/passkeys/begin:
+    post:
+      summary: Begin a discoverable passkey sign-in
+      security: []
+      responses:
+        '200': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/auth/passkeys/finish:
+    post:
+      summary: Verify passkey sign-in and continue the two-factor policy
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                flowId: {type: string}
+                credential: {type: object, description: Serialized PublicKeyCredential response}
+      responses:
+        '200': {description: Account operation completed}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
   /api/account/avatar:
     post:
       summary: Upload your profile picture (PNG, JPEG or WebP, maximum 2 MiB)

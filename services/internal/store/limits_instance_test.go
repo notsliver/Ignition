@@ -29,7 +29,7 @@ func TestPersonalTeamsAndLimits(t *testing.T) {
 
 	// A new account gets its own team, named after its email, and owns it.
 	email := "personal-" + time.Now().Format("150405.000000") + "@example.test"
-	u, err := s.CreateSSOUser(ctx, email, "Pat", "viewer", "sub-"+email)
+	u, err := s.CreateSSOUser(ctx, email, "Pat", "viewer", "https://sso.example.test", "sub-"+email)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -58,7 +58,7 @@ func TestPersonalTeamsAndLimits(t *testing.T) {
 
 	// Turned off: new accounts start without a team.
 	other := "noteam-" + time.Now().Format("150405.000000") + "@example.test"
-	v, err := s.CreateSSOUser(ctx, other, "Noa", "viewer", "sub-"+other)
+	v, err := s.CreateSSOUser(ctx, other, "Noa", "viewer", "https://sso.example.test", "sub-"+other)
 	if err != nil {
 		t.Fatal(err)
 	}

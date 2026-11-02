@@ -67,25 +67,28 @@ func (s *Store) SetUserPermissions(ctx context.Context, userID string, p PermOve
 
 /* ----------------------------------- SSO ------------------------------------ */
 
-func (s *Store) UserByOIDCSubject(ctx context.Context, subject string) (*User, error) {
-	return scanUser(s.SQL(ctx).QueryRow(ctx, `SELECT `+userCols+` FROM users WHERE oidc_subject = $1`, subject))
+func (s *Store) UserByOIDCIdentity(ctx context.Context, issuer, subject string) (*User, error) {
+	return scanUser(s.SQL(ctx).QueryRow(ctx, `SELECT `+userCols+` FROM users WHERE oidc_subject = $1 AND oidc_issuer=$2`, subject, issuer))
 }
 
-func (s *Store) LinkOIDC(ctx context.Context, userID, subject string) error {
-	_, err := s.SQL(ctx).Exec(ctx, `UPDATE users SET oidc_subject = $2, updated_at = now() WHERE id = $1`, userID, subject)
+func (s *Store) LinkOIDC(ctx context.Context, userID, issuer, subject string) error {
+	tag, err := s.SQL(ctx).Exec(ctx, `UPDATE users SET oidc_subject=$2,oidc_issuer=$3,updated_at=now() WHERE id=$1 AND oidc_subject IS NULL`, userID, subject, issuer)
+	if err == nil && tag.RowsAffected() != 1 {
+		return ErrNotFound
+	}
 	return err
 }
 
 // CreateSSOUser provisions an account on first SSO sign-in. It has no password, so it can only
 // sign in through the identity provider until someone sends it a reset link.
-func (s *Store) CreateSSOUser(ctx context.Context, email, name, role, subject string) (*User, error) {
+func (s *Store) CreateSSOUser(ctx context.Context, email, name, role, issuer, subject string) (*User, error) {
 	tx, err := s.DB.Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
 	defer tx.Rollback(ctx)
-	u, err := scanUser(tx.QueryRow(ctx, `INSERT INTO users (email, name, password_hash, role, oidc_subject) VALUES ($1, $2, '', $3, $4) RETURNING `+userCols,
-		email, name, role, subject))
+	u, err := scanUser(tx.QueryRow(ctx, `INSERT INTO users (email, name, password_hash, role, oidc_subject,oidc_issuer) VALUES ($1, $2, '', $3, $4,$5) RETURNING `+userCols,
+		email, name, role, subject, issuer))
 	if err != nil {
 		return nil, err
 	}

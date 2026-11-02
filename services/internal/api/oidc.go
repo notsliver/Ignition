@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -21,9 +22,8 @@ import (
 /*
  * Single sign-on with OpenID Connect (Google, Okta, Authentik, Keycloak, Entra ID, ...).
  * Sign-in is the authorization code flow with PKCE, state and nonce; the ID token's signature is
- * checked against the provider's published keys. An identity is matched to an account by its
- * subject, then by verified email; with provisioning on (or a pending invitation for that email)
- * a new account is created. SSO sign-ins rely on the provider's own second factor.
+ * checked against the provider's published keys. Identities are matched by issuer and subject.
+ * Existing accounts link explicitly in Profile; provisioning can create an invited or new account. SSO sign-ins rely on the provider's own second factor.
  */
 
 type oidcSettings struct {
@@ -79,8 +79,11 @@ type ssoState struct {
 }
 
 type ssoPending struct {
-	verifier, nonce string
-	expires         time.Time
+	startedAt                         time.Time
+	userID, purpose, returnTo, issuer string
+	sessionHash                       []byte
+	verifier, nonce                   string
+	expires                           time.Time
 }
 
 func (st *ssoState) discover(ctx context.Context, issuer string) (*auth.OIDCProvider, error) {
@@ -113,13 +116,18 @@ func randomString() string {
 func (s *Server) authMethods(w http.ResponseWriter, r *http.Request) error {
 	p := s.policy()
 	o := s.oidcConfig(r.Context())
-	httpx.JSON(w, 200, map[string]any{"password": p.LocalAuth, "sso": p.OIDCAuth && o.Configured(), "ssoLabel": o.label(), "requiredMethod": p.RequiredMethod})
+	_, passkeyErr := s.webAuthn()
+	httpx.JSON(w, 200, map[string]any{"passkeys": passkeyErr == nil, "password": p.LocalAuth, "sso": p.OIDCAuth && o.Configured(), "ssoLabel": o.label(), "requiredMethod": p.RequiredMethod})
 	return nil
 }
 
 const ssoCookie = "ignition_sso"
 
 func (s *Server) oidcStart(w http.ResponseWriter, r *http.Request) error {
+	return s.beginSSO(w, r, "", "", "", nil)
+}
+
+func (s *Server) beginSSO(w http.ResponseWriter, r *http.Request, userID, purpose, returnTo string, sessionHash []byte) error {
 	if !s.limiter.allowMax("login:"+clientIP(r), s.policy().RateLimit) {
 		return httpx.TooMany("Too many sign-in attempts from your network. Wait a minute.")
 	}
@@ -142,11 +150,27 @@ func (s *Server) oidcStart(w http.ResponseWriter, r *http.Request) error {
 			delete(s.sso.pending, k)
 		}
 	}
-	s.sso.pending[state] = ssoPending{verifier, nonce, time.Now().Add(10 * time.Minute)}
+	s.sso.pending[state] = ssoPending{startedAt: time.Now(), verifier: verifier, nonce: nonce, expires: time.Now().Add(10 * time.Minute), userID: userID, purpose: purpose, returnTo: returnTo, issuer: o.Issuer, sessionHash: sessionHash}
 	s.sso.mu.Unlock()
 	// The cookie binds the callback to this browser, so a link can't be replayed elsewhere.
 	http.SetCookie(w, &http.Cookie{Name: ssoCookie, Value: state, Path: "/api/auth/oidc", HttpOnly: true, Secure: s.SecureCookies, SameSite: http.SameSiteLaxMode, MaxAge: 600})
-	http.Redirect(w, r, p.AuthURL(o.ClientID, s.redirectURL(r), state, nonce, challenge), http.StatusFound)
+	authURL := p.AuthURL(o.ClientID, s.redirectURL(r), state, nonce, challenge)
+	if purpose == "reauth" {
+		target, err := url.Parse(authURL)
+		if err != nil {
+			return err
+		}
+		q := target.Query()
+		q.Set("prompt", "login")
+		q.Set("max_age", "0")
+		target.RawQuery = q.Encode()
+		authURL = target.String()
+	}
+	if userID != "" {
+		httpx.JSON(w, 200, map[string]string{"url": authURL})
+		return nil
+	}
+	http.Redirect(w, r, authURL, http.StatusFound)
 	return nil
 }
 
@@ -200,6 +224,45 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return fail(err.Error())
 	}
+	if pend.userID != "" {
+		fail = func(msg string) error {
+			http.Redirect(w, r, pend.returnTo+"?account_error="+url.QueryEscape(msg), http.StatusFound)
+			return nil
+		}
+		c, err := r.Cookie(sessionCookie)
+		if err != nil || !bytes.Equal(auth.HashToken(c.Value), pend.sessionHash) {
+			return fail("Your account session changed. Start again.")
+		}
+		current, err := s.Store.UserBySession(r.Context(), pend.sessionHash, s.policy().idle())
+		if err != nil || current.ID != pend.userID || o.Issuer != pend.issuer {
+			return fail("Your account session or SSO provider changed. Start again.")
+		}
+		if pend.purpose == "reauth" {
+			if claims.AuthTime < pend.startedAt.Add(-30*time.Second).Unix() || claims.AuthTime > time.Now().Add(30*time.Second).Unix() {
+				return fail("The identity provider did not confirm a fresh sign-in. Use your password or passkey, or try again.")
+			}
+			linked, err := s.Store.UserByOIDCIdentity(r.Context(), o.Issuer, claims.Subject)
+			if err != nil || linked.ID != current.ID {
+				return fail("Use the SSO identity already connected to this account.")
+			}
+			if err = s.Store.ReauthenticateSession(r.Context(), current.ID, pend.sessionHash); err != nil {
+				return err
+			}
+		} else {
+			if err = s.requireRecentAccount(r, current); err != nil {
+				return fail("Confirm your identity again before connecting.")
+			}
+			if current.SSO {
+				return fail("Disconnect your existing SSO identity first.")
+			}
+			if err = s.Store.LinkOIDC(r.Context(), current.ID, o.Issuer, claims.Subject); err != nil {
+				return fail("This SSO identity is already connected, or the connection changed.")
+			}
+			s.Store.Audit(r.Context(), current, "account.sso_connected", "user", current.ID, map[string]any{"issuer": o.Issuer}, clientIP(r))
+		}
+		http.Redirect(w, r, pend.returnTo+"?account_connected=1", http.StatusFound)
+		return nil
+	}
 	user, err := s.ssoUser(r, o, claims)
 	if err != nil {
 		s.Store.Audit(r.Context(), nil, "auth.login_failed", "user", "", map[string]any{"email": claims.Email, "method": "sso", "reason": err.Error()}, clientIP(r))
@@ -230,7 +293,7 @@ func (s *Server) ssoUser(r *http.Request, o oidcSettings, c *auth.Claims) (*stor
 			return nil, errors.New("accounts from " + domain + " can't sign in here")
 		}
 	}
-	user, err := s.Store.UserByOIDCSubject(ctx, c.Subject)
+	user, err := s.Store.UserByOIDCIdentity(ctx, o.Issuer, c.Subject)
 	if errors.Is(err, store.ErrNotFound) {
 		if email == "" || !verified {
 			return nil, errors.New("the identity provider didn't share a verified email address")
@@ -241,12 +304,9 @@ func (s *Server) ssoUser(r *http.Request, o oidcSettings, c *auth.Claims) (*stor
 		user, err = s.Store.UserByEmail(ctx, email)
 		switch {
 		case err == nil:
-			if err := s.Store.LinkOIDC(ctx, user.ID, c.Subject); err != nil {
-				return nil, err
-			}
-			s.Store.Audit(ctx, user, "auth.sso_linked", "user", user.ID, map[string]any{"issuer": o.Issuer}, clientIP(r))
+			return nil, errors.New("sign in with your existing method, then connect single sign-on in Profile")
 		case errors.Is(err, store.ErrNotFound):
-			user, err = s.provisionSSO(r, email, c)
+			user, err = s.provisionSSO(r, o, email, c)
 			if err != nil {
 				return nil, err
 			}
@@ -264,7 +324,7 @@ func (s *Server) ssoUser(r *http.Request, o oidcSettings, c *auth.Claims) (*stor
 
 // provisionSSO creates an account from a pending invitation (with its role) or, with
 // provisioning on, with the default role.
-func (s *Server) provisionSSO(r *http.Request, email string, c *auth.Claims) (*store.User, error) {
+func (s *Server) provisionSSO(r *http.Request, o oidcSettings, email string, c *auth.Claims) (*store.User, error) {
 	ctx := r.Context()
 	p := s.policy()
 	name := strings.TrimSpace(c.Name)
@@ -282,7 +342,7 @@ func (s *Server) provisionSSO(r *http.Request, email string, c *auth.Claims) (*s
 				if err != nil {
 					return nil, err
 				}
-				if err := s.Store.LinkOIDC(ctx, user.ID, c.Subject); err != nil {
+				if err := s.Store.LinkOIDC(ctx, user.ID, o.Issuer, c.Subject); err != nil {
 					return nil, err
 				}
 				s.Store.Audit(ctx, user, "user.joined", "user", user.ID, map[string]any{"email": email, "role": user.Role, "method": "sso"}, clientIP(r))
@@ -293,7 +353,7 @@ func (s *Server) provisionSSO(r *http.Request, email string, c *auth.Claims) (*s
 	if !p.SSOProvisioning {
 		return nil, errors.New("there's no Ignition account for " + email + ". Ask an admin for an invitation")
 	}
-	user, err := s.Store.CreateSSOUser(ctx, email, name, p.SSODefaultRole, c.Subject)
+	user, err := s.Store.CreateSSOUser(ctx, email, name, p.SSODefaultRole, o.Issuer, c.Subject)
 	if err != nil {
 		return nil, err
 	}
