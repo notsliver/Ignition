@@ -172,6 +172,9 @@ else
   [ -n "$(getenv POSTGRES_PASSWORD)" ] || fail ".env has no POSTGRES_PASSWORD." "Restore it from your backup."
 fi
 # Ports given to the installer win over .env; otherwise .env, otherwise the defaults.
+# Whether the domain ports were chosen (on the command line or earlier in .env), not just defaulted.
+chosen_http=0; { [ -n "${IGNITION_HTTP_PORT:-}" ] || [ -n "$(getenv IGNITION_HTTP_PORT | grep -vx 80)" ]; } && chosen_http=1
+chosen_https=0; { [ -n "${IGNITION_HTTPS_PORT:-}" ] || [ -n "$(getenv IGNITION_HTTPS_PORT | grep -vx 443)" ]; } && chosen_https=1
 for kv in "IGNITION_PORT:8080" "IGNITION_HTTP_PORT:80" "IGNITION_HTTPS_PORT:443"; do
   k=${kv%%:*} d=${kv#*:}
   v="${!k:-}"; [ -n "$v" ] || v="$(getenv "$k")"; [ -n "$v" ] || v="$d"
@@ -224,6 +227,29 @@ port_help() { # port_help PORT VAR WHAT
   [ "$var" != IGNITION_PORT ] && fixes+=("    (domains then need that port in their URL, and automatic HTTPS needs ports 80 and 443)")
   fail "Port $p is already in use." "${fixes[@]}"
 }
+free_from() { # the first free port from $1 upwards, skipping $2 and $3
+  local p=$1
+  while [ -n "$(port_owner "$p")" ] || [ "$p" = "$2" ] || [ "$p" = "$3" ]; do p=$((p + 1)); done
+  echo "$p"
+}
+# Another web server or panel (Coolify, Easypanel, Dokploy, nginx…) already serves ports 80 and 443:
+# unless you chose the ports, run alongside it on free ones instead of stopping. Nothing of it is touched.
+alongside=""
+if [ "${IGNITION_SKIP_CHECKS:-}" != 1 ]; then
+  for which in http https; do
+    if [ "$which" = http ]; then p=$http_port chosen=$chosen_http start=8880; else p=$https_port chosen=$chosen_https start=8443; fi
+    owner=$(port_owner "$p")
+    [ -n "$owner" ] && [ "$chosen" = 0 ] || continue
+    alongside=${owner#*:}
+    new=$(free_from "$start" "$port" "$([ "$which" = http ] && echo "$https_port" || echo "$http_port")")
+    if [ "$which" = http ]; then http_port=$new; setenv IGNITION_HTTP_PORT "$new"; else https_port=$new; setenv IGNITION_HTTPS_PORT "$new"; fi
+  done
+  if [ -n "$alongside" ]; then
+    case "$alongside" in coolify*) panel="Coolify" ;; easypanel*) panel="Easypanel" ;; dokploy*) panel="Dokploy" ;; unknown) panel="Another program" ;; *) panel="\"$alongside\"" ;; esac
+    say "$panel already serves ports 80 and 443 here, so Ignition runs alongside it."
+    echo "  Your apps' domains use ports $http_port (HTTP) and $https_port (HTTPS) for now; $panel keeps running untouched."
+  fi
+fi
 if [ "${IGNITION_SKIP_CHECKS:-}" != 1 ]; then
   port_help "$http_port" IGNITION_HTTP_PORT "your apps' domains (HTTP and certificate checks)"
   port_help "$https_port" IGNITION_HTTPS_PORT "your apps' domains over HTTPS"
@@ -354,6 +380,13 @@ if [ -n "$code" ]; then
   echo "Open the URL, enter the code, and create your owner account."
 else
   echo "Sign in with your existing account."
+fi
+if [ "$http_port" != 80 ] || [ "$https_port" != 443 ]; then
+  echo
+  say "Domains are on ports $http_port and $https_port"
+  echo "  Automatic HTTPS needs ports 80 and 443. When you've moved your apps, free them (for example"
+  echo "  docker stop coolify-proxy && docker update --restart=no coolify-proxy) and re-run the installer with:"
+  echo "    IGNITION_HTTP_PORT=80 IGNITION_HTTPS_PORT=443"
 fi
 if [ "$MODE" = server ] && command -v ufw >/dev/null && ufw status 2>/dev/null | grep -q "Status: active"; then
   for p in "$port" "$http_port" "$https_port"; do
