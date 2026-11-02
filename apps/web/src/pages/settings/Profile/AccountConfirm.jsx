@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Dialog, FormField, Notice, TextInput } from '../../../ui';
 import { api } from '../../../api/client';
 import { useQuery } from '../../../api/hooks';
@@ -23,6 +23,8 @@ export function useAccountAction() {
 function ConfirmIdentity({ onClose, onDone }) {
   const security = useQuery(api.accountSecurity, []);
   const keys = useQuery(api.accountPasskeys, []);
+  const providers = useQuery(api.availableIntegrations, []);
+  const connectedProviders = providers.data?.providers.filter(p=>p.signIn && p.identity && !p.providerChanged) ?? [];
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [pending, setPending] = useState(false);
@@ -31,6 +33,19 @@ function ConfirmIdentity({ onClose, onDone }) {
     setPending(true); setError('');
     try { await action(); await onDone(); }
     catch (err) { setError(Object.values(err.fields || {}).join(' ') || err.message); setPending(false); }
+  }
+  const popup = useRef(null);
+  const poll = useRef(null);
+  useEffect(()=>()=>{clearInterval(poll.current);popup.current?.close();},[]);
+  function externalConfirmation(start){
+    const opened=window.open('about:blank','_blank','popup,width=680,height=760');
+    if(!opened) return Promise.reject(new Error('Allow popups for Ignition to confirm your identity without leaving this form.'));
+    opened.opener=null;popup.current=opened;
+    return new Promise(async(resolve,reject)=>{
+      try{const out=await start();opened.location.replace(out.url);const started=Date.now();
+        poll.current=setInterval(async()=>{if(opened.closed||Date.now()-started>10*60*1000){clearInterval(poll.current);popup.current=null;try{const account=await api.accountProfile();if(!account.recentlyAuthenticated)throw new Error('Your identity was not confirmed. Try again.');resolve();}catch(err){reject(err);}}},750);
+      }catch(err){opened.close();popup.current=null;reject(err);}
+    });
   }
   const data = security.data;
   return <Dialog open title="Confirm your identity" description="This change affects your account. Confirmation lasts five minutes on this session." onClose={() => { if (!pending) onClose(); }}
@@ -42,9 +57,10 @@ function ConfirmIdentity({ onClose, onDone }) {
       {data.mfaEnabled && <FormField label="Authenticator or recovery code" htmlFor="confirm-code"><TextInput id="confirm-code" autoComplete="one-time-code" value={code} onChange={e => setCode(e.target.value)} /></FormField>}
     </form>}
     <div className="account-actions">
+      {connectedProviders.map(provider=><Button key={provider.provider} disabled={pending} onClick={()=>confirm(()=>externalConfirmation(()=>api.startProviderAccount(provider.provider,"reauth",location.pathname)))}>Confirm with {provider.label}</Button>)}
       {supportsPasskeys() && keys.data?.passkeys.length > 0 && <Button disabled={pending} onClick={() => confirm(async () => api.finishPasskeyReauth(await passkeyCeremony(await api.beginPasskeyReauth())))}>Confirm with a passkey</Button>}
-      {data?.sso && <Button disabled={pending} onClick={() => confirm(async () => { const out = await api.startAccountSSO('reauth', location.pathname); location.assign(out.url); })}>Confirm with single sign-on</Button>}
+      {data?.sso && <Button disabled={pending} onClick={() => confirm(() => externalConfirmation(() => api.startAccountSSO('reauth', location.pathname)))}>Confirm with single sign-on</Button>}
     </div>
-    {data && !data.hasPassword && !data.sso && !keys.data?.passkeys.length && <Notice tone="warning">No confirmation method is available. Ask an instance administrator for a password reset link.</Notice>}
+    {data && !data.hasPassword && !data.sso && !keys.data?.passkeys.length && !connectedProviders.length && <Notice tone="warning">No confirmation method is available. Ask an instance administrator for a password reset link.</Notice>}
   </Dialog>;
 }

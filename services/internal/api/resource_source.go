@@ -39,7 +39,7 @@ func (s *Server) resourceSource(w http.ResponseWriter, r *http.Request, _ *store
 		src, err := s.Store.GetSource(r.Context(), *res.SourceID)
 		if err == nil {
 			out["source"] = map[string]any{"id": src.ID, "name": src.Name, "provider": src.Provider, "authType": src.AuthType, "status": src.Status, "statusMessage": src.StatusMessage}
-			if creds, err = s.credentials(src); err != nil {
+			if creds, err = s.credentials(r.Context(), src); err != nil {
 				out["error"] = err.Error()
 			}
 		}

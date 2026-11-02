@@ -92,6 +92,9 @@ func (p *OIDCProvider) AuthURL(clientID, redirect, state, nonce, challenge strin
 		"response_type": {"code"}, "client_id": {clientID}, "redirect_uri": {redirect}, "scope": {"openid email profile"},
 		"state": {state}, "nonce": {nonce}, "code_challenge": {challenge}, "code_challenge_method": {"S256"},
 	}
+	if p.Issuer == "https://discord.com" {
+		v.Set("scope", "openid identify email")
+	}
 	sep := "?"
 	if strings.Contains(p.AuthorizationEndpoint, "?") {
 		sep = "&"

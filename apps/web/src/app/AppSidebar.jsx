@@ -1,7 +1,7 @@
 import { ArrowLeftIcon, PlusIcon, ChevronDownIcon, MoonIcon, SunIcon, ViewColumnsIcon } from '@heroicons/react/20/solid';
 import { Avatar, IconButton, Menu, Select, Status, SegmentedControl, Sidebar, SidebarFooter, SidebarGroup, SidebarHeader, SidebarItem, SidebarNav, SidebarSeparator, SidebarSubItem, Logo } from '../ui';
 import { TeamMark, roleLabel, useTeam } from './Teams';
-import { useInfrastructureAdminOnly } from './instance';
+import { useSourceMode, useInfrastructureAdminOnly } from './instance';
 import { useTheme } from '../hooks/useTheme';
 import { useSession } from './AuthGate';
 import { ArrowRightStartOnRectangleIcon, CheckIcon, Cog6ToothIcon, ServerStackIcon, ShieldCheckIcon, UsersIcon } from '@heroicons/react/16/solid';
@@ -20,6 +20,7 @@ export function AppSidebar({ active, project, environment, onEnvironmentChange, 
   const { user, platformUser, signOut } = useSession();
   const platformRole = (platformUser ?? user).role;
   const infraAdmin = useInfrastructureAdminOnly();
+  const hideSources = useSourceMode() === 'managed' && !['owner','admin'].includes(platformRole);
   const inAdmin = (adminPages.includes(active) || (infraAdmin && infrastructurePages.includes(active))) && !project && !resource && !server;
   const adminGroups = infraAdmin ? [...adminSections, infrastructureSection] : adminSections;
   useEffect(() => { const open = () => onNavigate('Security'); addEventListener('ignition:open-account', open); return () => removeEventListener('ignition:open-account', open); }, []);
@@ -57,7 +58,7 @@ export function AppSidebar({ active, project, environment, onEnvironmentChange, 
     <SidebarNav>
       {resourceSectionsFor(resource.type, resource.sourceType).map((section, i) => <div key={i}>
         {i > 0 && <SidebarSeparator />}
-        {section.map(({ title, icon }) => <SidebarItem key={title} icon={icon} active={resourceView === title} onClick={() => onResourceNavigate(title)}>{title}</SidebarItem>)}
+        {section.filter(item=>!hideSources || item.title!=='Team Sources').map(({ title, icon }) => <SidebarItem key={title} icon={icon} active={resourceView === title} onClick={() => onResourceNavigate(title)}>{title}</SidebarItem>)}
       </div>)}
     </SidebarNav>
     {footer}
@@ -103,7 +104,7 @@ export function AppSidebar({ active, project, environment, onEnvironmentChange, 
     <SidebarNav>
       {settingsSections.map((section, i) => <div key={i}>
         {i > 0 && <SidebarSeparator />}
-        {section.map(({ title, icon }) => <SidebarItem key={title} icon={icon} active={active === title} onClick={() => onNavigate(title)}>{title}</SidebarItem>)}
+        {section.filter(item=>!hideSources || item.title!=='Team Sources').map(({ title, icon }) => <SidebarItem key={title} icon={icon} active={active === title} onClick={() => onNavigate(title)}>{title}</SidebarItem>)}
       </div>)}
     </SidebarNav>
     {footer}
@@ -131,7 +132,7 @@ export function AppSidebar({ active, project, environment, onEnvironmentChange, 
     <SidebarNav>
       {topItems.map(({ title, icon }) => <SidebarItem key={title} icon={icon} active={active === title} onClick={() => onNavigate(title === 'Settings' ? settingsPages[0] : title)}>{title}</SidebarItem>)}
       {groups.filter(g => !(infraAdmin && g.label === 'Infrastructure')).map(({ label, items }) => <SidebarGroup key={label} label={label}>
-        {items.map(title => <SidebarSubItem key={title} active={active === title} onClick={() => onNavigate(title)}>{title}</SidebarSubItem>)}
+        {items.filter(title=>!hideSources || title!=='Sources').map(title => <SidebarSubItem key={title} active={active === title} onClick={() => onNavigate(title)}>{title}</SidebarSubItem>)}
       </SidebarGroup>)}
     </SidebarNav>
     {footer}

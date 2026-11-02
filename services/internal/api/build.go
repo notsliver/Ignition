@@ -199,7 +199,7 @@ func (s *Server) resourceCredentials(ctx context.Context, res *store.Resource) (
 	if err != nil {
 		return nil, err
 	}
-	c, err := s.credentials(src)
+	c, err := s.credentials(ctx, src)
 	if err != nil {
 		return nil, err
 	}

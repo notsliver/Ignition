@@ -194,6 +194,145 @@ components:
         role: {type: string, enum: *id001}
         permissionOverrides: *id002
 paths:
+  /api/settings/integrations:
+    get:
+      summary: Read instance-managed provider applications and source policy
+      responses:
+        '200': {description: Operation completed; redirects apply to OAuth browser endpoints}
+        '204': {description: Operation completed; redirects apply to OAuth browser endpoints}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/settings/integrations/{provider}:
+    parameters:
+    - {name: provider, in: path, required: true, schema: {type: string}}
+    put:
+      summary: Configure an instance provider or source-policy with recent authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200': {description: Operation completed; redirects apply to OAuth browser endpoints}
+        '204': {description: Operation completed; redirects apply to OAuth browser endpoints}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/account/integrations/providers:
+    get:
+      summary: List enabled provider capabilities and your linked identities
+      responses:
+        '200': {description: Operation completed; redirects apply to OAuth browser endpoints}
+        '204': {description: Operation completed; redirects apply to OAuth browser endpoints}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/account/integrations/providers/{provider}/{action}:
+    parameters:
+    - {name: provider, in: path, required: true, schema: {type: string}}
+    - {name: action, in: path, required: true, schema: {type: string}}
+    post:
+      summary: Start explicit account OAuth linking or confirmation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200': {description: Operation completed; redirects apply to OAuth browser endpoints}
+        '204': {description: Operation completed; redirects apply to OAuth browser endpoints}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/account/integrations/providers/{provider}:
+    parameters:
+    - {name: provider, in: path, required: true, schema: {type: string}}
+    delete:
+      summary: Disconnect your provider identity without losing the last sign-in method
+      responses:
+        '200': {description: Operation completed; redirects apply to OAuth browser endpoints}
+        '204': {description: Operation completed; redirects apply to OAuth browser endpoints}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/teams/{teamId}/integrations/{provider}/connect:
+    parameters:
+    - {name: teamId, in: path, required: true, schema: {type: string}}
+    - {name: provider, in: path, required: true, schema: {type: string}}
+    post:
+      summary: Authorize a repository connection for this team
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: {type: object}
+      responses:
+        '200': {description: Operation completed; redirects apply to OAuth browser endpoints}
+        '204': {description: Operation completed; redirects apply to OAuth browser endpoints}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/teams/{teamId}/integrations/connections/{id}:
+    parameters:
+    - {name: teamId, in: path, required: true, schema: {type: string}}
+    - {name: id, in: path, required: true, schema: {type: string}}
+    delete:
+      summary: Disconnect your managed team source when unused
+      responses:
+        '200': {description: Operation completed; redirects apply to OAuth browser endpoints}
+        '204': {description: Operation completed; redirects apply to OAuth browser endpoints}
+        '400': {$ref: '#/components/responses/Error'}
+        '401': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+        '404': {$ref: '#/components/responses/Error'}
+        '409': {$ref: '#/components/responses/Error'}
+        '422': {$ref: '#/components/responses/Error'}
+        '429': {$ref: '#/components/responses/Error'}
+  /api/auth/integrations/{provider}/start:
+    parameters:
+    - {name: provider, in: path, required: true, schema: {type: string}}
+    get:
+      summary: Begin provider sign-in with browser-bound state
+      security: []
+      responses:
+        '302': {description: Operation completed; redirects apply to OAuth browser endpoints}
+        '400': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
+  /api/auth/integrations/{provider}/callback:
+    parameters:
+    - {name: provider, in: path, required: true, schema: {type: string}}
+    get:
+      summary: Consume OAuth callback and verify browser account team and provider binding
+      security: []
+      responses:
+        '302': {description: Operation completed; redirects apply to OAuth browser endpoints}
+        '400': {$ref: '#/components/responses/Error'}
+        '403': {$ref: '#/components/responses/Error'}
   /api/account/profile:
     get:
       summary: Read your account profile
@@ -612,6 +751,34 @@ paths:
       summary: Confirm the first code during enforced enrollment. Turns MFA on, signs in and returns ten one-time recovery codes (shown once).
       security: []
       responses: {'200': {description: '{ user, permissions, recoveryCodes }'}, '422': {$ref: '#/components/responses/Error'}}
+  /api/auth/oidc/icon:
+    get:
+      summary: Current public instance SSO logo
+      security: []
+      responses:
+        '200':
+          description: Normalized PNG instance logo
+          content:
+            image/png:
+              schema: { type: string, format: binary }
+        '404': { description: No custom logo configured }
+  /api/settings/security/oidc/icon:
+    post:
+      summary: Upload the public SSO logo (instance administrator)
+      requestBody:
+        required: true
+        content:
+          application/octet-stream:
+            schema: { type: string, format: binary }
+      responses:
+        '200': { description: Logo saved }
+        '403': { description: Instance administrator required }
+        '422': { description: Invalid image }
+    delete:
+      summary: Remove the custom SSO logo (instance administrator)
+      responses:
+        '200': { description: Logo removed }
+
   /api/auth/oidc/start: {get: {summary: Begin OpenID Connect sign-in (authorization code with PKCE). Redirects to the identity provider., security: [],
       responses: {'302': {description: Redirect}}}}
   /api/auth/oidc/callback:

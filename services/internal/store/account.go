@@ -39,7 +39,7 @@ func (s *Store) UnlinkAccountOIDC(ctx context.Context, user string, keep []byte)
 	}
 	defer tx.Rollback(ctx)
 	var password bool
-	if err = tx.QueryRow(ctx, `SELECT password_hash<>'' FROM users WHERE id=$1 FOR UPDATE`, user).Scan(&password); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT password_hash<>'' OR EXISTS(SELECT 1 FROM account_integration_identities i JOIN instance_integrations c ON c.provider=i.provider WHERE i.user_id=users.id AND i.origin=c.config->>'baseUrl' AND coalesce((c.config->>'enabled')::boolean,true) AND coalesce((c.config->>'signInEnabled')::boolean,false)) FROM users WHERE id=$1 FOR UPDATE`, user).Scan(&password); err != nil {
 		return err
 	}
 	var count int
@@ -95,7 +95,7 @@ func (s *Store) ReauthenticateSession(ctx context.Context, user string, hash []b
 }
 func (s *Store) RecentlyAuthenticated(ctx context.Context, user string, hash []byte) (bool, error) {
 	var ok bool
-	err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM sessions WHERE user_id=$1 AND token_hash=$2 AND expires_at>now() AND (reauthenticated_at>now()-interval '5 minutes' OR (method='sso' AND created_at>now()-interval '5 minutes')))`, user, hash).Scan(&ok)
+	err := s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM sessions WHERE user_id=$1 AND token_hash=$2 AND expires_at>now() AND (reauthenticated_at>now()-interval '5 minutes' OR ((method='sso' OR method LIKE 'oauth:%') AND created_at>now()-interval '5 minutes')))`, user, hash).Scan(&ok)
 	return ok, err
 }
 func (s *Store) UpdateAccount(ctx context.Context, user, name, email string, current []byte) error {
@@ -152,6 +152,9 @@ func (s *Store) DeleteOwnAccount(ctx context.Context, user string) error {
 		return ErrLastOwner
 	}
 	// Withdraw capabilities issued by the account before removing its identity.
+	if _, err = tx.Exec(ctx, `UPDATE sources SET secret_enc=NULL,status='failed',status_message='The connected account was removed; reconnect this source.' WHERE oauth_user_id=$1`, user); err != nil {
+		return err
+	}
 	if _, err = tx.Exec(ctx, `DELETE FROM resource_tokens WHERE created_by=$1`, user); err != nil {
 		return err
 	}
@@ -233,7 +236,7 @@ func (s *Store) DeleteAccountPasskey(ctx context.Context, user, id string, local
 	}
 	defer tx.Rollback(ctx)
 	var fallback bool
-	if err = tx.QueryRow(ctx, `SELECT ($2 AND password_hash<>'') OR (oidc_subject IS NOT NULL AND oidc_issuer=$3 AND $3<>'') FROM users WHERE id=$1 FOR UPDATE`, user, localAllowed, ssoIssuer).Scan(&fallback); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT ($2 AND password_hash<>'') OR (oidc_subject IS NOT NULL AND oidc_issuer=$3 AND $3<>'') OR EXISTS(SELECT 1 FROM account_integration_identities i JOIN instance_integrations c ON c.provider=i.provider WHERE i.user_id=users.id AND i.origin=c.config->>'baseUrl' AND coalesce((c.config->>'enabled')::boolean,true) AND coalesce((c.config->>'signInEnabled')::boolean,false)) FROM users WHERE id=$1 FOR UPDATE`, user, localAllowed, ssoIssuer).Scan(&fallback); err != nil {
 		return noRows(err)
 	}
 	var owned bool

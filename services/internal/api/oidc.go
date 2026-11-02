@@ -27,6 +27,7 @@ import (
  */
 
 type oidcSettings struct {
+	Provider       string     `json:"provider"`
 	Issuer         string     `json:"issuer"`
 	ClientID       string     `json:"clientId"`
 	SecretSealed   []byte     `json:"secretSealed"`
@@ -67,7 +68,7 @@ func (s *Server) redirectURL(r *http.Request) string {
 func (s *Server) oidcStatus(ctx context.Context) map[string]any {
 	o := s.oidcConfig(ctx)
 	return map[string]any{"configured": o.Configured(), "issuer": o.Issuer, "clientId": o.ClientID, "hasSecret": len(o.SecretSealed) > 0,
-		"label": o.Label, "allowedDomains": o.AllowedDomains, "verifiedAt": o.VerifiedAt}
+		"label": o.Label, "provider": o.Provider, "iconUrl": s.ssoIconURL(ctx), "allowedDomains": o.AllowedDomains, "verifiedAt": o.VerifiedAt}
 }
 
 type ssoState struct {
@@ -116,8 +117,22 @@ func randomString() string {
 func (s *Server) authMethods(w http.ResponseWriter, r *http.Request) error {
 	p := s.policy()
 	o := s.oidcConfig(r.Context())
+	loginProviders := []map[string]string{}
+	configured, err := s.Store.Integrations(r.Context())
+	if err != nil {
+		return err
+	}
+	for _, c := range configured {
+		if c.Enabled && c.SignInEnabled && c.Login.ClientID != "" && c.Login.HasSecret {
+			label := c.Label
+			if label == "" {
+				label = c.Provider
+			}
+			loginProviders = append(loginProviders, map[string]string{"provider": c.Provider, "label": label, "url": "/api/auth/integrations/" + c.Provider + "/start"})
+		}
+	}
 	_, passkeyErr := s.webAuthn()
-	httpx.JSON(w, 200, map[string]any{"passkeys": passkeyErr == nil, "password": p.LocalAuth, "sso": p.OIDCAuth && o.Configured(), "ssoLabel": o.label(), "requiredMethod": p.RequiredMethod})
+	httpx.JSON(w, 200, map[string]any{"loginProviders": loginProviders, "passkeys": passkeyErr == nil, "password": p.LocalAuth, "sso": p.OIDCAuth && o.Configured(), "ssoLabel": o.label(), "ssoProvider": o.Provider, "ssoIconUrl": s.ssoIconURL(r.Context()), "requiredMethod": p.RequiredMethod})
 	return nil
 }
 
@@ -248,6 +263,7 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) error {
 			if err = s.Store.ReauthenticateSession(r.Context(), current.ID, pend.sessionHash); err != nil {
 				return err
 			}
+			return integrationIdentityConfirmed(w)
 		} else {
 			if err = s.requireRecentAccount(r, current); err != nil {
 				return fail("Confirm your identity again before connecting.")
@@ -364,6 +380,7 @@ func (s *Server) provisionSSO(r *http.Request, o oidcSettings, email string, c *
 /* ------------------------------ Configuration -------------------------------- */
 
 type oidcInput struct {
+	Provider       string   `json:"provider"`
 	Issuer         string   `json:"issuer"`
 	ClientID       string   `json:"clientId"`
 	ClientSecret   string   `json:"clientSecret"` // "" keeps the stored one
@@ -375,6 +392,9 @@ func (s *Server) testOIDC(w http.ResponseWriter, r *http.Request, _ *store.User)
 	var in oidcInput
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
+	}
+	if message := validateSSOPreset(in.Provider, in.Issuer); message != "" {
+		return httpx.Invalid(map[string]string{"issuer": message})
 	}
 	p, err := auth.DiscoverOIDC(r.Context(), in.Issuer)
 	if err != nil {
@@ -390,6 +410,9 @@ func (s *Server) putOIDC(w http.ResponseWriter, r *http.Request, u *store.User) 
 		return err
 	}
 	f := map[string]string{}
+	if message := validateSSOPreset(in.Provider, in.Issuer); message != "" {
+		f["issuer"] = message
+	}
 	in.Issuer = strings.TrimRight(strings.TrimSpace(in.Issuer), "/")
 	in.ClientID = strings.TrimSpace(in.ClientID)
 	in.Label = strings.TrimSpace(in.Label)
@@ -411,7 +434,7 @@ func (s *Server) putOIDC(w http.ResponseWriter, r *http.Request, u *store.User) 
 		domains = append(domains, d)
 	}
 	old := s.oidcConfig(r.Context())
-	if in.ClientSecret == "" && (len(old.SecretSealed) == 0 || old.Issuer != in.Issuer) {
+	if in.ClientSecret == "" && (len(old.SecretSealed) == 0 || old.Issuer != in.Issuer || old.ClientID != in.ClientID) {
 		f["clientSecret"] = "Paste the client secret."
 	}
 	if len(f) == 0 {
@@ -430,7 +453,7 @@ func (s *Server) putOIDC(w http.ResponseWriter, r *http.Request, u *store.User) 
 		}
 	}
 	now := time.Now().UTC()
-	o := oidcSettings{Issuer: in.Issuer, ClientID: in.ClientID, SecretSealed: sealed, Label: in.Label, AllowedDomains: domains, VerifiedAt: &now}
+	o := oidcSettings{Provider: in.Provider, Issuer: in.Issuer, ClientID: in.ClientID, SecretSealed: sealed, Label: in.Label, AllowedDomains: domains, VerifiedAt: &now}
 	if err := s.Store.SetSetting(r.Context(), "oidc", o); err != nil {
 		return err
 	}

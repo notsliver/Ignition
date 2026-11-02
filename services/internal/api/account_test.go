@@ -287,8 +287,11 @@ func TestAccountSSOLinkingAndSessionBinding(t *testing.T) {
 		r.AddCookie(&http.Cookie{Name: sessionCookie, Value: session})
 		w := httptest.NewRecorder()
 		handler.ServeHTTP(w, r)
-		if w.Code != 302 {
+		if w.Code != 302 && w.Code != 200 {
 			t.Fatalf("SSO callback: %d %s", w.Code, w.Body.String())
+		}
+		if w.Code == 200 {
+			return w.Body.String()
 		}
 		return w.Header().Get("Location")
 	}
@@ -316,7 +319,7 @@ func TestAccountSSOLinkingAndSessionBinding(t *testing.T) {
 	}
 	assertedAuthTime.Store(time.Now().Unix())
 	state, cookie = begin("reauth")
-	if location := finish(state, cookie, token); !strings.Contains(location, "account_connected=1") {
+	if location := finish(state, cookie, token); !strings.Contains(location, "Identity confirmed") {
 		t.Fatalf("SSO reauthentication failed: %s", location)
 	}
 	// A matching verified email alone must not attach a different SSO subject.

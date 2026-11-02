@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/notsliver/Ignition/services/internal/integrations"
 	"github.com/notsliver/Ignition/services/internal/jobs"
 	"github.com/notsliver/Ignition/services/internal/proxy"
 	"github.com/notsliver/Ignition/services/internal/runtime"
@@ -544,10 +545,13 @@ func (w *Worker) sourceCredentials(ctx context.Context, res *store.Resource) (*s
 	if err != nil {
 		return nil, fmt.Errorf("%w: the linked source no longer exists", jobs.ErrPermanent)
 	}
-	c := sources.Credentials{Provider: src.Provider, URL: src.URL, AuthType: src.AuthType, Username: src.Username}
-	if src.SecretEnc != nil {
-		if c.Secret, err = w.Secrets.Open(src.SecretEnc, "source:"+src.ID); err != nil {
-			return nil, fmt.Errorf("%w: source %s can't be decrypted; was IGNITION_SECRET_KEY changed?", jobs.ErrPermanent, src.Name)
+	c, err := integrations.Credentials(ctx, w.Store, w.Secrets, src)
+	if err != nil {
+		return nil, err
+	}
+	if res.SourceType == "git" {
+		if err = sources.ValidateManagedRepository(c, res.RepoURL); err != nil {
+			return nil, err
 		}
 	}
 	return &c, nil

@@ -102,3 +102,83 @@ The account flow browser test is `e2e/account-profile.mjs`. Run it only with dis
 fixtures via `IGNITION_TEST_ACCOUNT_FIXTURE` (session, user UUID, team slug, password,
 email), `IGNITION_URL`, and optionally `IGNITION_BROWSER_EXECUTABLE`. It uses Chromium's
 virtual authenticator and deletes the fixture account after testing the complete flow.
+
+
+### Instance-managed account and source integrations
+
+Instance administration > Integrations (`/admin/integrations`) manages the eight
+existing source providers. GitHub, GitLab and Bitbucket Cloud support OAuth for
+account sign-in and team repository access. Generic Git, Docker Hub, GHCR, GitLab
+Registry and private registries retain their supported token/password/deploy-key
+methods; the UI does not claim they support repository OAuth.
+
+Use **Developer** mode for team-managed credentials, or **Hosting** mode to hide
+Sources and Team Sources from non-platform administrators. Hosting mode also rejects
+manual credential mutations through the API, including team-owner requests. Existing
+credentials remain usable. Platform administrators can provision credentials for a
+team using its existing Sources page; credentials are never global across teams.
+Profile and Git deployment/import pickers offer approved OAuth connections. Source
+consent runs in an isolated popup, preserving the deployment draft.
+
+For each OAuth provider, configure separate application client IDs/secrets for
+identity-only sign-in and repository access, then copy the displayed callback URL to
+the provider application. Secrets are encrypted and never returned by the API.
+Organization OIDC configuration remains in Authentication & Security.
+
+| Provider | Account sign-in scopes | Repository scopes |
+| --- | --- | --- |
+| GitHub / GitHub Enterprise | `read:user user:email` | `read:user` for public repositories; opt into `repo` for private access |
+| GitLab / self-managed GitLab | `read_user` | `read_user read_api read_repository` |
+| Bitbucket Cloud | `account email` | `account repository` on a separate OAuth consumer |
+
+GitHub's classic OAuth `repo` scope includes **write** access. It cannot be described
+as read-only private access; use a GitHub App or repository deploy key when granular
+read-only access is required. Bitbucket consumer permissions determine grants and
+cannot be narrowed reliably per request. Ignition rejects missing or unexpected
+OAuth scopes instead of silently accepting additional permissions. Read-only pull
+credentials remain the recommendation for registries.
+
+Provider availability, manual credential permission, sign-in, repository OAuth and
+verified-account registration are separate controls. Sign-in provisioning respects
+instance registration policy, the SSO default role and SSO-only restrictions. Existing
+accounts explicitly link their provider identity; matching email never auto-links.
+Identity keys include provider origin and subject. Source connections include both
+user and team ownership and keep stable source IDs when reauthorized.
+
+OAuth state is browser/session-bound, consumed once, expires in ten minutes and
+records the provider configuration revision. GitHub/GitLab use PKCE; Bitbucket uses
+its confidential-client flow with browser-bound state. Login and account-link access
+tokens are discarded after identity lookup. Deployment access/refresh tokens are
+stored encrypted with their source ID as authenticated context. API and worker refresh
+through the same row lock, preventing rotating refresh-token races. Changing repository
+client credentials, scopes or provider origin requires affected sources to reconnect.
+
+Disabling a provider prevents sign-in and credential use; disabling repository OAuth
+also removes those connections from deployment pickers. Running containers stay up.
+Managed tokens may authenticate only over HTTPS to their configured provider host;
+Git authorization headers are scoped to that host and redirects are disabled. Removed
+or suspended authorizing accounts cannot supply deployment credentials.
+
+`e2e/integrations.mjs` exercises admin configuration, secret protection, hosting-mode
+navigation/API restrictions, popup isolation and draft preservation. Use only disposable
+fixtures via `IGNITION_TEST_INTEGRATIONS_FIXTURE` (adminSession, userSession, team,
+teamId, password) and `IGNITION_URL`. Provider protocol, refresh concurrency and tenant
+boundaries are additionally covered by local mocked-provider Go integration tests.
+
+### SSO provider presets and branding
+
+Authentication & Security > OpenID Connect offers Google, Discord, Microsoft Entra,
+Okta, Authentik, Keycloak, Auth0 and Custom presets. Presets provide issuer guidance,
+application setup instructions, brand icons and a sign-in button preview. One instance
+OIDC provider remains active at a time. Discovery and signed token verification run
+for every configuration; Google/Discord origins are fixed and Entra requires a specific
+tenant. Discord requests `openid identify email`, other OIDC providers request
+`openid email profile`. Changing a client ID or issuer requires a new secret.
+
+Custom branding uses the existing uploads Docker volume, under `sso/`. Only instance
+administrators with `security.manage` can upload or remove it. Images use the same
+2 MB PNG/JPEG/WebP decoder, dimension limits and normalized 256px PNG encoding as
+avatars. The database stores only its random filename in `sso_brand`. This instance
+logo is intentionally public at `/api/auth/oidc/icon` so it can render before sign-in;
+account and team images keep their existing authorization. Upload/removal saves
+immediately, independently of the provider form, as indicated in the editor.

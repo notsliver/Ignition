@@ -27,3 +27,15 @@
 .account-section-head{display:flex;justify-content:space-between;align-items:center;gap:12px}
 .account-section-head h2{margin:0;font-size:13px;font-weight:600}
 @media(max-width:480px){.account-session{flex-wrap:wrap}.account-session>.button{margin-left:30px}.account-integration header{align-items:flex-start;flex-wrap:wrap}}
+
+.account-integrations-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.account-integrations-grid>.account-integration{min-width:0;margin:0;padding:20px;gap:20px}
+.provider-integration-details{display:flex;flex-direction:column;gap:0}
+.provider-integration .provider-integration-line{display:flex;align-items:flex-start;gap:10px;padding:11px 0;margin:0;font-size:12px;line-height:1.6;min-width:0}
+.provider-integration-line+.provider-integration-line{border-top:1px solid var(--border)}
+.provider-integration-line>svg{width:17px;height:17px;flex:none;margin-top:1px;color:var(--success)}
+.provider-integration-line.inactive>svg{color:var(--muted)}
+.provider-integration-line>span{min-width:0;overflow-wrap:anywhere}
+.provider-integration-line .button{padding:0;min-height:0;height:auto;text-align:left;white-space:normal;justify-content:flex-start}
+.provider-integration .account-integration-title svg{color:var(--text)}
+@media(max-width:720px){.account-integrations-grid{grid-template-columns:minmax(0,1fr)}}

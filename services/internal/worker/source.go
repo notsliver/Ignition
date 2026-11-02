@@ -45,6 +45,11 @@ func ValidateGitSourceFor(repo, branch string, ssh bool) error {
 // cloneRepo does a shallow clone with git invoked directly (no shell) and returns the commit SHA.
 // creds is nil for public repositories.
 func cloneRepo(ctx context.Context, repo, branch, dir string, creds *sources.Credentials) (string, error) {
+	if creds != nil {
+		if err := sources.ValidateManagedRepository(*creds, repo); err != nil {
+			return "", err
+		}
+	}
 	if err := ValidateGitSourceFor(repo, branch, creds != nil && creds.AuthType == "ssh"); err != nil {
 		return "", err
 	}

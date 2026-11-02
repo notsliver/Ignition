@@ -10,6 +10,8 @@ import { SettingsField, SettingsGroup } from '../SettingsField';
 import { useAccountAction } from './AccountConfirm';
 import '../settings.css';
 import './Profile.css';
+import { SSOBrand } from '../../../ui/icons/SSOBrand';
+import { AccountProviderConnections } from './ProviderConnections';
 
 export function Profile() {
   const session = useSession();
@@ -45,11 +47,12 @@ export function Profile() {
 
     <section className="settings-group">
       <h2>Account Integrations</h2>
-      <p>Connect the single sign-on provider configured for this instance.</p>
+      <p>Manage your connected accounts and repository access for this team.</p>
       {integrations.error && <Notice tone="danger" title="Couldn't load integrations">{integrations.error.message} <Button onClick={integrations.refetch}>Retry</Button></Notice>}
       {!sso && !integrations.error && <p className="account-muted">Loading…</p>}
-      {sso && <article className="account-integration settings-card">
-        <header><span className="account-integration-title"><ShieldCheckIcon /><strong>{sso.label}</strong></span>
+      <AccountProviderConnections>
+      {sso && (sso.configured || sso.connected || sso.providerChanged) && <article className="account-integration settings-card">
+        <header><span className="account-integration-title"><SSOBrand provider={sso.provider} iconUrl={sso.iconUrl} /><strong>{sso.label}</strong></span>
           <Status tone={sso.connected ? 'success' : 'neutral'}>{sso.connected ? 'Connected' : sso.configured ? 'Not connected' : 'Not configured'}</Status></header>
         {sso.connected ? <><p className="account-connected"><CheckCircleIcon />Connected to {sso.account}</p><p>{sso.configured ? 'Use this identity to sign in to Ignition.' : 'Your identity is linked. Single sign-on is currently disabled on this instance.'}</p></>
           : <p>{sso.providerChanged ? 'The instance SSO provider changed. Disconnect the previous identity before connecting again.' : sso.configured ? 'Link your identity to sign in using your organization’s single sign-on.' : 'An instance administrator can configure single sign-on under Authentication & Security.'}</p>}
@@ -59,7 +62,9 @@ export function Profile() {
             : <Button icon={LinkIcon} disabled={!sso.configured || action.pending} onClick={() => action.run(async () => { const out = await api.startAccountSSO('connect', location.pathname); location.assign(out.url); })}>Connect</Button>}
         </div>
       </article>}
+      </AccountProviderConnections>
     </section>
+
 
     <SettingsGroup title="Danger zone">
       <SettingsField label="Delete account" hint="Permanently delete your account and end all sessions. Transfer sole ownership of your teams first.">

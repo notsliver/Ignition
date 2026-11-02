@@ -8,6 +8,10 @@ import (
 )
 
 type Source struct {
+	OAuthProvider   string     `json:"oauthProvider,omitempty"`
+	OAuthUserID     string     `json:"connectionOwnerId,omitempty"`
+	OAuthRevision   int64      `json:"-"`
+	OAuthScopes     []string   `json:"oauthScopes,omitempty"`
 	ID              string     `json:"id"`
 	Name            string     `json:"name"`
 	Kind            string     `json:"kind"`
@@ -31,13 +35,13 @@ type Source struct {
 const sourceSelect = `
 	SELECT s.id, s.name, s.kind, s.provider, s.url, s.auth_type, s.username, s.secret_enc IS NOT NULL, s.secret_hint, s.public_key,
 	       s.status, s.status_message, s.account, s.last_checked_at,
-	       (SELECT count(*) FROM resources r WHERE r.source_id = s.id), s.created_at, s.updated_at, s.secret_enc
+	       (SELECT count(*) FROM resources r WHERE r.source_id = s.id), s.created_at, s.updated_at, s.secret_enc,coalesce(s.oauth_provider,''),coalesce(s.oauth_user_id::text,''),coalesce(s.oauth_revision,0),s.oauth_scopes
 	FROM sources s`
 
 func scanSource(row pgx.Row) (*Source, error) {
 	var s Source
 	err := row.Scan(&s.ID, &s.Name, &s.Kind, &s.Provider, &s.URL, &s.AuthType, &s.Username, &s.HasSecret, &s.SecretHint, &s.PublicKey,
-		&s.Status, &s.StatusMessage, &s.Account, &s.LastCheckedAt, &s.LinkedResources, &s.CreatedAt, &s.UpdatedAt, &s.SecretEnc)
+		&s.Status, &s.StatusMessage, &s.Account, &s.LastCheckedAt, &s.LinkedResources, &s.CreatedAt, &s.UpdatedAt, &s.SecretEnc, &s.OAuthProvider, &s.OAuthUserID, &s.OAuthRevision, &s.OAuthScopes)
 	return &s, noRows(err)
 }
 

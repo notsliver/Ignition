@@ -45,7 +45,7 @@ func (s *Server) gitCredentials(ctx context.Context, sourceID string) (*sources.
 	if err != nil {
 		return nil, httpx.Invalid(map[string]string{"sourceId": "Unknown source."})
 	}
-	c, err := s.credentials(src)
+	c, err := s.credentials(ctx, src)
 	if err != nil {
 		return nil, err
 	}

@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { ArrowPathIcon, CheckIcon, ClipboardDocumentIcon, EyeIcon, EyeSlashIcon, FolderIcon, PlusIcon, XMarkIcon } from '@heroicons/react/16/solid';
 import { BranchIcon, Button, Dialog, FormField, Select, TextInput, cx } from '../../../ui';
 import { suggestName, validate } from './flows';
 import { api } from '../../../api/client';
 import { useQuery } from '../../../api/hooks';
 import './AddResourceDialog.css';
+import { SourceProviderConnections } from '../../settings/Profile/ProviderConnections';
 
 const envTone = env => env === 'Production' ? 'var(--success)' : env === 'Staging' ? 'var(--warning)' : 'var(--muted)';
 const generatePassword = () => {
@@ -138,9 +139,16 @@ export function AddResourceDialog({ flow, projectName, environment, takenNames, 
 
 // Saved credentials from Infrastructure > Sources. "None" keeps the public, anonymous behaviour.
 export function SourceSelect({ id, kind, value, onChange }) {
-  const { data, error } = useQuery(() => api.sources({ kind }), [kind]);
+  const { data, error, refetch } = useQuery(() => api.sources({ kind }), [kind]);
+  const [connecting,setConnecting]=useState(false);
+  useEffect(()=>{const changed=()=>refetch();window.addEventListener('ignition:sources-changed',changed);return ()=>window.removeEventListener('ignition:sources-changed',changed);},[refetch]);
   const options = [{ value: '', label: kind === 'git' ? 'None (public repository)' : 'None (public image)' },
     ...(data?.sources ?? []).map(s => ({ value: s.id, label: s.name, description: s.status === 'connected' ? s.account || 'Connected' : s.status === 'failed' ? 'Connection failing' : 'Not tested', dot: s.status === 'connected' ? 'var(--success)' : s.status === 'failed' ? 'var(--danger)' : 'var(--muted)' }))];
   if (error) return <TextInput id={id} value="Couldn't load sources" disabled readOnly />;
-  return <Select id={id} value={value} label="Source" options={options} onChange={onChange} searchable={8} />;
+  return <div className="source-select-stack"><Select id={id} value={value} label="Source" options={options} onChange={onChange} searchable={8} />
+    {kind==='git' && <Button type="button" onClick={e=>{e.preventDefault();setConnecting(true);}}>Connect Git provider</Button>}
+    <Dialog open={connecting} onClose={()=>setConnecting(false)} title="Connect a Git provider" description="Authorize your own account through the instance OAuth application. Your deployment form stays open." footer={<Button type="button" onClick={()=>setConnecting(false)}>Done</Button>}>
+      {connecting && <SourceProviderConnections compact onChanged={refetch}/>}
+    </Dialog>
+  </div>;
 }

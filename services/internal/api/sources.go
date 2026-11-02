@@ -2,13 +2,13 @@ package api
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/notsliver/Ignition/services/internal/httpx"
+	"github.com/notsliver/Ignition/services/internal/integrations"
 	"github.com/notsliver/Ignition/services/internal/sources"
 	"github.com/notsliver/Ignition/services/internal/store"
 )
@@ -128,7 +128,23 @@ func (s *Server) listSources(w http.ResponseWriter, r *http.Request, _ *store.Us
 	if err != nil {
 		return err
 	}
-	httpx.JSON(w, 200, map[string]any{"sources": list})
+	configs, err := s.Store.Integrations(r.Context())
+	if err != nil {
+		return err
+	}
+	enabled := map[string]bool{}
+	oauthEnabled := map[string]bool{}
+	for _, c := range configs {
+		enabled[c.Provider] = c.Enabled
+		oauthEnabled[c.Provider] = c.Enabled && c.SourcesEnabled
+	}
+	filtered := []store.Source{}
+	for _, src := range list {
+		if enabled[src.Provider] && (src.OAuthProvider == "" || oauthEnabled[src.Provider]) {
+			filtered = append(filtered, src)
+		}
+	}
+	httpx.JSON(w, 200, map[string]any{"sources": filtered, "sourceMode": s.Store.SourceMode(r.Context())})
 	return nil
 }
 
@@ -152,6 +168,9 @@ func (s *Server) getSource(w http.ResponseWriter, r *http.Request, _ *store.User
 func (s *Server) createSource(w http.ResponseWriter, r *http.Request, u *store.User) error {
 	var in sourceInput
 	if err := httpx.Decode(r, &in); err != nil {
+		return err
+	}
+	if err := s.manualSourceAllowed(r, u, in.Provider); err != nil {
 		return err
 	}
 	in.Name, in.URL, in.Username = strings.TrimSpace(in.Name), strings.TrimSpace(in.URL), strings.TrimSpace(in.Username)
@@ -189,6 +208,12 @@ func (s *Server) updateSource(w http.ResponseWriter, r *http.Request, u *store.U
 	cur, err := s.Store.GetSource(r.Context(), id)
 	if err != nil {
 		return notFound(err, "Source")
+	}
+	if err := s.manualSourceAllowed(r, u, cur.Provider); err != nil {
+		return err
+	}
+	if cur.OAuthProvider != "" {
+		return httpx.Forbidden("Reconnect this source through the managed OAuth provider instead of changing its credentials.")
 	}
 	var in struct {
 		Name        *string `json:"name"`
@@ -250,6 +275,11 @@ func (s *Server) deleteSource(w http.ResponseWriter, r *http.Request, u *store.U
 	if err != nil {
 		return notFound(err, "Source")
 	}
+	if src.OAuthProvider == "" {
+		if err := s.manualSourceAllowed(r, u, src.Provider); err != nil {
+			return err
+		}
+	}
 	if src.LinkedResources > 0 {
 		noun := "resources still use"
 		if src.LinkedResources == 1 {
@@ -265,16 +295,8 @@ func (s *Server) deleteSource(w http.ResponseWriter, r *http.Request, u *store.U
 	return nil
 }
 
-func (s *Server) credentials(src *store.Source) (sources.Credentials, error) {
-	c := sources.Credentials{Provider: src.Provider, URL: src.URL, AuthType: src.AuthType, Username: src.Username}
-	if src.SecretEnc != nil {
-		secret, err := s.Secrets.Open(src.SecretEnc, "source:"+src.ID)
-		if err != nil {
-			return c, errors.New("the saved secret can't be decrypted; was IGNITION_SECRET_KEY changed?")
-		}
-		c.Secret = secret
-	}
-	return c, nil
+func (s *Server) credentials(ctx context.Context, src *store.Source) (sources.Credentials, error) {
+	return integrations.Credentials(ctx, s.Store, s.Secrets, src)
 }
 
 // testSource runs a real check against the provider or registry and records the result.
@@ -285,7 +307,7 @@ func (s *Server) testSource(ctx context.Context, id string) (*store.Source, erro
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	c, err := s.credentials(src)
+	c, err := s.credentials(ctx, src)
 	account := ""
 	if err == nil {
 		account, err = sources.Check(ctx, c, s.Runtime)
@@ -328,7 +350,7 @@ func (s *Server) sourceRepositories(w http.ResponseWriter, r *http.Request, _ *s
 	if src.AuthType == "ssh" || (src.Provider != "github" && src.Provider != "gitlab" && src.Provider != "bitbucket") {
 		return httpx.Unsupported("Listing repositories needs a GitHub, GitLab or Bitbucket token.")
 	}
-	c, err := s.credentials(src)
+	c, err := s.credentials(r.Context(), src)
 	if err != nil {
 		return err
 	}

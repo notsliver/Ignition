@@ -19,6 +19,8 @@ import (
 )
 
 type Credentials struct {
+	Managed  bool
+	GitHost  string
 	Provider string // github, gitlab, bitbucket, git, dockerhub, ghcr, gitlab-registry, registry
 	URL      string // self-hosted base URL, generic repository URL, or registry address
 	AuthType string // none, token, password, ssh
@@ -98,6 +100,12 @@ func GitAuth(c Credentials) (args []string, env []string, cleanup func(), err er
 		return nil, nil, cleanup, nil
 	case "token", "password":
 		basic := base64.StdEncoding.EncodeToString([]byte(defaultUsername(c) + ":" + c.Secret))
+		if c.Managed {
+			if c.GitHost == "" {
+				return nil, nil, cleanup, errors.New("managed credentials require a provider host")
+			}
+			return []string{"-c", "http.https://" + c.GitHost + "/.extraHeader=Authorization: Basic " + basic, "-c", "http.followRedirects=false"}, nil, cleanup, nil
+		}
 		return []string{"-c", "http.extraHeader=Authorization: Basic " + basic}, nil, cleanup, nil
 	case "ssh":
 		dir, err := os.MkdirTemp("", "ignition-ssh-*")
@@ -123,6 +131,9 @@ func GitAuth(c Credentials) (args []string, env []string, cleanup func(), err er
 
 // LsRemote checks that a repository is reachable with the credentials (read access only).
 func LsRemote(ctx context.Context, c Credentials, repo string) error {
+	if err := ValidateManagedRepository(c, repo); err != nil {
+		return err
+	}
 	args, env, cleanup, err := GitAuth(c)
 	if err != nil {
 		return err
@@ -166,7 +177,7 @@ var client = &http.Client{Timeout: 10 * time.Second}
 func apiBase(c Credentials) string {
 	switch c.Provider {
 	case "github":
-		if c.URL != "" {
+		if c.URL != "" && strings.TrimRight(c.URL, "/") != "https://github.com" {
 			return strings.TrimRight(c.URL, "/") + "/api/v3" // GitHub Enterprise Server
 		}
 		return "https://api.github.com"
@@ -187,14 +198,18 @@ func providerGet(ctx context.Context, c Credentials, path string, out any) error
 	if err != nil {
 		return err
 	}
-	switch c.Provider {
-	case "github":
+	if c.Managed {
 		req.Header.Set("Authorization", "Bearer "+c.Secret)
-		req.Header.Set("Accept", "application/vnd.github+json")
-	case "gitlab":
-		req.Header.Set("PRIVATE-TOKEN", c.Secret)
-	case "bitbucket":
-		req.SetBasicAuth(c.Username, c.Secret)
+	} else {
+		switch c.Provider {
+		case "github":
+			req.Header.Set("Authorization", "Bearer "+c.Secret)
+			req.Header.Set("Accept", "application/vnd.github+json")
+		case "gitlab":
+			req.Header.Set("PRIVATE-TOKEN", c.Secret)
+		case "bitbucket":
+			req.SetBasicAuth(c.Username, c.Secret)
+		}
 	}
 	resp, err := client.Do(req)
 	if err != nil {

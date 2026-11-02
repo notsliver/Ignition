@@ -34,6 +34,8 @@ import { AccountSecurity } from '../pages/settings/Profile/AccountSecurity';
 import { Preferences } from '../pages/settings/Preferences/Preferences';
 import { TeamMembers, TeamSettings } from '../pages/settings/Team/Team';
 import { AdminTeams } from '../pages/admin/AdminTeams';
+import { Integrations } from '../pages/admin/Integrations';
+import { useSourceMode } from './instance';
 import { Limits } from '../pages/admin/Limits';
 import { useSession } from './AuthGate';
 import { adminPages, infrastructurePages } from './navigation';
@@ -61,12 +63,13 @@ const preview = node => <><PreviewBanner />{node}</>;
 const LIVE_RESOURCE_VIEWS = ['Overview', 'Deployments', 'Logs', 'Metrics', 'Environment Variables', 'Source', 'Domains', 'Networking', 'Build & Deploy', 'Resource Limits', 'Storage', 'Terminal',
   'Health Checks', 'Rollback History', 'Scheduled Tasks', 'Access & Secrets', 'Advanced Settings', 'Automations', 'Code', 'Files', 'Backups'];
 // Settings pages backed by the API (the rest are still previews).
-const LIVE_PAGES = ['Team', 'Team Members', 'Team Sources', 'General', 'Authentication & Security', 'Updates', 'Users', 'Teams', 'Limits', 'Preferences', 'Profile', 'Security'];
-const pages = { Profile: <Profile />, Security: <AccountSecurity />, Team: <TeamSettings />, 'Team Members': <TeamMembers />, Dashboard: <Dashboard />, General: <General />, 'Authentication & Security': <Security />, Updates: <Updates />, Users: <Users />, Teams: <AdminTeams />, Limits: <Limits />, Preferences: <Preferences /> };
+const LIVE_PAGES = ['Team', 'Team Members', 'Team Sources', 'General', 'Authentication & Security', 'Updates', 'Users', 'Teams', 'Limits', 'Preferences', 'Profile', 'Security', 'Integrations'];
+const pages = { Integrations: <Integrations />, Profile: <Profile />, Security: <AccountSecurity />, Team: <TeamSettings />, 'Team Members': <TeamMembers />, Dashboard: <Dashboard />, General: <General />, 'Authentication & Security': <Security />, Updates: <Updates />, Users: <Users />, Teams: <AdminTeams />, Limits: <Limits />, Preferences: <Preferences /> };
 
 export function App() {
   const { team } = useTeam();
   const session = useSession();
+  const sourceMode = useSourceMode();
   const infraAdmin = useInfrastructureAdminOnly();
   const instanceName = useInstanceName();
   const [active, setActive] = useState('Dashboard');
@@ -193,6 +196,7 @@ export function App() {
   // To people who don't administer the instance, /admin (and admin-only infrastructure) doesn't exist:
   // they land on their team's dashboard, with no hint of what's there.
   useEffect(() => { if (adminDenied) { setActive('Dashboard'); history.replaceState(null, '', teamPath('/dashboard')); } }, [adminDenied]);
+  useEffect(() => {if(sourceMode==='managed' && !['owner','admin'].includes((session.platformUser ?? session.user).role) && ['Sources','Team Sources'].includes(active)) navigate('Profile');},[sourceMode,active]);
   const page = adminDenied ? null
     : resource ? renderResourcePage() : project ? projectPages[active]
     : active === 'Resources' ? <TeamResources team={team} onOpen={openResourceFromAnywhere} />

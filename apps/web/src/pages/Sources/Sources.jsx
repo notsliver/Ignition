@@ -33,8 +33,11 @@ const statusView = {
 const needsUsername = (provider, auth) => auth !== 'none' && auth !== 'ssh' && (auth === 'password' || providers[provider].kind === 'registry' || provider === 'bitbucket');
 
 export function Sources({ onOpenResource }) {
-  const { user } = useSession();
-  const isAdmin = can(user, 'sources.manage');
+  const { user, platformUser } = useSession();
+  const policy = useQuery(api.availableIntegrations, []);
+  const platformAdmin = ["owner","admin"].includes((platformUser ?? user).role);
+  const allowedProviders = policy.data?.providers.filter(p=>platformAdmin || p.manualAllowed && policy.data.sourceMode!=="managed").map(p=>p.provider) ?? [];
+  const isAdmin = can(user, 'sources.manage') && (platformAdmin || policy.data?.sourceMode==='self-managed');
   const canTest = can(user, 'sources.use');
   const [filter, setFilter] = useState('all');
   const [query, setQuery] = useState('');
@@ -72,7 +75,7 @@ export function Sources({ onOpenResource }) {
   const actions = s => [
     { label: 'View details', icon: EyeIcon, onSelect: () => setViewing(s) },
     ...(canTest ? [{ label: 'Test connection', icon: ArrowPathIcon, onSelect: () => test(s) }] : []),
-    ...(isAdmin ? [
+    ...(isAdmin && !s.oauthProvider ? [
       { label: 'Edit', icon: PencilSquareIcon, onSelect: () => setEditing({ source: s }) },
       { label: s.authType === 'none' ? 'Add credentials' : 'Reconnect', icon: KeyIcon, onSelect: () => setEditing({ source: s, rotate: true }) },
       'separator',
@@ -82,8 +85,8 @@ export function Sources({ onOpenResource }) {
 
   return <div className="sources">
     <div className="sources-intro">
-      <p>Manage code repositories and container registries. Sources are shared across every project on this instance.</p>
-      {isAdmin && <Button variant="primary" icon={PlusIcon} onClick={() => setAdding(true)}>Add source</Button>}
+      <p>Manage code repositories and container registries. Sources belong to this team and can be used by its projects.</p>
+      {isAdmin && allowedProviders.length > 0 && <Button variant="primary" icon={PlusIcon} onClick={() => setAdding(true)}>Add source</Button>}
     </div>
 
     <div className="sources-summary" aria-label="Summary">
@@ -125,7 +128,7 @@ export function Sources({ onOpenResource }) {
 
     <Definitions onOpenResource={onOpenResource} />
 
-    {adding && <SourceDialog onClose={() => setAdding(false)} onSaved={s => { setAdding(false); savedFeedback(s, setFeedback); refetch(); }} />}
+    {adding && <SourceDialog allowedProviders={allowedProviders} onClose={() => setAdding(false)} onSaved={s => { setAdding(false); savedFeedback(s, setFeedback); refetch(); }} />}
     {editing && <SourceDialog source={editing.source} rotate={editing.rotate} onClose={() => setEditing(null)} onSaved={s => { setEditing(null); savedFeedback(s, setFeedback); refetch(); }} />}
     {viewing && <DetailsDialog id={viewing.id} canTest={canTest} onTest={test} onClose={() => setViewing(null)} onOpenResource={r => { setViewing(null); onOpenResource(r); }} />}
     {deleting && <DeleteSourceDialog source={deleting} onClose={() => setDeleting(null)} onDeleted={() => { setFeedback({ tone: 'success', title: `${deleting.name} deleted` }); setDeleting(null); refetch(); }} />}
@@ -154,7 +157,7 @@ function Definitions({ onOpenResource }) {
   </section>;
 }
 
-function SourceDialog({ source, rotate = false, onClose, onSaved }) {
+function SourceDialog({ source, rotate = false, onClose, onSaved, allowedProviders }) {
   const editing = !!source;
   const [provider, setProvider] = useState(source?.provider ?? null);
   const p = provider && providers[provider];
@@ -196,7 +199,7 @@ function SourceDialog({ source, rotate = false, onClose, onSaved }) {
       {['git', 'registry'].map(kind => <div key={kind} className="provider-group">
         <h3>{kind === 'git' ? 'Git providers' : 'Container registries'}</h3>
         <div className="provider-grid">
-          {Object.entries(providers).filter(([, v]) => v.kind === kind).map(([key, v]) => <button key={key} type="button" className="provider-option" onClick={() => { setProvider(key); set('authType', v.auths[0]); }}>
+          {Object.entries(providers).filter(([key, v]) => v.kind === kind && (!allowedProviders || allowedProviders.includes(key))).map(([key, v]) => <button key={key} type="button" className="provider-option" onClick={() => { setProvider(key); set('authType', v.auths[0]); }}>
             <v.icon /><span><strong>{v.label}</strong><span>{v.blurb}</span></span>
           </button>)}
         </div>

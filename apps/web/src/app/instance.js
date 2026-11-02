@@ -36,3 +36,11 @@ export function useInfrastructureAdminOnly() {
   }, []);
   return value;
 }
+
+let sourceModeCached = null;
+export function useSourceMode(){
+ const [mode,setMode]=useState(sourceModeCached ?? 'self-managed');
+ useEffect(()=>{let alive=true;api.system().then(s=>{sourceModeCached=s.sourceMode||'self-managed';if(alive)setMode(sourceModeCached);}).catch(()=>{});
+ const changed=e=>{sourceModeCached=e.detail.mode;setMode(sourceModeCached);};window.addEventListener('ignition:source-policy',changed);return ()=>{alive=false;window.removeEventListener('ignition:source-policy',changed);};},[]);
+ return mode;
+}

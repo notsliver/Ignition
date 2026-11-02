@@ -8,6 +8,8 @@ import { SaveBar, SettingsField, SettingsGroup } from '../SettingsField';
 import { describeEvent } from './data';
 import { MfaNoticeCard } from '../../../app/MfaBanner';
 import './Security.css';
+import { ImageUpload } from '../../../ui/components/ImageUpload/ImageUpload';
+import { SSOBrand, ssoPresets, inferSSOPreset } from '../../../ui/icons/SSOBrand';
 
 /*
  * Authentication & Security. Every control here is enforced by the API: sign-in methods and
@@ -103,7 +105,7 @@ export function Security() {
           : status.https.error;
   const users = status.users;
 
-  return <form className="settings-page security" onSubmit={save}>
+  return <><form className="settings-page security" onSubmit={save}>
     {feedback && <Notice tone={feedback.tone} title={feedback.title}>{feedback.text}</Notice>}
 
     <SettingsGroup title="Authentication providers" description="Which sign-in methods are available on this instance.">
@@ -114,7 +116,7 @@ export function Security() {
       <SettingsField label="Disable password registration" hint="Invitations can't be accepted with a password; invited people join through SSO instead. There's no public sign-up either way.">
         <Switch label="Disable password registration" checked={values.disableRegistration} onChange={set('disableRegistration')} disabled={!values.localAuth} />
       </SettingsField>
-      <SettingsField label="OpenID Connect (SSO)" hint={oidc.configured ? `${oidc.issuer} · client ${oidc.clientId}${oidc.allowedDomains?.length ? ` · ${oidc.allowedDomains.join(', ')}` : ''}` : 'Google, Okta, Authentik, Keycloak, Entra ID or any OIDC provider.'}>
+      <SettingsField label="OpenID Connect (SSO)" hint={oidc.configured ? `${oidc.issuer} · client ${oidc.clientId}${oidc.allowedDomains?.length ? ` · ${oidc.allowedDomains.join(', ')}` : ''}` : 'Choose Google, Discord, Microsoft Entra or another preset, or configure a custom provider.'}>
         {oidc.configured
           ? <><Switch label="OpenID Connect" checked={values.oidcAuth} onChange={set('oidcAuth')} /><Button type="button" onClick={() => setOidcDialog(true)}>Edit</Button></>
           : <><span className="readonly-value">Not connected</span><Button type="button" onClick={() => setOidcDialog(true)}>Connect</Button></>}
@@ -263,13 +265,17 @@ export function Security() {
     </section>
 
     <SaveBar dirty={dirty} onDiscard={() => { setValues(saved); setErrors({}); }} />
+    </form>
     {oidcDialog && <OidcDialog status={oidc} onClose={() => setOidcDialog(false)} onChanged={msg => { setOidcDialog(false); setFeedback({ tone: 'success', title: msg }); refetch(); }} canDisconnect={user.role === 'owner' || !values.oidcAuth || values.localAuth} />}
     {guide && <GuideDialog kind={guide} onClose={() => setGuide(null)} />}
-  </form>;
+  </>;
 }
 
 function OidcDialog({ status, onClose, onChanged, canDisconnect }) {
-  const [v, setV] = useState({ issuer: status.issuer ?? '', clientId: status.clientId ?? '', clientSecret: '', label: status.label ?? '', allowedDomains: (status.allowedDomains ?? []).join(', ') });
+  const [v, setV] = useState({ provider: inferSSOPreset(status), issuer: status.issuer ?? '', clientId: status.clientId ?? '', clientSecret: '', label: status.label ?? '', allowedDomains: (status.allowedDomains ?? []).join(', ') });
+  const [iconUrl, setIconUrl] = useState(status.iconUrl || '');
+  const preset = ssoPresets.find(p => p.id === v.provider) || ssoPresets.at(-1);
+  const choosePreset = p => {setV(x => ({...x, provider:p.id, issuer:p.id===v.provider ? x.issuer : p.issuer || '', label:p.id===v.provider ? x.label : p.id==='custom' ? '' : p.label, clientId:p.id===v.provider ? x.clientId : '', clientSecret:''})); setCheck(null); setErrors({});};
   const [errors, setErrors] = useState({});
   const [check, setCheck] = useState(null);
   const [pending, setPending] = useState('');
@@ -282,30 +288,34 @@ function OidcDialog({ status, onClose, onChanged, canDisconnect }) {
   }
   const redirect = check?.redirectUrl ?? `${location.origin}/api/auth/oidc/callback`;
   return <Dialog open onClose={onClose} icon={KeyIcon} title={status.configured ? 'Single sign-on' : 'Connect single sign-on'} className="oidc-dialog"
-    description="Register Ignition as a web application (confidential client) with your identity provider, then paste its details here."
+    description="Choose a provider preset or configure your own OpenID Connect service. One instance SSO provider can be active at a time."
     footer={<>
       {status.configured && canDisconnect && <Button className="danger" onClick={() => run('disconnect', async () => { await api.deleteOidc(); onChanged('Single sign-on disconnected; password sign-in is on'); })} disabled={!!pending}>Disconnect</Button>}
       <span className="spacer" />
       <Button onClick={onClose}>Cancel</Button>
       <Button variant="primary" type="submit" form="oidc-form" disabled={!!pending}>{pending === 'save' ? 'Verifying…' : 'Verify and save'}</Button>
     </>}>
-    <form id="oidc-form" className="oidc-form" onSubmit={e => { e.preventDefault(); run('save', async () => { await api.saveOidc(body()); onChanged('Single sign-on connected. Turn it on, then save.'); }); }}>
+    <form id="oidc-form" className="oidc-form" onSubmit={e => { e.preventDefault(); e.stopPropagation(); run('save', async () => { await api.saveOidc(body()); onChanged('Single sign-on connected. Turn it on, then save.'); }); }}>
+      <div className="sso-presets" role="group" aria-label="SSO provider presets">{ssoPresets.map(p => <button key={p.id} type="button" className={`sso-preset${v.provider===p.id ? ' selected' : ''}`} aria-pressed={v.provider===p.id} disabled={!!pending} onClick={() => choosePreset(p)}><p.icon /><span>{p.label}</span></button>)}</div>
+      <div className="sso-setup-guide"><strong>Set up {preset.label}</strong><p>{preset.guide} {preset.docs && <a href={preset.docs} target="_blank" rel="noopener noreferrer">Setup documentation ↗</a>}</p></div>
       <div className="oidc-redirect"><span>Redirect URI to register</span><code><LinkIcon />{redirect}</code></div>
       {errors._ && <Notice tone="danger" title={errors._} />}
-      <FormField label="Issuer URL" htmlFor="oidc-issuer" error={errors.issuer} hint="e.g. https://accounts.google.com or https://auth.example.com/application/o/ignition/">
-        <TextInput id="oidc-issuer" value={v.issuer} onChange={set('issuer')} placeholder="https://" autoFocus
+      <FormField label="Issuer URL" htmlFor="oidc-issuer" error={errors.issuer} hint={preset.fixed ? 'Filled in by the provider preset.' : 'Copy the issuer from your provider’s OpenID configuration.'}>
+        <TextInput id="oidc-issuer" value={v.issuer} onChange={set('issuer')} placeholder={preset.placeholder || preset.issuer} readOnly={preset.fixed}
           suffix={<button type="button" className="oidc-test" disabled={!v.issuer.trim() || !!pending} onClick={() => run('test', async () => setCheck(await api.testOidc(body())))}>{pending === 'test' ? 'Checking…' : 'Check'}</button>} />
       </FormField>
       {check && <p className="oidc-ok">Found {check.issuer}. Sign-in goes to {new URL(check.authorizationEndpoint).host}.</p>}
       <FormField label="Client ID" htmlFor="oidc-client" error={errors.clientId}><TextInput id="oidc-client" className="mono" value={v.clientId} onChange={set('clientId')} /></FormField>
-      <FormField label="Client secret" htmlFor="oidc-secret" error={errors.clientSecret} hint={status.hasSecret ? 'Stored encrypted. Leave empty to keep it.' : 'Stored encrypted; never shown again.'}>
-        <TextInput id="oidc-secret" className="mono" type="password" autoComplete="off" value={v.clientSecret} onChange={set('clientSecret')} placeholder={status.hasSecret ? '••••••••' : ''} />
+      <FormField label="Client secret" htmlFor="oidc-secret" error={errors.clientSecret} hint={status.hasSecret && v.issuer===status.issuer && v.clientId===status.clientId ? 'Stored encrypted. Leave empty to keep it.' : 'Stored encrypted; never shown again.'}>
+        <TextInput id="oidc-secret" className="mono" type="password" autoComplete="off" value={v.clientSecret} onChange={set('clientSecret')} placeholder={status.hasSecret && v.issuer===status.issuer && v.clientId===status.clientId ? '••••••••' : ''} />
       </FormField>
       <div className="db-row oidc-row">
         <FormField label="Button label" htmlFor="oidc-label" error={errors.label} hint="Shown as “Sign in with …”"><TextInput id="oidc-label" value={v.label} onChange={set('label')} placeholder="Google" maxLength={40} /></FormField>
         <FormField label="Allowed email domains" htmlFor="oidc-domains" error={errors.allowedDomains} hint="Comma-separated. Empty allows any."><TextInput id="oidc-domains" value={v.allowedDomains} onChange={set('allowedDomains')} placeholder="example.com" /></FormField>
       </div>
-      <p className="oidc-note">Accounts are matched by the provider's user ID, then by verified email. Scopes: openid, email, profile. PKCE is used.</p>
+      {v.provider==='custom' && <div className="sso-custom-icon"><ImageUpload label="Provider icon" name={v.label || 'SSO'} square src={iconUrl} disabled={!!pending} onUpload={async file => {const out=await api.uploadSSOIcon(file);setIconUrl(out.url);return out;}} onRemove={async () => {const out=await api.removeSSOIcon();setIconUrl('');return out;}} /><p className="oidc-note">This instance logo is public so it can appear before sign-in. Icon changes are saved immediately.</p></div>}
+      <div className="sso-button-preview"><span>Sign-in button preview</span><span className="button"><SSOBrand provider={v.provider} iconUrl={iconUrl} />Sign in with {v.label || 'Single sign-on'}</span></div>
+      <p className="oidc-note">Accounts are matched by the provider's user ID, then by verified email. Scopes: {v.provider==='discord' ? 'openid, identify, email' : 'openid, email, profile'}. PKCE is used.</p>
     </form>
   </Dialog>;
 }

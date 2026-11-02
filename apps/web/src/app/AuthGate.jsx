@@ -7,6 +7,7 @@ import { Onboarding } from './Onboarding';
 import { AuthShell } from './AuthShell';
 import { adoptServerPreferences, setPreferenceSaver } from './preferences';
 import './AuthGate.css';
+import { SSOBrand } from '../ui/icons/SSOBrand';
 import { signInWithPasskey, supportsPasskeys } from './passkeys';
 
 export const SessionContext = createContext(null);
@@ -30,6 +31,12 @@ export function AuthGate({ children }) {
   const onboarding = useRef({ pending: false, useCase: '' });
 
   async function check() {
+    if (location.hash.startsWith('#oauth_result=')) {
+      const encoded=location.hash.slice('#oauth_result='.length);
+      history.replaceState(null,'',location.pathname+location.search);
+      try {const out=JSON.parse(decodeURIComponent(encoded.replace(/\+/g,' ')));if(typeof out.ticket==='string' && /^[A-Za-z0-9_-]+$/.test(out.ticket) && (out.mfaRequired||out.mfaSetupRequired)) {proceed(out);return;}} catch { /* Invalid callback data cannot establish a session. */ }
+    }
+
     const teamInvite=location.pathname.match(/^\/join-team\/([A-Za-z0-9_-]+)$/);
     if(teamInvite){
       try {const invitation=await api.teamInvitation(teamInvite[1]);sessionStorage.setItem('ignition:team-invitation',teamInvite[1]);
@@ -153,7 +160,8 @@ function LoginForm({ instance, expired, message, onDone }) {
     {message && <Notice tone="warning" title={message} />}
     {ssoError && <Notice tone="danger" title="Single sign-on didn't work">{ssoError}</Notice>}
     {f.message && <Notice tone="danger" title={f.message} />}
-    {methods?.sso && <a className="button primary auth-sso" href={api.ssoStartUrl}><ArrowRightEndOnRectangleIcon />{ssoButtonLabel(methods.ssoLabel, 'Sign in')}</a>}
+    {methods?.loginProviders?.map(p => <a key={p.provider} className="button auth-sso" href={p.url}><ArrowRightEndOnRectangleIcon />Sign in with {p.label}</a>)}
+    {methods?.sso && <a className="button auth-sso" href={api.ssoStartUrl}><SSOBrand provider={methods.ssoProvider} iconUrl={methods.ssoIconUrl} />{ssoButtonLabel(methods.ssoLabel, 'Sign in')}</a>}
     {methods?.passkeys && supportsPasskeys() && <Button type="button" icon={KeyIcon} disabled={f.pending} onClick={() => f.submit(async () => onDone(await signInWithPasskey()))}>Sign in with a passkey</Button>}
     {methods?.sso && <div className="auth-or"><span>{ssoOnly ? 'Owners only' : 'or'}</span></div>}
     <FormField label="Email" htmlFor="email" error={f.errors.email}><TextInput type="email" autoComplete="username" autoFocus={!methods?.sso} placeholder="you@example.com" {...f.bind('email')} /></FormField>
@@ -220,7 +228,7 @@ function JoinForm({ token, onDone, onCancel, onInstance }) {
   if (invite && link.passwordAllowed === false) return <div className="auth-form">
     <header><h1>{`Join ${link.instance}`}</h1><p>New accounts here are created through single sign-on.</p></header>
     <div className="auth-who"><span className="auth-who-email">{link.email}</span><span className="auth-role">{ROLE_NAMES[link.role] ?? link.role}</span></div>
-    {link.sso ? <a className="button primary auth-sso" href={api.ssoStartUrl}><ArrowRightEndOnRectangleIcon />{ssoButtonLabel(link.ssoLabel, 'Continue')}</a>
+    {link.sso ? <a className="button auth-sso" href={api.ssoStartUrl}><ArrowRightEndOnRectangleIcon />{ssoButtonLabel(link.ssoLabel, 'Continue')}</a>
       : <Notice tone="warning" title="There's no way to join yet">Password sign-up is off and single sign-on isn't set up. Ask the admin who invited you.</Notice>}
     <p className="auth-hint">Sign in as {link.email}; your invitation's role is applied.</p>
     <button type="button" className="auth-link" onClick={onCancel}>Go to sign in</button>

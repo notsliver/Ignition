@@ -71,6 +71,9 @@ type Branch struct {
 
 // lsRemote runs git ls-remote with the given flags (no clone) and returns ref → commit.
 func lsRemote(ctx context.Context, c Credentials, repo string, flags ...string) (map[string]string, error) {
+	if err := ValidateManagedRepository(c, repo); err != nil {
+		return nil, err
+	}
 	args, env, cleanup, err := GitAuth(c)
 	if err != nil {
 		return nil, err

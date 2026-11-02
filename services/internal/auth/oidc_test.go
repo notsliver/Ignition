@@ -11,6 +11,7 @@ import (
 	"math/big"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -65,4 +66,16 @@ func TestVerifyIDToken(t *testing.T) {
 	parts := strings.Split(tampered, ".")
 	evil, _ := json.Marshal(map[string]any{"iss": "https://idp.example.com", "sub": "admin", "aud": "ignition", "exp": now.Add(time.Minute).Unix(), "nonce": "n1"})
 	bad("tampered claims", parts[0]+"."+base64.RawURLEncoding.EncodeToString(evil)+"."+parts[2], "n1")
+}
+
+func TestDiscordOIDCIdentityScopes(t *testing.T) {
+	p := &OIDCProvider{Issuer: "https://discord.com", AuthorizationEndpoint: "https://discord.com/api/oauth2/authorize"}
+	target, err := url.Parse(p.AuthURL("client", "https://ignition.test/callback", "state", "nonce", "challenge"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := target.Query()
+	if q.Get("scope") != "openid identify email" || q.Get("code_challenge_method") != "S256" || q.Get("state") != "state" || q.Get("nonce") != "nonce" {
+		t.Fatal(q)
+	}
 }

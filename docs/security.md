@@ -54,3 +54,28 @@ Self-deletion requires typing the account email and recent identity confirmation
 It rejects deletion of the last active instance owner or sole active team owner,
 revokes issued resource credentials/hooks, removes passkeys and sessions, and deletes
 the avatar file. Shared team workloads remain owned by their team.
+
+
+## Instance OAuth and source policy
+
+Only platform administrators with security-management permission can configure provider
+applications and hosting source policy; sensitive writes require recent authentication.
+Developer mode retains team-managed credentials. Managed hosting mode hides Sources
+navigation from non-platform administrators and rejects direct manual credential writes.
+The source list remains available under its existing permissions because deployment
+pickers need team-scoped connection metadata; hiding a page never exposes secret bytes.
+
+Account and repository applications have distinct client IDs, secrets and scopes.
+Repository OAuth requires Use sources permission and a fresh team-membership check at
+callback. Source creation is enforced by PostgreSQL row policy; access and refresh tokens
+are encrypted per source and never included in API responses. Refresh is serialized across
+API/worker processes. Credentials are bound to a provider HTTPS host, including when a
+caller supplies a different repository URL. Disabling a provider blocks credential use;
+this is not a network firewall for public repository URLs.
+
+Provider identity lookup keys include origin and subject to prevent account confusion
+when an administrator changes a public provider to an enterprise/self-hosted origin.
+Sign-in remains subject to MFA and organization SSO policy. State is one-time, expiring,
+provider-configuration-bound and browser/session-bound. Sign-in and account linking never
+retain OAuth access tokens or link accounts implicitly by email. Permission changes
+require explicit reauthorization; old tokens cannot silently acquire broader scopes.

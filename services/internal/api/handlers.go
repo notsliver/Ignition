@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"github.com/notsliver/Ignition/services/internal/functions"
 	"github.com/notsliver/Ignition/services/internal/httpx"
 	"github.com/notsliver/Ignition/services/internal/jobs"
+	"github.com/notsliver/Ignition/services/internal/sources"
 	"github.com/notsliver/Ignition/services/internal/store"
 	"github.com/notsliver/Ignition/services/internal/version"
 	"github.com/notsliver/Ignition/services/internal/worker"
@@ -58,6 +60,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request, _ *store.User) e
 		"instanceName": s.instance(r.Context()).Name,
 		// Where the Infrastructure pages live: every team's sidebar, or Instance administration only.
 		"infrastructureAdminOnly": s.instance(r.Context()).InfrastructureAdminOnly,
+		"sourceMode":              s.Store.SourceMode(r.Context()),
 		"version":                 version.Version,
 		"maintenance":             s.instance(r.Context()).Maintenance,
 		"maintenanceMessage":      s.instance(r.Context()).MaintenanceMessage,
@@ -459,6 +462,22 @@ func (s *Server) checkResourceSource(ctx context.Context, in *resourceInput) err
 	wantKind := map[string]string{"git": "git", "image": "registry"}[in.SourceType]
 	if src.Kind != wantKind {
 		return httpx.Invalid(map[string]string{"sourceId": fmt.Sprintf("%s is a %s source; this resource needs a %s source.", src.Name, src.Kind, wantKind)})
+	}
+	config, err := s.Store.Integration(ctx, src.Provider)
+	if err != nil {
+		return err
+	}
+	if !config.Enabled || src.OAuthProvider != "" && !config.SourcesEnabled {
+		return httpx.Forbidden("This source provider is disabled by the instance administrator.")
+	}
+	if src.OAuthProvider != "" && in.SourceType == "git" {
+		target, err := url.Parse(src.URL)
+		if err != nil {
+			return httpx.BadRequest("Invalid managed source origin.")
+		}
+		if err = sources.ValidateManagedRepository(sources.Credentials{Managed: true, GitHost: target.Host}, in.RepoURL); err != nil {
+			return httpx.Invalid(map[string]string{"repoUrl": err.Error()})
+		}
 	}
 	in.sourceSSH = src.AuthType == "ssh"
 	return nil

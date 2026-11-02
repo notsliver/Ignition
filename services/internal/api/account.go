@@ -11,7 +11,7 @@ import (
 	"github.com/notsliver/Ignition/services/internal/store"
 )
 
-var accountReturnRE = regexp.MustCompile(`^/teams/[a-zA-Z0-9-]+/settings/(profile|security)$`)
+var accountReturnRE = regexp.MustCompile(`^(/teams/[a-zA-Z0-9-]+/settings/(profile|security)|/admin/integrations)$`)
 
 func (s *Server) accountSSOStart(w http.ResponseWriter, r *http.Request, u *store.User) error {
 	hash, err := accountSession(r, u)
@@ -265,6 +265,6 @@ func (s *Server) accountIntegrations(w http.ResponseWriter, r *http.Request, u *
 	if err != nil {
 		return err
 	}
-	httpx.JSON(w, 200, map[string]any{"sso": map[string]any{"label": o.label(), "issuer": o.Issuer, "configured": enabled, "connected": subject != "" && issuer == o.Issuer, "account": u.Email, "providerChanged": subject != "" && issuer != o.Issuer}, "passwordLength": s.policy().PasswordLength})
+	httpx.JSON(w, 200, map[string]any{"sso": map[string]any{"provider": o.Provider, "iconUrl": s.ssoIconURL(r.Context()), "label": o.label(), "issuer": o.Issuer, "configured": enabled, "connected": subject != "" && issuer == o.Issuer, "account": u.Email, "providerChanged": subject != "" && issuer != o.Issuer}, "passwordLength": s.policy().PasswordLength})
 	return nil
 }
