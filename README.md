@@ -1,51 +1,77 @@
-# IGNITION
+<div align="center">
 
-A self-hosted platform for deploying apps and databases on your own server. Point it at a Git repository or a container image and IGNITION builds it, runs it in Docker, routes your domains with automatic HTTPS, and gives you logs, metrics, deployment history and rollbacks.
+# Ignition
+
+**Deploy apps, databases and game servers on your own server.**
+
+Point Ignition at a Git repository or a container image. It builds it, runs it in Docker, routes your domains with automatic HTTPS, and gives you logs, metrics, backups and one-click rollbacks.
+
+[Discord](https://discord.gg/rnW3eEN8Yw) · [Changelog](CHANGELOG.md) · [Docker Hub](https://hub.docker.com/r/notsliver/ignition) · [Security](SECURITY.md)
+
+</div>
+
+> [!NOTE]
+> **Ignition is in beta.** It's usable day to day, but expect rough edges and breaking changes before 1.0. Back up your data and your `IGNITION_SECRET_KEY` before upgrading.
 
 There's no cloud service. Nothing leaves your server except the image pulls and Git clones you ask for.
 
-> **Beta.** IGNITION is usable day to day, but expect rough edges and breaking changes before 1.0. Back up your data and your `IGNITION_SECRET_KEY` before upgrading.
-
 ## Quick start
 
-You need a Linux server (a VPS with 2 GB of RAM or more; Ubuntu 22.04+ or Debian 12 recommended) and root access. Docker is installed for you if it's missing.
+On a Linux server (2 GB of RAM or more; Ubuntu 22.04+ or Debian 12 recommended), as root:
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/notsliver/Ignition/main/install.sh | sudo bash
 ```
 
-The installer:
+Open the address it prints (`http://<your-server-ip>:8080`), enter the one-time setup code, and follow the setup. The installer adds Docker if it's missing, pulls the published image and creates `/opt/ignition/.env` with random secrets.
 
-1. installs Docker if needed;
-2. downloads IGNITION's compose files to `/opt/ignition` (nothing is built);
-3. creates `/opt/ignition/.env` with random secrets;
-4. pulls the published image [`notsliver/ignition`](https://hub.docker.com/r/notsliver/ignition) and starts it;
-5. prints the address and a one-time setup code.
+> [!IMPORTANT]
+> **Back up `/opt/ignition/.env`.** Its `IGNITION_SECRET_KEY` encrypts your environment variables and credentials. If it's lost, they can't be recovered.
 
-Open `http://<your-server-ip>:8080`, enter the setup code, and create your owner account. The code is only printed on the server, so only someone with access to it can claim the instance.
-
-**Back up `/opt/ignition/.env`.** `IGNITION_SECRET_KEY` encrypts environment variables and server credentials; if it's lost, they can't be recovered.
+**Already running Coolify, Easypanel or another panel?** The installer leaves it alone. If it holds ports 80, 443 or 8080, Ignition runs alongside it on free ports. Move your apps over, then switch the ports when you're ready; the installer prints how.
 
 ### Before you put apps on it
 
-- **Open the ports you need:** 80 and 443 for your apps' domains (HTTPS certificates are issued automatically), and 8080 for the dashboard.
-- **Protect the dashboard.** It's served over plain HTTP on port 8080. Limit port 8080 to your own IP in your firewall, or put it behind a reverse proxy with HTTPS and then set `IGNITION_PUBLIC_URL=https://…` and `IGNITION_SECURE_COOKIES=true` in `.env`.
-- Point your domains' DNS records at the server, then add them to an app under **Domains**.
+- **Open ports** 80 and 443 for your apps' domains, and 8080 for the dashboard.
+- **Protect the dashboard.** It's served over plain HTTP on port 8080. Limit that port to your own IP, or put it behind HTTPS and set `IGNITION_PUBLIC_URL=https://…` and `IGNITION_SECURE_COOKIES=true` in `.env`.
+- **Point your domains' DNS** at the server, then add them to an app under **Domains**.
 
-### Updating
+## Features
 
-Go to **Instance administration › Updates** and click **Update now**. IGNITION pulls the new image and restarts itself in about a minute; your apps keep running. You can also re-run the install command.
+| | |
+| --- | --- |
+| **Deploy** | From a container image or a Git repository (public or private), with a Dockerfile or auto-detected Node.js, Bun and Python builds. Import whole projects from Git or Docker Compose. |
+| **Databases** | PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Dragonfly and ClickHouse, with persistent volumes and data imports. |
+| **Functions** | One handler file in Node.js, Bun or Python, with no Dockerfile. Edit it in the browser and test it from the dashboard. |
+| **Game servers** | Minecraft (Paper, Fabric and more) with a console, mods, worlds and IP:port allocations. |
+| **Deployments** | Live logs, health-checked rollouts, cancel, retry, and exact rollbacks of image and variables. |
+| **Domains & networking** | Automatic HTTPS, traffic routing, DNS, published ports, firewall and private networks between apps. |
+| **Operate** | Logs, metrics, web terminal, file manager, backups, health checks, resource limits, scheduled tasks and automations. |
+| **Teams** | Team workspaces with roles, invitations and per-project access. Instance administration has quotas, maintenance mode and an audit log. |
+| **Security** | Two-factor authentication, single sign-on, granular permissions and encrypted secrets. |
 
-To pin a version, set `IGNITION_TAG` when installing (for example `IGNITION_TAG=0.1.0-beta`), or pick a release channel in Instance administration › Updates:
+Not built yet: deploying to remote servers, Buildpacks/Nixpacks and templates. See the [changelog](CHANGELOG.md) for what's new.
+
+## Updating
+
+Go to **Instance administration › Updates** and click **Update now**. Ignition pulls the new image and restarts in about a minute; your apps keep running. Re-running the install command works too.
+
+<details>
+<summary>Release channels and pinning a version</summary>
+
+Set `IGNITION_TAG` when installing (for example `IGNITION_TAG=0.1.2-beta`), or pick a channel in Instance administration › Updates:
 
 | Tag | What |
 | --- | --- |
-| `0.1.0-beta`, `1.2.3` | A specific release |
+| `0.1.2-beta`, `1.2.3` | A specific release |
 | `latest` | The newest stable release |
 | `beta` | The newest pre-release |
 | `edge` | Built from `main` on every change; may break |
 
-### Installer options
+</details>
+
+<details>
+<summary>Installer options</summary>
 
 Set these before `bash`, e.g. `curl -fsSL … | sudo IGNITION_HOST=ignition.example.com bash`:
 
@@ -54,8 +80,13 @@ Set these before `bash`, e.g. `curl -fsSL … | sudo IGNITION_HOST=ignition.exam
 | `IGNITION_DIR` | `/opt/ignition` | Install folder |
 | `IGNITION_TAG` | `latest`, or `beta` until 1.0 | Image tag to install |
 | `IGNITION_HOST` | the server's public IP | Address or domain used in links |
+| `IGNITION_PORT` | `8080` | Dashboard port |
+| `IGNITION_HTTP_PORT`, `IGNITION_HTTPS_PORT` | `80`, `443` | Ports your apps' domains are served on |
 
-### Running commands yourself
+</details>
+
+<details>
+<summary>Running commands yourself</summary>
 
 ```sh
 cd /opt/ignition
@@ -64,37 +95,34 @@ docker compose --env-file .env -f deploy/docker-compose.yml down                
 docker compose --env-file .env -f deploy/docker-compose.yml up -d                 # start
 ```
 
-### Uninstalling
+</details>
+
+<details>
+<summary>Uninstalling</summary>
 
 ```sh
 curl -fsSL https://raw.githubusercontent.com/notsliver/Ignition/main/uninstall.sh | sudo bash
 ```
 
-This removes IGNITION's own containers and keeps your data (database, certificates, `.env`) and the apps you deployed, so you can reinstall later. It asks before changing anything. Options go after `bash -s --`:
+This removes Ignition's own containers and keeps your data (database, certificates, `.env`) and the apps you deployed, so you can reinstall later. It asks before changing anything. Options go after `bash -s --`:
 
 | Option | What |
 | --- | --- |
-| `--remove-apps` | Also stop and remove the apps IGNITION deployed |
-| `--purge` | Also delete IGNITION's database, certificates, app data volumes, networks, images and `/opt/ignition`. Can't be undone |
+| `--remove-apps` | Also stop and remove the apps Ignition deployed |
+| `--purge` | Also delete Ignition's database, certificates, app data volumes, networks, images and `/opt/ignition`. Can't be undone |
 | `--yes` | Don't ask (for scripts) |
 
-For example: `curl -fsSL …/uninstall.sh | sudo bash -s -- --purge`. Docker itself is left installed.
+Docker itself is left installed.
 
-## Features
+</details>
 
-- **Deploy** from a container image or a Git repository (public or private via deploy keys and registry credentials), with Dockerfile or auto-detected Node and Python builds.
-- **Databases**: PostgreSQL, MySQL, MariaDB, MongoDB, Redis, Dragonfly and ClickHouse with persistent volumes.
-- **Deployments** with live step logs, cancel, retry, redeploy, health-checked rollouts and exact rollbacks (image and variables).
-- **Domains** with automatic HTTPS, published ports, private networks between resources.
-- **Operate**: container logs, metrics history, web terminal, health checks, resource limits, scheduled tasks, deploy hooks and scoped tokens.
-- **Servers**: health, host metrics, diagnostics, Docker inventory and safe cleanup, maintenance mode and scheduled server tasks for this machine, plus monitoring of remote Docker hosts over mutual TLS.
-- **Team**: roles (owner, admin, developer, viewer), invites, audit log, encrypted secrets.
+## Community
 
-Not supported yet: deploying to remote servers, Buildpacks/Nixpacks, templates, and scheduled database backups. Pages that still show sample data are labelled “Preview” in the UI. See [CHANGELOG.md](CHANGELOG.md).
+Questions, ideas or something broken? Join us on **[Discord](https://discord.gg/rnW3eEN8Yw)** or [open an issue](https://github.com/notsliver/Ignition/issues).
 
-## Developing IGNITION
+## Developing Ignition
 
-To work on IGNITION itself, clone the repository and run the installer from the checkout. It builds the image from your code instead of pulling it (Docker Desktop works on macOS and Windows):
+Clone the repository and run the installer from the checkout. It builds the image from your code instead of pulling it (Docker Desktop works on macOS and Windows):
 
 ```sh
 git clone https://github.com/notsliver/Ignition.git && cd Ignition
@@ -102,18 +130,18 @@ git clone https://github.com/notsliver/Ignition.git && cd Ignition
 .\install.ps1       # Windows PowerShell
 ```
 
-Then open http://localhost:8080. See [CONTRIBUTING.md](CONTRIBUTING.md) and [docs/development.md](docs/development.md).
-
-## Documentation
+Then open http://localhost:8080.
 
 | | |
 | --- | --- |
-| [docs/architecture.md](docs/architecture.md) | How the API, worker, job queue and deploy pipeline fit together |
+| [CONTRIBUTING.md](CONTRIBUTING.md) | How to contribute |
 | [docs/development.md](docs/development.md) | Running locally, tests, adding routes and migrations |
-| [docs/security.md](docs/security.md) | Trust model and what's enforced. Read before exposing IGNITION beyond localhost |
+| [docs/architecture.md](docs/architecture.md) | How the API, worker, job queue and deploy pipeline fit together |
+| [docs/security.md](docs/security.md) | Trust model and what's enforced. Read before exposing Ignition beyond localhost |
 | [contracts/openapi.yaml](contracts/openapi.yaml) | The HTTP API |
 
-## Repository layout
+<details>
+<summary>Repository layout</summary>
 
 | Path | What |
 | --- | --- |
@@ -123,13 +151,11 @@ Then open http://localhost:8080. See [CONTRIBUTING.md](CONTRIBUTING.md) and [doc
 | [`deploy`](deploy) | Docker Compose stack: PostgreSQL, API, worker, proxy |
 | [`e2e`](e2e) | Browser end-to-end tests (Playwright) |
 
+</details>
+
 ## Security
 
-IGNITION controls Docker on its host, which is equivalent to root access. Only give accounts to people you'd trust with that, and don't leave the dashboard open to the internet over plain HTTP. To report a vulnerability, see [SECURITY.md](SECURITY.md).
-
-## Contributing
-
-Bug reports, ideas and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Ignition controls Docker on its host, which is equivalent to root access. Only give accounts to people you'd trust with that, and don't leave the dashboard open to the internet over plain HTTP. To report a vulnerability, see [SECURITY.md](SECURITY.md).
 
 ## License
 
