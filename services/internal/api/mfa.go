@@ -277,8 +277,13 @@ func (s *Server) accountSecurity(w http.ResponseWriter, r *http.Request, u *stor
 }
 
 func (s *Server) accountMFASetup(w http.ResponseWriter, r *http.Request, u *store.User) error {
-	if err := s.requireRecentAccount(r, u); err != nil {
-		return err
+	// First-run setup: the new owner turns two-factor on for the first time, right after creating
+	// the account. Nothing to protect yet, so no extra confirmation.
+	firstRun := s.onboarding(r.Context()).Pending && u.Role == "owner" && u.MFAEnabledAt == nil
+	if !firstRun {
+		if err := s.requireRecentAccount(r, u); err != nil {
+			return err
+		}
 	}
 	out, _, err := s.enrollStart(r, u)
 	if err != nil {
