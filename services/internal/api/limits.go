@@ -102,6 +102,18 @@ func (s *Server) putLimits(w http.ResponseWriter, r *http.Request, u *store.User
 	if len(f) > 0 {
 		return httpx.Invalid(f)
 	}
+	if err := s.checkResourceCap(ctx, res.Type, in.CPUs, in.MemoryMB, 0); err != nil {
+		return domainError(err)
+	}
+	if more := (quotaDemand{CPUs: in.CPUs - res.CPUs, MemoryMB: in.MemoryMB - res.MemoryMB}); more.CPUs > 0 || more.MemoryMB > 0 {
+		o, err := s.Store.ResourceQuotaOwner(ctx, id)
+		if err != nil {
+			return err
+		}
+		if err := s.checkQuotas(ctx, o, u.ID, more); err != nil {
+			return domainError(err)
+		}
+	}
 	if err := s.Store.SetLimits(r.Context(), id, in); err != nil {
 		return err
 	}

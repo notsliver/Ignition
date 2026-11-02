@@ -4,7 +4,7 @@ Thanks for helping. Issues and pull requests are both welcome.
 
 ## Reporting bugs
 
-Open an issue with what you did, what you expected, what happened, and your IGNITION version (Settings › Updates) and OS. API and worker logs help: `make logs`. Never paste your `.env`, secrets or private keys.
+Open an issue with what you did, what you expected, what happened, and your IGNITION version (Instance administration › Updates) and OS. API and worker logs help: `make logs`. Never paste your `.env`, secrets or private keys.
 
 Security problems go to [SECURITY.md](SECURITY.md), not public issues.
 

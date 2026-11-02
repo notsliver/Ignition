@@ -56,7 +56,11 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request, _ *store.User) e
 		"metrics":      "live", // live container stats only; no history is stored yet
 		"publishHost":  s.PublishHost,
 		"instanceName": s.instance(r.Context()).Name,
-		"version":      version.Version,
+		// Where the Infrastructure pages live: every team's sidebar, or Instance administration only.
+		"infrastructureAdminOnly": s.instance(r.Context()).InfrastructureAdminOnly,
+		"version":                 version.Version,
+		"maintenance":             s.instance(r.Context()).Maintenance,
+		"maintenanceMessage":      s.instance(r.Context()).MaintenanceMessage,
 	}
 	if dockerErr != nil {
 		caps["dockerError"] = dockerErr.Error()
@@ -85,6 +89,8 @@ func (s *Server) getProject(w http.ResponseWriter, r *http.Request, u *store.Use
 	if err != nil {
 		return notFound(err, "Project")
 	}
+	p.Permissions = effectivePermissions(u)
+	p.EffectiveRole = u.Role
 	httpx.JSON(w, 200, map[string]any{"project": p})
 	return nil
 }
@@ -123,6 +129,9 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request, u *store.
 	desc := ""
 	if in.Description != nil {
 		desc = strings.TrimSpace(*in.Description)
+	}
+	if err := s.Store.CheckTeamLimit(r.Context(), u.TeamID, "projects"); err != nil {
+		return err
 	}
 	id, err := s.Store.CreateProject(r.Context(), u.ID, strings.TrimSpace(*in.Name), desc)
 	if store.IsUnique(err) {
@@ -176,7 +185,7 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request, u *store.
 	return nil
 }
 
-// deleteProject refuses while resources exist, so containers and volumes are never orphaned.
+// Deleting a grouping preserves its resources and deployment environments.
 func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request, u *store.User) error {
 	id, err := pathID(r, "Project")
 	if err != nil {
@@ -186,9 +195,7 @@ func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request, u *store.
 	if err != nil {
 		return notFound(err, "Project")
 	}
-	if p.ResourceCount > 0 {
-		return httpx.Conflict(fmt.Sprintf("Delete the %d resources in %s first. Their containers and data would otherwise be left running.", p.ResourceCount, p.Name))
-	}
+
 	if err := s.Store.DeleteProject(r.Context(), id); err != nil {
 		return err
 	}
@@ -236,11 +243,20 @@ func (s *Server) listAllResources(w http.ResponseWriter, r *http.Request, _ *sto
 	if err != nil {
 		return err
 	}
+	if env := q.Get("environment"); env != "" {
+		filtered := []store.Resource{}
+		for _, res := range list {
+			if res.EnvironmentID == env {
+				filtered = append(filtered, res)
+			}
+		}
+		list = filtered
+	}
 	httpx.JSON(w, 200, map[string]any{"resources": list})
 	return nil
 }
 
-func (s *Server) getResource(w http.ResponseWriter, r *http.Request, _ *store.User) error {
+func (s *Server) getResource(w http.ResponseWriter, r *http.Request, u *store.User) error {
 	id, err := pathID(r, "Resource")
 	if err != nil {
 		return err
@@ -249,11 +265,14 @@ func (s *Server) getResource(w http.ResponseWriter, r *http.Request, _ *store.Us
 	if err != nil {
 		return notFound(err, "Resource")
 	}
+	res.Permissions = effectivePermissions(u)
+	res.EffectiveRole = u.Role
 	httpx.JSON(w, 200, map[string]any{"resource": res})
 	return nil
 }
 
 type resourceInput struct {
+	ProjectID     string     `json:"projectId"`
 	EnvironmentID string     `json:"environmentId"`
 	Name          string     `json:"name"`
 	Type          string     `json:"type"`
@@ -344,18 +363,19 @@ func (in *resourceInput) validate() map[string]string {
 
 // createResource stores the resource and queues its first deployment in one transaction.
 func (s *Server) createResource(w http.ResponseWriter, r *http.Request, u *store.User) error {
-	projectID, err := pathID(r, "Project")
-	if err != nil {
-		return err
-	}
-	project, err := s.Store.GetProject(r.Context(), u.ID, projectID)
-	if err != nil {
-		return notFound(err, "Project")
-	}
+	projectID := r.PathValue("id")
 	var in resourceInput
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
+	if projectID == "" {
+		projectID = in.ProjectID
+	}
+	project, err := s.creationProject(r, u, projectID)
+	if err != nil {
+		return err
+	}
+
 	// Instance defaults fill in what the request leaves out.
 	defs := s.defaults(r.Context())
 	if in.MemoryMB == 0 {
@@ -385,7 +405,7 @@ func (s *Server) createResource(w http.ResponseWriter, r *http.Request, u *store
 		return httpx.Invalid(map[string]string{"environmentId": "Unknown environment."})
 	}
 
-	tx, err := s.Store.DB.Begin(r.Context())
+	tx, err := s.Store.SQL(r.Context()).Begin(r.Context())
 	if err != nil {
 		return err
 	}
@@ -491,17 +511,21 @@ func (s *Server) updateResource(w http.ResponseWriter, r *http.Request, u *store
 	}
 	s.Store.Audit(r.Context(), u, "resource.update", "resource", id, nil, clientIP(r))
 	res, _ := s.Store.GetResource(r.Context(), id)
+	if res != nil {
+		res.Permissions = effectivePermissions(u)
+		res.EffectiveRole = u.Role
+	}
 	httpx.JSON(w, 200, map[string]any{"resource": res, "requiresRedeploy": true})
 	return nil
 }
 
 func (s *Server) enqueueForResource(ctx context.Context, kind, resourceID, userID string, payload any) (string, error) {
 	var active int
-	s.Store.DB.QueryRow(ctx, `SELECT count(*) FROM jobs WHERE resource_id = $1 AND kind <> 'health' AND status IN ('pending', 'running')`, resourceID).Scan(&active)
+	s.Store.SQL(ctx).QueryRow(ctx, `SELECT count(*) FROM jobs WHERE resource_id = $1 AND kind <> 'health' AND status IN ('pending', 'running')`, resourceID).Scan(&active)
 	if active > 0 && kind != jobs.KindDeploy {
 		return "", httpx.Conflict("Another operation is in progress for this resource. Wait for it to finish.")
 	}
-	return jobs.Enqueue(ctx, s.Store.DB, jobs.NewJob{Kind: kind, ResourceID: resourceID, CreatedBy: userID, Payload: payload, MaxAttempts: 2})
+	return jobs.Enqueue(ctx, s.Store.SQL(ctx), jobs.NewJob{Kind: kind, ResourceID: resourceID, CreatedBy: userID, Payload: payload, MaxAttempts: 2})
 }
 
 func (s *Server) resourceAction(w http.ResponseWriter, r *http.Request, u *store.User) error {
@@ -564,9 +588,9 @@ func (s *Server) deleteResource(w http.ResponseWriter, r *http.Request, u *store
 		return httpx.BadRequest("Confirm by passing the resource name.")
 	}
 	// Cancel anything queued for it, then queue the removal.
-	s.Store.DB.Exec(r.Context(), `UPDATE jobs SET cancel_requested = true, status = CASE WHEN status = 'pending' THEN 'cancelled' ELSE status END WHERE resource_id = $1 AND status IN ('pending', 'running')`, id)
+	s.Store.SQL(r.Context()).Exec(r.Context(), `UPDATE jobs SET cancel_requested = true, status = CASE WHEN status = 'pending' THEN 'cancelled' ELSE status END WHERE resource_id = $1 AND status IN ('pending', 'running')`, id)
 	s.Store.SetStatus(r.Context(), id, "removing")
-	jobID, err := jobs.Enqueue(r.Context(), s.Store.DB, jobs.NewJob{Kind: jobs.KindRemove, ResourceID: id, CreatedBy: u.ID, Payload: map[string]bool{"removeVolumes": r.URL.Query().Get("volumes") == "true"}})
+	jobID, err := jobs.Enqueue(r.Context(), s.Store.SQL(r.Context()), jobs.NewJob{Kind: jobs.KindRemove, ResourceID: id, CreatedBy: u.ID, Payload: map[string]bool{"removeVolumes": r.URL.Query().Get("volumes") == "true"}})
 	if err != nil {
 		return err
 	}
@@ -773,7 +797,7 @@ func (s *Server) createDeployment(w http.ResponseWriter, r *http.Request, u *sto
 	} else if in.RestoreEnv {
 		return httpx.BadRequest("Restoring variables needs a release to restore them from.")
 	}
-	tx, err := s.Store.DB.Begin(r.Context())
+	tx, err := s.Store.SQL(r.Context()).Begin(r.Context())
 	if err != nil {
 		return err
 	}
@@ -819,7 +843,7 @@ func (s *Server) cancelDeployment(w http.ResponseWriter, r *http.Request, u *sto
 	if d.JobID == nil {
 		return httpx.Conflict("This deployment has no job to cancel.")
 	}
-	status, err := jobs.RequestCancel(r.Context(), s.Store.DB, *d.JobID)
+	status, err := jobs.RequestCancel(r.Context(), s.Store.SQL(r.Context()), *d.JobID)
 	if err != nil {
 		return err
 	}

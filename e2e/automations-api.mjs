@@ -1,3 +1,4 @@
+import './team-api.mjs';
 // End-to-end checks for Automations against a running IGNITION (IGNITION_URL, IGNITION_EMAIL,
 // IGNITION_PASSWORD). Uses real containers: verification and escalation are exercised for real.
 const BASE = process.env.IGNITION_URL;

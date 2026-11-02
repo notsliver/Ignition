@@ -1,0 +1,53 @@
+/* Teams: the switcher's mark, the choose/join screens and project access. Prefixed team-. */
+.team-scope{display:contents}
+.team-mark{display:inline-grid;place-items:center;flex-shrink:0;border-radius:6px;font-weight:600;line-height:1;letter-spacing:.02em;color:hsl(var(--team-hue) 55% 30%);background:hsl(var(--team-hue) 70% 88%)}
+:root[data-theme="dark"] .team-mark{color:hsl(var(--team-hue) 70% 82%);background:hsl(var(--team-hue) 35% 26%)}
+.team-muted{margin:0;font-size:12.5px;color:var(--muted)}
+.team-hint{display:flex;gap:8px;margin:0;font-size:12px;line-height:1.5;color:var(--muted)}
+.team-hint svg{width:14px;flex-shrink:0;margin-top:1px}
+.team-form{display:flex;flex-direction:column;gap:14px}
+.team-actions{display:flex;gap:8px;flex-wrap:wrap}
+
+.team-choices{display:flex;flex-direction:column;gap:10px}
+.team-choice{display:flex;align-items:center;gap:14px;padding:14px 16px;text-align:left;border:1px solid var(--border);border-radius:12px;background:var(--surface);transition:border-color .15s,box-shadow .15s}
+.team-choice:hover{border-color:color-mix(in srgb,var(--accent) 40%,var(--border))}
+.team-choice:hover>svg{color:var(--accent);transform:translateX(2px)}
+.team-choice>svg{transition:transform .15s,color .15s}
+.team-choice:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.team-choice-main{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.team-choice strong{font-size:14px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.team-choice small{font-size:12px;color:var(--muted)}
+.team-choice>svg{width:14px;color:var(--muted)}
+.team-create-link{display:inline-flex;align-items:center;gap:6px;align-self:flex-start;font-size:12.5px}
+.team-create-link svg{width:13px}
+.team-invite-head{display:flex}
+
+.team-dialog .dialog-body{width:min(620px,calc(100vw - 32px))}
+.team-rows{display:flex;flex-direction:column;border:1px solid var(--border);border-radius:10px;max-height:min(420px,55vh);overflow-y:auto}
+.team-row{display:flex;align-items:center;gap:12px;padding:10px 12px}
+.team-row+.team-row{border-top:1px solid var(--border)}
+.team-row-main{display:flex;flex-direction:column;gap:2px;flex:1;min-width:0}
+.team-row-main strong{font-size:13px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.team-row-main small{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.team-row .select-trigger{min-width:170px}
+.team-saved{width:14px;color:var(--success)}
+@media(prefers-reduced-motion:reduce){.team-choice,.team-choice>svg{transition:none}.team-choice:hover>svg{transform:none}}
+:root[data-motion="reduce"] .team-choice:hover>svg{transform:none}
+.team-picker-foot{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding-top:4px}
+.team-picker-foot .ob-spacer{flex:1}
+.team-signout{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted)}
+.team-signout:hover{color:var(--text)}
+.team-signout svg{width:13px}
+.workspace-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.team-admin-pill{position:fixed;left:50%;bottom:14px;z-index:60;transform:translateX(-50%);display:flex;align-items:center;gap:8px;max-width:calc(100vw - 32px);padding:5px 6px 5px 12px;border-radius:999px;background:var(--surface);box-shadow:0 0 0 1px color-mix(in srgb,var(--accent) 45%,var(--border)),0 6px 20px #0000001a;font-size:12px;animation:team-pill-in .2s ease-out}
+.team-admin-pill>svg{flex:none;width:14px;color:var(--accent)}
+.team-admin-pill>span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.team-admin-pill strong{font-weight:600}
+.team-admin-pill button{flex:none;height:24px;padding:0 10px;border-radius:999px;font-size:12px;font-weight:500;color:var(--text);background:var(--hover)}
+.team-admin-pill button:hover{background:color-mix(in srgb,var(--accent) 14%,var(--hover))}
+@keyframes team-pill-in{from{opacity:0;transform:translate(-50%,6px)}}
+@media(prefers-reduced-motion:reduce){.team-admin-pill{animation:none}}
+:root[data-motion="reduce"] .team-admin-pill{animation:none}
+
+.team-mark{overflow:hidden}
+.team-mark img{width:100%;height:100%;object-fit:cover}

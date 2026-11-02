@@ -80,6 +80,22 @@ func (s *Server) projectMetrics(w http.ResponseWriter, r *http.Request, u *store
 	return nil
 }
 
+// teamUsage is what the team's resources use together, for the dashboard when the servers themselves
+// are managed in Instance administration (and so aren't the team's to see).
+func (s *Server) teamUsage(w http.ResponseWriter, r *http.Request, u *store.User) error {
+	rng := r.URL.Query().Get("range")
+	spec, ok := metricRanges[rng]
+	if !ok {
+		rng, spec = "1h", metricRanges["1h"]
+	}
+	buckets, resources, err := s.Store.ProjectUsage(r.Context(), "", "", spec[0], spec[1])
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, 200, map[string]any{"range": rng, "stepSeconds": int(spec[1].Seconds()), "buckets": buckets, "resources": resources})
+	return nil
+}
+
 type projectLogLine struct {
 	Time       time.Time `json:"time"`
 	Stream     string    `json:"stream"`

@@ -30,9 +30,19 @@ import { MfaBanner } from './MfaBanner';
 import { getPreferences } from './preferences';
 import { useShortcuts } from './shortcuts';
 import { Preferences } from '../pages/settings/Preferences/Preferences';
+import { TeamMembers, TeamSettings } from '../pages/settings/Team/Team';
+import { AdminTeams } from '../pages/admin/AdminTeams';
+import { Limits } from '../pages/admin/Limits';
+import { useSession } from './AuthGate';
+import { adminPages, infrastructurePages } from './navigation';
+import { useInfrastructureAdminOnly } from './instance';
+import { TeamScopeNote } from '../pages/admin/AdminTeams';
 import { confirmLeave } from './unsaved';
 import { fromUrl, slug, toUrl } from './routing';
-import { api } from '../api/client';
+import { useQuery } from '../api/hooks';
+import { Select } from '../ui';
+import { api, teamPath } from '../api/client';
+import { ResourceAccess, useTeam } from './Teams';
 import { PreviewBanner } from './Unsupported';
 import './App.css';
 
@@ -49,10 +59,13 @@ const preview = node => <><PreviewBanner />{node}</>;
 const LIVE_RESOURCE_VIEWS = ['Overview', 'Deployments', 'Logs', 'Metrics', 'Environment Variables', 'Source', 'Domains', 'Networking', 'Build & Deploy', 'Resource Limits', 'Storage', 'Terminal',
   'Health Checks', 'Rollback History', 'Scheduled Tasks', 'Access & Secrets', 'Advanced Settings', 'Automations', 'Code', 'Files', 'Backups'];
 // Settings pages backed by the API (the rest are still previews).
-const LIVE_PAGES = ['General', 'Authentication & Security', 'Updates', 'Users & Permissions', 'Preferences'];
-const pages = { Dashboard: <Dashboard />, General: <General />, 'Authentication & Security': <Security />, Updates: <Updates />, 'Users & Permissions': <Users />, Preferences: <Preferences /> };
+const LIVE_PAGES = ['Team', 'Team Members', 'Team Sources', 'General', 'Authentication & Security', 'Updates', 'Users', 'Teams', 'Limits', 'Preferences'];
+const pages = { Team: <TeamSettings />, 'Team Members': <TeamMembers />, Dashboard: <Dashboard />, General: <General />, 'Authentication & Security': <Security />, Updates: <Updates />, Users: <Users />, Teams: <AdminTeams />, Limits: <Limits />, Preferences: <Preferences /> };
 
 export function App() {
+  const { team } = useTeam();
+  const session = useSession();
+  const infraAdmin = useInfrastructureAdminOnly();
   const instanceName = useInstanceName();
   const [active, setActive] = useState('Dashboard');
   const [hidden, setHidden] = useState(() => getPreferences().sidebar === 'collapsed');
@@ -62,12 +75,14 @@ export function App() {
   const openGameSetup = id => { hiddenBefore.current = hidden; setHidden(true); setMobileOpen(false); setGameSetup(id); };
   const closeGameSetup = () => { setGameSetup(null); setHidden(hiddenBefore.current); };
   const [mobileOpen, setMobileOpen] = useState(false);
-  const [project, setProject] = useState(null);
+  const [project, setProjectData] = useState(null);
+  const setProject = value => setProjectData(current => {const next=typeof value==='function' ? value(current) : value;return next && next.id===current?.id ? {...current,...next} : next;});
   const appRef = useRef(null);
   const sidebar = useSidebarWidth(appRef);
-  const [resource, setResourceState] = useState(null);
+  const [resource, setResourceData] = useState(null);
+  const setResourceState = value => setResourceData(current => {const next=typeof value==='function' ? value(current) : value;return next && next.id===current?.id ? {...current,...next} : next;});
   const [resourceView, setResourceView] = useState('Overview');
-  const setResource = (r, view = 'Overview') => { if (!confirmLeave()) return; setResourceState(r); setResourceView(view); setMobileOpen(false); };
+  const setResource = async (r, view = 'Overview') => { if (!confirmLeave()) return; try {setResourceState(r ? (await api.resource(r.id)).resource : null);setResourceView(view);setMobileOpen(false);}catch(e){if(e.name!=='AbortError')setMissing(e.message);} };
   const showResourceView = view => { if (view === resourceView || !confirmLeave()) return; setResourceView(view); setMobileOpen(false); };
   const [server, setServerState] = useState(null);
   const [serverView, setServerView] = useState('Overview');
@@ -78,7 +93,7 @@ export function App() {
   const [environment, setEnvironment] = useState(null);
   // Leaving for another page (or project) ends the setup and brings the sidebar back.
   useEffect(() => { if (gameSetup) closeGameSetup(); }, [project?.id, active, environment, resource?.id]); // eslint-disable-line react-hooks/exhaustive-deps
-  const openProject = p => { setProject(p); setEnvironment(p.environments[0]?.name ?? 'Production'); navigate('Resources'); };
+  const openProject = async p => { try {const loaded=(await api.project(p.id)).project;if(!confirmLeave())return;setProject(loaded);setEnvironment(loaded.environments[0]?.name ?? 'Production');setActive('Resources');setResourceState(null);setServerState(null);setMissing('');setMobileOpen(false);}catch(e){if(e.name!=='AbortError')setMissing(e.message);} };
   const environmentId = project?.environments.find(e => e.name === environment)?.id;
   const closeProject = () => { if (!confirmLeave()) return; setProject(null); setActive('Projects'); setResourceState(null); setMobileOpen(false); };
   // Keep the address bar in sync with what's on screen, and restore it on reload or Back/Forward.
@@ -86,22 +101,23 @@ export function App() {
   const [missing, setMissing] = useState('');
   async function applyUrl(initial = false) {
     // Opening Ignition at its root goes to the start page chosen in Preferences.
-    if (initial && location.pathname === '/') {
+    if (initial && (location.pathname === '/' || location.pathname === `/teams/${team.id}/` || location.pathname === `/teams/${team.slug}/`)) {
       const start = getPreferences().startPage;
       let last = null;
       try { last = localStorage.getItem('ignition:last-path'); } catch { /* private mode */ }
       const to = start === 'last' ? last : { projects: '/projects', servers: '/servers', monitor: '/monitor', domains: '/domains' }[start];
-      if (to && to !== '/') history.replaceState(null, '', to);
+      if (to && to !== '/') history.replaceState(null, '', to.startsWith('/teams/') ? to : teamPath(to));
     }
     const target = fromUrl(location.pathname, location.search);
     setMissing('');
     try {
-      const p = target.projectId ? (await api.project(target.projectId)).project : null;
+      let p = target.projectId ? (await api.project(target.projectId)).project : null;
       const r = target.resourceId ? (await api.resource(target.resourceId)).resource : null;
       const srv = target.serverId ? (await api.server(target.serverId)).server : null;
-      if (r && r.projectId !== p?.id) throw new Error('mismatch');
+      if (r?.projectId && !p) {try {p=(await api.project(r.projectId)).project;}catch(e){if(![403,404].includes(e.status))throw e;}}
+      if (r && target.projectId && r.projectId !== p?.id) throw new Error('mismatch');
       setProject(p);
-      setEnvironment(p ? (p.environments.some(e => e.name === target.env) ? target.env : p.environments[0]?.name ?? 'Production') : null);
+      setEnvironment(p ? (p.environments.some(e => e.name === target.env) ? target.env : p.environments[0]?.name ?? 'Production') : r?.environment ?? null);
       setResourceState(r);
       setResourceView(target.resourceView ?? 'Overview');
       setServerState(srv);
@@ -141,7 +157,7 @@ export function App() {
   // Declared before the pages that link to resources use it.
   const openResourceFromAnywhere = (r, view = 'Overview') => {
     if (!confirmLeave()) return;
-    history.pushState(null, '', `/projects/${r.projectId}/resources/${r.id}${view === 'Overview' ? '' : `/${slug(view)}`}`);
+    history.pushState(null, '', teamPath(`/resources/${r.id}${view === 'Overview' ? '' : `/${slug(view)}`}`));
     applyUrl();
   };
   const projectPages = project && { Resources: resource
@@ -153,9 +169,10 @@ export function App() {
     Domains: <DomainsHub key={`${project.id}:${environment}`} project={project} environment={environment} onOpenResource={openResourceFromAnywhere} />,
     Monitoring: <ProjectMonitoring key={`${project.id}:${environment}`} project={project} environment={environment} onOpenResource={openResourceFromAnywhere} />,
     Logs: <ProjectLogs key={`${project.id}:${environment}`} project={project} environment={environment} onOpenResource={openResourceFromAnywhere} />,
-    'Project Settings': <ProjectSettings key={project.id} project={project} onProjectChange={setProject} onDeleted={() => { setProject(null); setActive('Projects'); }} /> };
-  function renderResourcePage() {
-    const props = { key: `${resource.id ?? resource.name}:${resourceView}`, project, environment, resource, onNavigate: showResourceView, onResourceChange: setResourceState, onDeleted: () => setResourceState(null) };
+    'Project Settings': <ResourceAccess resource={project}><ProjectSettings key={project.id} project={project} onProjectChange={setProject} onDeleted={() => { setProject(null); setActive('Projects'); }} /></ResourceAccess> };
+  function renderResourcePage(){return <ResourceAccess resource={resource}>{renderResourceContent()}</ResourceAccess>;}
+  function renderResourceContent() {
+    const props = { key: `${resource.id ?? resource.name}:${resourceView}`, project: project ?? {id:null,name:'No project',environments:[]}, environment, resource, onNavigate: showResourceView, onResourceChange: setResourceState, onDeleted: () => setResourceState(null) };
     if (resource.type === 'game') {
       if (resourceView === 'Overview') return <GamePages.GameOverview {...props} />;
       const GamePage = GamePages[gamePageComponents[resourceView]];
@@ -167,14 +184,24 @@ export function App() {
     return Page ? (LIVE_RESOURCE_VIEWS.includes(resourceView) ? <Page {...props} /> : preview(<Page {...props} />)) : <ComingSoon title={resourceView} />;
   }
   // Opening a resource from Monitor goes through its URL, so project and resource load the same way as a reload.
-  const page = project ? projectPages[active]
+  // Instance administration is for platform admins; the API refuses the rest anyway, this explains why.
+  const platformAdmin = ['owner', 'admin'].includes((session.platformUser ?? session.user).role);
+  const adminArea = (adminPages.includes(active) || (infraAdmin && infrastructurePages.includes(active))) && !project && !resource && !server;
+  const adminDenied = adminArea && !platformAdmin;
+  // To people who don't administer the instance, /admin (and admin-only infrastructure) doesn't exist:
+  // they land on their team's dashboard, with no hint of what's there.
+  useEffect(() => { if (adminDenied) { setActive('Dashboard'); history.replaceState(null, '', teamPath('/dashboard')); } }, [adminDenied]);
+  const page = adminDenied ? null
+    : resource ? renderResourcePage() : project ? projectPages[active]
+    : active === 'Resources' ? <TeamResources team={team} onOpen={openResourceFromAnywhere} />
     : active === 'Projects' ? <Projects onOpen={openProject} />
         : active === 'Servers' ? (server
           ? <ServerWorkspace key={server.id} server={server} view={serverView} onNavigate={showServerView} onServerChange={setServerState} onRemoved={() => { setServerState(null); setServerView('Overview'); }} onOpenResource={openResourceFromAnywhere} />
           : <Servers onOpen={openServer} />)
         : active === 'Dashboard' ? <Dashboard onOpenResource={openResourceFromAnywhere} onOpenProject={openProject} onOpenServer={openServer} onNavigate={navigate} />
         : active === 'Monitor' ? <Monitor onOpenResource={openResourceFromAnywhere} />
-        : active === 'Sources' ? <Sources onOpenResource={openResourceFromAnywhere} />
+        : active === 'Team Sources' ? <><TeamScopeNote what="Sources" /><Sources onOpenResource={openResourceFromAnywhere} /></>
+        : active === 'Sources' ? <>{infraAdmin && <TeamScopeNote what="Sources" />}<Sources onOpenResource={openResourceFromAnywhere} /></>
         : active === 'Domains' ? <DomainsHub onOpenResource={openResourceFromAnywhere} />
         : active === 'Networking' ? <Networking onOpenResource={openResourceFromAnywhere} />
           : active === 'Audit Log' ? <AuditLog onOpenResource={openResourceFromAnywhere} />
@@ -202,4 +229,15 @@ export function App() {
       {restoring ? null : page || <ComingSoon title={active} />}
     </main>
   </div>;
+}
+
+function TeamResources({team,onOpen}) {
+ const envs=useQuery(()=>api.teamEnvironments(),[]);
+ const [selected,setSelected]=useState('');
+ const [game,setGame]=useState(null);
+ const environment=envs.data?.environments.find(e=>e.id===selected) ?? envs.data?.environments[0];
+ if(!environment)return envs.error ? <Notice tone="danger" title={envs.error.message}/> : <p>Loading environments?</p>;
+ const project={id:null,name:team.name,environments:envs.data.environments};
+ if(game)return <GamePages.GameWizard gameId={game} project={project} environment={environment.name} environmentId={environment.id} takenNames={[]} onClose={()=>setGame(null)} onCreated={r=>{setGame(null);onOpen(r);}}/>;
+ return <><div style={{padding:'16px 24px 0',maxWidth:240}}><Select label="Environment" value={selected} options={[{value:'',label:'All environments'},...envs.data.environments.map(e=>({value:e.id,label:e.name}))]} onChange={setSelected}/></div><Resources key={selected} listEnvironmentId={selected || null} project={project} environment={environment.name} environmentId={environment.id} onOpen={onOpen} onCreateGame={setGame}/></>;
 }

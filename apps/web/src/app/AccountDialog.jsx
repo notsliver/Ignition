@@ -7,6 +7,7 @@ import { useSession } from './AuthGate';
 import { useInstanceName } from './instance';
 import { EnrollTwoFactor, RecoveryCodes } from './TwoFactor';
 import './AccountDialog.css';
+import { ImageUpload } from '../ui/components/ImageUpload/ImageUpload';
 
 /*
  * Your account: two-factor authentication (turn on, new recovery codes, turn off) and what your
@@ -16,7 +17,9 @@ import './AccountDialog.css';
 const roleNames = { owner: 'Owner', admin: 'Admin', developer: 'Developer', viewer: 'Viewer' };
 
 export function AccountDialog({ onClose }) {
-  const { user, refresh } = useSession();
+  const session = useSession();
+  const { refresh } = session;
+  const user = session.platformUser ?? session.user;
   const instance = useInstanceName();
   const { data, error, refetch } = useQuery(() => api.accountSecurity(), []);
   const catalog = useQuery(() => api.permissions(), []);
@@ -32,6 +35,11 @@ export function AccountDialog({ onClose }) {
     footer={<Button variant="primary" onClick={onClose}>Done</Button>}>
     {error && <Notice tone="danger" title="Couldn't load your account">{error.message}</Notice>}
     {feedback && <Notice tone={feedback.tone} title={feedback.title} />}
+
+    <section className="acct-section">
+      <ImageUpload label="Profile picture" name={user.name || user.email} src={user.avatarUrl}
+        onUpload={api.uploadAvatar} onRemove={api.removeAvatar} onChanged={refresh} />
+    </section>
 
     <section className="acct-section">
       <header>

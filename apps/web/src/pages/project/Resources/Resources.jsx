@@ -49,14 +49,14 @@ const addMenu = [
 ];
 const importSources = { 'Upload a dump file': 'upload', 'From S3-compatible storage': 's3', 'Migrate from a live database': 'live' };
 
-export function Resources({ project, environment, environmentId, onOpen, onCreateGame }) {
+export function Resources({ project, environment, environmentId, listEnvironmentId = environmentId, onOpen, onCreateGame }) {
   const [query, setQuery] = useState('');
   const [filter, setFilter] = useState('all');
   const [deleting, setDeleting] = useState(null);
   const [actionError, setActionError] = useState('');
   const [highlight, setHighlight] = useState(null);
 
-  const { data, error, loading, refetch } = useQuery(() => api.resources(project.id, { environment: environmentId }), [project.id, environmentId], { pollMs: 3000 });
+  const { data, error, loading, refetch } = useQuery(() => api.resources(project.id, { environment: listEnvironmentId }), [project.id, listEnvironmentId], { pollMs: 3000 });
   const all = data?.resources ?? [];
   useEffect(() => { if (highlight) { const t = setTimeout(() => setHighlight(null), 2500); return () => clearTimeout(t); } }, [highlight]);
 
@@ -101,7 +101,7 @@ export function Resources({ project, environment, environmentId, onOpen, onCreat
   if (!all.length) return <div className="resources-page">
     <div className="resources-empty">
       <CubeIcon />
-      <strong>No resources in {environment} yet</strong>
+      <strong>No resources{project.id ? ` in ${environment}` : ''} yet</strong>
       <p>Deploy an application from Git or an image, or add a database.</p>
       {add}
     </div>

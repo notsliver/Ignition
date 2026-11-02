@@ -5,6 +5,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/notsliver/Ignition/services/internal/compose"
+	"github.com/notsliver/Ignition/services/internal/httpx"
 	"github.com/notsliver/Ignition/services/internal/jobs"
 	"github.com/notsliver/Ignition/services/internal/store"
 )
@@ -22,12 +23,29 @@ type provisionExtras struct {
 
 // provision creates one resource (and its first deployment) inside tx. Callers validate in first.
 func (s *Server) provision(ctx context.Context, tx pgx.Tx, u *store.User, projectID, envID string, in resourceInput, x provisionExtras) (string, string, error) {
+	if _, scoped := store.ScopeFrom(ctx); scoped {
+		var capacity bool
+		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM servers WHERE is_local AND NOT removing)`).Scan(&capacity); err != nil {
+			return "", "", err
+		}
+		if !capacity {
+			return "", "", httpx.Conflict("Assign local deployment capacity to this team before creating resources.")
+		}
+	}
 	defs := s.defaults(ctx)
 	if in.MemoryMB == 0 {
 		in.MemoryMB = defs.MemoryMB
 	}
 	if in.CPUs == 0 {
 		in.CPUs = defs.CPUs
+	}
+	// Instance administration › Limits: every way of creating a resource comes through here.
+	if err := s.checkResourceCap(ctx, in.Type, in.CPUs, in.MemoryMB, 0); err != nil {
+		return "", "", err
+	}
+	owner := store.QuotaOwner{Team: u.TeamID, User: u.ID, Location: s.Store.LocalLocation(ctx)}
+	if err := s.checkQuotas(ctx, owner, u.ID, quotaDemand{Type: in.Type, CPUs: in.CPUs, MemoryMB: in.MemoryMB}); err != nil {
+		return "", "", err
 	}
 	id, err := s.Store.CreateResource(ctx, tx, store.NewResource{
 		ProjectID: projectID, EnvironmentID: envID, Name: in.Name, Type: in.Type, SourceType: in.SourceType, Image: in.Image,

@@ -22,6 +22,7 @@ function openPref() {
 
 const pctText = v => v == null ? '—' : `${Math.round(v)}%`;
 const cores = v => `${Number(v.toFixed(2))} CPU${v === 1 ? '' : 's'}`;
+const count = (n, one, many = `${one}s`) => `${n} ${n === 1 ? one : many}`;
 
 export function CapacityPanel({ onOpen }) {
   const [open, setOpen] = useState(openPref);
@@ -47,12 +48,12 @@ export function CapacityPanel({ onOpen }) {
     {open && <div className="sv-capacity-body">
       {error && <Notice tone="danger" title="Couldn't load capacity">{error.message}</Notice>}
       {t && <div className="sv-capacity-totals">
-        <Total label="CPU limits committed" value={t.cores ? Math.round(t.committedCpus / t.cores * 100) : null} detail={`${cores(t.committedCpus)} of ${t.cores} cores`} />
-        <Total label="Memory limits committed" value={t.memory ? Math.round(t.committedMemory / t.memory * 100) : null} detail={`${bytes(t.committedMemory)} of ${bytes(t.memory)}`} />
+        <Total label="CPU limits committed" value={t.cores ? Math.round(t.committedCpus / t.cores * 100) : null} detail={t.committedCpus ? `${cores(t.committedCpus)} of ${t.cores} cores` : `None of ${t.cores} cores`} />
+        <Total label="Memory limits committed" value={t.memory ? Math.round(t.committedMemory / t.memory * 100) : null} detail={t.committedMemory ? `${bytes(t.committedMemory)} of ${bytes(t.memory)}` : `None of ${bytes(t.memory)}`} />
         <Total label="Disk used" value={t.diskTotal ? Math.round(t.diskUsed / t.diskTotal * 100) : null} detail={t.diskTotal ? `${bytes(t.diskTotal - t.diskUsed)} free` : 'Needs host metrics'} />
         <div className="sv-capacity-window">
           <SegmentedControl label="Window" className="auto-width" value={span} onChange={setSpan} options={[{ value: '24h', label: '24 h' }, { value: '7d', label: '7 days' }]} />
-          <small>{t.measured} of {t.servers} server(s) measured · {t.workloads} workload(s)</small>
+          <small>{t.measured} of {count(t.servers, 'server')} measured · {count(t.workloads, 'running workload')}</small>
         </div>
       </div>}
       {list.length > 0 && <div className="monitor-table-wrap">

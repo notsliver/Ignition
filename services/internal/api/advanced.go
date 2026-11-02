@@ -224,8 +224,8 @@ func (s *Server) getAdvanced(w http.ResponseWriter, r *http.Request, _ *store.Us
 		}
 	}
 	// Where it could move to: every environment except its own.
-	rows, err := s.Store.DB.Query(r.Context(), `
-		SELECT p.id, p.name, e.id, e.name FROM environments e JOIN projects p ON p.id = e.project_id
+	rows, err := s.Store.SQL(r.Context()).Query(r.Context(), `
+		SELECT COALESCE(p.id::text,''), COALESCE(p.name,'No project'), e.id, e.name FROM environments e LEFT JOIN projects p ON p.id = e.project_id
 		WHERE p.archived_at IS NULL AND e.id <> $1 ORDER BY lower(p.name), e.position, e.name`, res.EnvironmentID)
 	if err == nil {
 		type target struct {
@@ -411,16 +411,22 @@ func (s *Server) moveResource(w http.ResponseWriter, r *http.Request, u *store.U
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
-	var projectID, projectName, envName string
-	if err := s.Store.DB.QueryRow(r.Context(), `SELECT p.id, p.name, e.name FROM environments e JOIN projects p ON p.id = e.project_id WHERE e.id = $1`, in.EnvironmentID).
-		Scan(&projectID, &projectName, &envName); err != nil {
-		return httpx.Invalid(map[string]string{"environmentId": "Choose an environment to move to."})
+	projectID, projectName := res.ProjectID, "No project"
+	if projectID != "" {
+		if p, err := s.Store.GetProject(r.Context(), u.ID, projectID); err == nil {
+			projectName = p.Name
+		}
 	}
+	var envName string
+	if err := s.Store.SQL(r.Context()).QueryRow(r.Context(), `SELECT name FROM environments WHERE id=$1`, in.EnvironmentID).Scan(&envName); err != nil {
+		return httpx.Invalid(map[string]string{"environmentId": "Choose an environment in this team."})
+	}
+
 	if in.EnvironmentID == res.EnvironmentID {
 		return httpx.Invalid(map[string]string{"environmentId": "It's already there."})
 	}
 	var busy int
-	s.Store.DB.QueryRow(r.Context(), `SELECT count(*) FROM jobs WHERE resource_id = $1 AND kind <> 'health' AND status IN ('pending', 'running')`, id).Scan(&busy)
+	s.Store.SQL(r.Context()).QueryRow(r.Context(), `SELECT count(*) FROM jobs WHERE resource_id = $1 AND kind <> 'health' AND status IN ('pending', 'running')`, id).Scan(&busy)
 	if busy > 0 {
 		return httpx.Conflict("Wait for the current operation on " + res.Name + " to finish, then move it.")
 	}
@@ -436,7 +442,7 @@ func (s *Server) moveResource(w http.ResponseWriter, r *http.Request, u *store.U
 	out := map[string]any{"projectId": projectID, "projectName": projectName, "environmentName": envName}
 	if res.ContainerID != "" {
 		// Redeploy the same release so the container moves to the new environment's network.
-		tx, err := s.Store.DB.Begin(r.Context())
+		tx, err := s.Store.SQL(r.Context()).Begin(r.Context())
 		if err != nil {
 			return err
 		}

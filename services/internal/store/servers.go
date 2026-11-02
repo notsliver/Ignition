@@ -21,6 +21,8 @@ const StaleAfter = 60 * time.Second
 const MetricFreshness = 90 * time.Second
 
 type Server struct {
+	// Visible: teams can see and deploy to it. Hidden servers are for platform administrators only.
+	Visible              bool              `json:"visible"`
 	ID                   string            `json:"id"`
 	Name                 string            `json:"name"`
 	Hostname             string            `json:"hostname"`
@@ -93,7 +95,7 @@ var serverBase = `
 
 const serverCols = `id, name, hostname, description, environment, location, labels, notes, is_local, connection_method, endpoint,
 	ca_cert, client_cert, client_key_enc, tls_fingerprint, credentials_rotated_at, credentials_revoked_at,
-	connection_state, es, runtime_state, deployments_enabled, maintenance, maintenance_note, maintenance_since,
+	connection_state, es, runtime_state, deployments_enabled, visible, maintenance, maintenance_note, maintenance_since,
 	maint_by, removing, last_seen_at, last_check_at, last_error, failures,
 	info, host_facts, capabilities, settings, workloads, m_at, m_cpu, m_mu, m_mt, m_du, m_dt, created_at, updated_at`
 
@@ -107,7 +109,7 @@ func scanServer(row pgx.Row, extra ...any) (*Server, error) {
 	var memU, memT, diskU, diskT *int64
 	dest := []any{&s.ID, &s.Name, &s.Hostname, &s.Description, &s.Environment, &s.Location, &labels, &s.Notes, &s.IsLocal, &s.ConnectionMethod, &s.Endpoint,
 		&s.CACert, &s.ClientCert, &s.ClientKeySealed, &s.TLSFingerprint, &s.CredentialsRotatedAt, &s.CredentialsRevokedAt,
-		&s.ConnectionState, &s.EffectiveState, &s.RuntimeState, &s.DeploymentsEnabled, &s.Maintenance, &s.MaintenanceNote, &s.MaintenanceSince,
+		&s.ConnectionState, &s.EffectiveState, &s.RuntimeState, &s.DeploymentsEnabled, &s.Visible, &s.Maintenance, &s.MaintenanceNote, &s.MaintenanceSince,
 		&s.MaintenanceBy, &s.Removing, &s.LastSeenAt, &s.LastCheckAt, &s.LastError, &s.Failures,
 		&s.Info, &s.HostFacts, &s.Capabilities, &s.Settings, &s.Workloads, &mAt, &cpu, &memU, &memT, &diskU, &diskT, &s.CreatedAt, &s.UpdatedAt}
 	if err := row.Scan(append(dest, extra...)...); err != nil {
@@ -195,7 +197,7 @@ func (s *Store) ListServers(ctx context.Context, q ServerQuery) ([]Server, int, 
 	}
 	sql := fmt.Sprintf(`%s SELECT %s, count(*) OVER () FROM base WHERE %s ORDER BY %s %s NULLS LAST, lower(name) LIMIT %d OFFSET %d`,
 		serverBase, serverCols, strings.Join(where, " AND "), order, dir, q.Limit, max(q.Offset, 0))
-	rows, err := s.DB.Query(ctx, sql, args...)
+	rows, err := s.SQL(ctx).Query(ctx, sql, args...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -214,23 +216,23 @@ func (s *Store) ListServers(ctx context.Context, q ServerQuery) ([]Server, int, 
 
 func (s *Store) ServerSummary(ctx context.Context) (ServerSummary, error) {
 	var out ServerSummary
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		SELECT count(*), count(*) FILTER (WHERE `+AvailableSQL+`), count(*) FILTER (WHERE `+AttentionSQL+`)
 		FROM (SELECT `+effectiveState+` AS es, sv.runtime_state, sv.removing FROM servers sv) x`).Scan(&out.Total, &out.Available, &out.Attention)
 	return out, err
 }
 
 func (s *Store) GetServer(ctx context.Context, id string) (*Server, error) {
-	return scanServer(s.DB.QueryRow(ctx, serverSelect+` WHERE id = $1`, id))
+	return scanServer(s.SQL(ctx).QueryRow(ctx, serverSelect+` WHERE id = $1`, id))
 }
 
 func (s *Store) LocalServer(ctx context.Context) (*Server, error) {
-	return scanServer(s.DB.QueryRow(ctx, serverSelect+` WHERE is_local`))
+	return scanServer(s.SQL(ctx).QueryRow(ctx, serverSelect+` WHERE is_local`))
 }
 
 // ServerIDs lists every server for the worker's heartbeat loop.
 func (s *Store) ServerIDs(ctx context.Context) ([]string, error) {
-	rows, err := s.DB.Query(ctx, `SELECT id FROM servers WHERE NOT removing ORDER BY is_local DESC, created_at`)
+	rows, err := s.SQL(ctx).Query(ctx, `SELECT id FROM servers WHERE NOT removing ORDER BY is_local DESC, created_at`)
 	if err != nil {
 		return nil, err
 	}
@@ -273,6 +275,13 @@ func (s *Store) CreateRemoteServer(ctx context.Context, n NewServer) (string, er
 	if _, err := tx.Exec(ctx, `UPDATE servers SET client_key_enc = $2 WHERE id = $1`, id, sealed); err != nil {
 		return "", err
 	}
+	team := LegacyTeamID
+	if scope, ok := ScopeFrom(ctx); ok {
+		team = scope.TeamID
+	}
+	if _, err := tx.Exec(ctx, `INSERT INTO team_server_assignments(team_id,server_id) VALUES($1,$2) ON CONFLICT DO NOTHING`, team, id); err != nil {
+		return "", err
+	}
 	return id, tx.Commit(ctx)
 }
 
@@ -296,7 +305,7 @@ func (s *Store) UpdateServer(ctx context.Context, id string, p ServerPatch) erro
 	if len(p.Settings) > 0 {
 		settings = p.Settings
 	}
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE servers SET name = COALESCE($2, name), hostname = COALESCE($3, hostname), description = COALESCE($4, description),
 		       environment = COALESCE($5, environment), labels = COALESCE($6, labels), notes = COALESCE($7, notes),
 		       settings = COALESCE($8, settings), location = COALESCE($9, location), updated_at = now()
@@ -305,13 +314,13 @@ func (s *Store) UpdateServer(ctx context.Context, id string, p ServerPatch) erro
 }
 
 func (s *Store) SetServerDeployments(ctx context.Context, id string, enabled bool) error {
-	_, err := s.DB.Exec(ctx, `UPDATE servers SET deployments_enabled = $2, updated_at = now() WHERE id = $1`, id, enabled)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE servers SET deployments_enabled = $2, updated_at = now() WHERE id = $1`, id, enabled)
 	return err
 }
 
 // SetServerMaintenance enters or leaves maintenance. It returns false when nothing changed.
 func (s *Store) SetServerMaintenance(ctx context.Context, id string, on bool, note, userID string) (bool, error) {
-	tag, err := s.DB.Exec(ctx, `
+	tag, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE servers SET maintenance = $2,
 		       maintenance_note = CASE WHEN $2 THEN $3 ELSE '' END,
 		       maintenance_since = CASE WHEN $2 THEN now() END,
@@ -321,7 +330,7 @@ func (s *Store) SetServerMaintenance(ctx context.Context, id string, on bool, no
 }
 
 func (s *Store) SetMaintenanceNote(ctx context.Context, id, note string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE servers SET maintenance_note = $2, updated_at = now() WHERE id = $1 AND maintenance`, id, note)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE servers SET maintenance_note = $2, updated_at = now() WHERE id = $1 AND maintenance`, id, note)
 	return err
 }
 
@@ -345,7 +354,7 @@ func (s *Store) RecordServerHealth(ctx context.Context, id string, h HealthUpdat
 	if h.Capabilities != nil {
 		caps, _ = json.Marshal(h.Capabilities)
 	}
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE servers SET connection_state = $2, runtime_state = $3, last_check_at = now(),
 		       last_seen_at = CASE WHEN $4 THEN now() ELSE last_seen_at END,
 		       last_error = $5, failures = $6, info = COALESCE($7, info), capabilities = COALESCE($8, capabilities)
@@ -355,7 +364,7 @@ func (s *Store) RecordServerHealth(ctx context.Context, id string, h HealthUpdat
 
 // RotateServerCredentials replaces the client certificate and key after the new pair was verified.
 func (s *Store) RotateServerCredentials(ctx context.Context, id, caCert, clientCert string, sealedKey []byte, fingerprint string) error {
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE servers SET ca_cert = $2, client_cert = $3, client_key_enc = $4, tls_fingerprint = $5, credentials_rotated_at = now(),
 		       credentials_revoked_at = NULL, updated_at = now()
 		WHERE id = $1 AND NOT is_local`, id, caCert, clientCert, sealedKey, fingerprint)
@@ -365,7 +374,7 @@ func (s *Store) RotateServerCredentials(ctx context.Context, id, caCert, clientC
 // RevokeServerCredentials deletes the stored key. The server stays registered but can't be reached
 // until new credentials are provided.
 func (s *Store) RevokeServerCredentials(ctx context.Context, id string) error {
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE servers SET client_key_enc = NULL, credentials_revoked_at = now(), connection_state = 'offline', runtime_state = 'unknown',
 		       last_error = 'Credentials were revoked.', updated_at = now()
 		WHERE id = $1 AND NOT is_local`, id)
@@ -373,19 +382,19 @@ func (s *Store) RevokeServerCredentials(ctx context.Context, id string) error {
 }
 
 func (s *Store) UpdateServerEndpoint(ctx context.Context, id, endpoint, fingerprint string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE servers SET endpoint = $2, tls_fingerprint = $3, updated_at = now() WHERE id = $1 AND NOT is_local`, id, endpoint, fingerprint)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE servers SET endpoint = $2, tls_fingerprint = $3, updated_at = now() WHERE id = $1 AND NOT is_local`, id, endpoint, fingerprint)
 	return err
 }
 
 func (s *Store) SetServerRemoving(ctx context.Context, id string, on bool) error {
-	_, err := s.DB.Exec(ctx, `UPDATE servers SET removing = $2, updated_at = now() WHERE id = $1`, id, on)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE servers SET removing = $2, updated_at = now() WHERE id = $1`, id, on)
 	return err
 }
 
 // DeleteServer removes the registration. Resources reference servers with ON DELETE RESTRICT, so a
 // server that still hosts workloads can't be deleted by accident.
 func (s *Store) DeleteServer(ctx context.Context, id string) error {
-	_, err := s.DB.Exec(ctx, `DELETE FROM servers WHERE id = $1 AND NOT is_local`, id)
+	_, err := s.SQL(ctx).Exec(ctx, `DELETE FROM servers WHERE id = $1 AND NOT is_local`, id)
 	return err
 }
 
@@ -410,7 +419,7 @@ func (s *Store) AddServerEvent(ctx context.Context, serverID, kind, level, messa
 		detail = map[string]any{}
 	}
 	b, _ := json.Marshal(detail)
-	s.DB.Exec(ctx, `INSERT INTO server_events (server_id, kind, level, message, actor, detail) VALUES ($1, $2, $3, $4, $5, $6)`, serverID, kind, level, message, actor, b)
+	s.SQL(ctx).Exec(ctx, `INSERT INTO server_events (server_id, kind, level, message, actor, detail) VALUES ($1, $2, $3, $4, $5, $6)`, serverID, kind, level, message, actor, b)
 }
 
 type EventQuery struct {
@@ -426,7 +435,7 @@ func (s *Store) ListServerEvents(ctx context.Context, serverID string, q EventQu
 	if q.Limit <= 0 || q.Limit > 1000 {
 		q.Limit = 100
 	}
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT id, server_id, at, kind, level, message, actor, detail FROM server_events
 		WHERE server_id = $1 AND (cardinality($2::text[]) = 0 OR kind = ANY($2)) AND (cardinality($3::text[]) = 0 OR level = ANY($3))
 		  AND ($4 = '' OR message ILIKE '%' || $4 || '%') AND ($5::timestamptz IS NULL OR at >= $5) AND ($6 = 0 OR id < $6)
@@ -454,7 +463,7 @@ func nonNil(list []string) []string {
 }
 
 func (s *Store) PruneServerEvents(ctx context.Context, olderThan time.Duration) (int64, error) {
-	tag, err := s.DB.Exec(ctx, `DELETE FROM server_events WHERE at < now() - $1::interval`, interval(olderThan))
+	tag, err := s.SQL(ctx).Exec(ctx, `DELETE FROM server_events WHERE at < now() - $1::interval`, interval(olderThan))
 	return tag.RowsAffected(), err
 }
 
@@ -477,7 +486,7 @@ type ServerMetricSample struct {
 }
 
 func (s *Store) InsertServerMetric(ctx context.Context, m ServerMetricSample) error {
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		INSERT INTO server_metric_samples (server_id, at, cpu_percent, load1, load5, load15, memory_used, memory_total, swap_used, swap_total,
 		       disk_used, disk_total, disk_read_bps, disk_write_bps, uptime_seconds, containers_running, workload_cpu_percent, workload_memory, net_rx_bps, net_tx_bps)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20) ON CONFLICT DO NOTHING`,
@@ -487,7 +496,7 @@ func (s *Store) InsertServerMetric(ctx context.Context, m ServerMetricSample) er
 }
 
 func (s *Store) PruneServerMetrics(ctx context.Context, olderThan time.Duration) (int64, error) {
-	tag, err := s.DB.Exec(ctx, `DELETE FROM server_metric_samples WHERE at < now() - $1::interval`, interval(olderThan))
+	tag, err := s.SQL(ctx).Exec(ctx, `DELETE FROM server_metric_samples WHERE at < now() - $1::interval`, interval(olderThan))
 	return tag.RowsAffected(), err
 }
 
@@ -518,7 +527,7 @@ type ServerMetricBucket struct {
 }
 
 func (s *Store) ServerMetricSeries(ctx context.Context, serverID string, window, step time.Duration) ([]ServerMetricBucket, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		WITH buckets AS (
 			SELECT generate_series(date_bin($3::interval, now() - $2::interval, 'epoch'), now(), $3::interval) AS at
 		), agg AS (
@@ -554,7 +563,7 @@ func (s *Store) ServerMetricSeries(ctx context.Context, serverID string, window,
 func (s *Store) LatestServerSample(ctx context.Context, serverID string) (*ServerMetricBucket, error) {
 	var b ServerMetricBucket
 	var at *time.Time
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		SELECT at, cpu_percent, load1, load5, load15, memory_used, memory_total, swap_used, swap_total, disk_used, disk_total,
 		       disk_read_bps, disk_write_bps, uptime_seconds, containers_running, workload_cpu_percent, workload_memory, net_rx_bps, net_tx_bps
 		FROM server_metric_samples WHERE server_id = $1 ORDER BY at DESC LIMIT 1`, serverID).
@@ -569,7 +578,7 @@ func (s *Store) LatestServerSample(ctx context.Context, serverID string) (*Serve
 
 // WorkloadUsage sums the newest per-container samples of a server's Ignition workloads.
 func (s *Store) WorkloadUsage(ctx context.Context, serverID string) (cpu float64, mem int64, n int, err error) {
-	err = s.DB.QueryRow(ctx, `
+	err = s.SQL(ctx).QueryRow(ctx, `
 		SELECT COALESCE(sum(m.cpu_percent), 0), COALESCE(sum(m.memory_bytes), 0), count(m.at)
 		FROM resources r
 		JOIN LATERAL (SELECT cpu_percent, memory_bytes, at FROM metric_samples WHERE resource_id = r.id AND at > now() - interval '60 seconds' ORDER BY at DESC LIMIT 1) m ON true
@@ -608,12 +617,12 @@ func (s *Store) CreateDiagnosticRun(ctx context.Context, tx pgx.Tx, serverID str
 }
 
 func (s *Store) SetDiagnosticRunStatus(ctx context.Context, id, status string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE server_diagnostic_runs SET status = $2, finished_at = CASE WHEN $2 IN ('finished', 'failed', 'cancelled') THEN now() END WHERE id = $1`, id, status)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE server_diagnostic_runs SET status = $2, finished_at = CASE WHEN $2 IN ('finished', 'failed', 'cancelled') THEN now() END WHERE id = $1`, id, status)
 	return err
 }
 
 func (s *Store) SaveDiagnosticResult(ctx context.Context, runID string, r DiagnosticResult) error {
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		INSERT INTO server_diagnostic_results (run_id, check_id, status, location, summary, output, hint, duration_ms, ran_at)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
 		ON CONFLICT (run_id, check_id) DO UPDATE SET status = EXCLUDED.status, location = EXCLUDED.location, summary = EXCLUDED.summary,
@@ -624,7 +633,7 @@ func (s *Store) SaveDiagnosticResult(ctx context.Context, runID string, r Diagno
 
 func (s *Store) GetDiagnosticRun(ctx context.Context, id string) (*DiagnosticRun, error) {
 	var d DiagnosticRun
-	err := s.DB.QueryRow(ctx, `SELECT id, server_id, checks, status, requested_by, created_at, finished_at FROM server_diagnostic_runs WHERE id = $1`, id).
+	err := s.SQL(ctx).QueryRow(ctx, `SELECT id, server_id, checks, status, requested_by, created_at, finished_at FROM server_diagnostic_runs WHERE id = $1`, id).
 		Scan(&d.ID, &d.ServerID, &d.Checks, &d.Status, &d.RequestedBy, &d.CreatedAt, &d.FinishedAt)
 	if err != nil {
 		return nil, noRows(err)
@@ -634,7 +643,7 @@ func (s *Store) GetDiagnosticRun(ctx context.Context, id string) (*DiagnosticRun
 }
 
 func (s *Store) diagnosticResults(ctx context.Context, where string, arg any) ([]DiagnosticResult, error) {
-	rows, err := s.DB.Query(ctx, `SELECT check_id, status, location, summary, output, hint, duration_ms, ran_at FROM server_diagnostic_results WHERE `+where+` ORDER BY ran_at`, arg)
+	rows, err := s.SQL(ctx).Query(ctx, `SELECT check_id, status, location, summary, output, hint, duration_ms, ran_at FROM server_diagnostic_results WHERE `+where+` ORDER BY ran_at`, arg)
 	if err != nil {
 		return nil, err
 	}
@@ -652,7 +661,7 @@ func (s *Store) diagnosticResults(ctx context.Context, where string, arg any) ([
 
 // LatestDiagnostics is the most recent result of each check on a server, across runs.
 func (s *Store) LatestDiagnostics(ctx context.Context, serverID string) ([]DiagnosticResult, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT DISTINCT ON (r.check_id) r.check_id, r.status, r.location, r.summary, r.output, r.hint, r.duration_ms, r.ran_at
 		FROM server_diagnostic_results r JOIN server_diagnostic_runs d ON d.id = r.run_id
 		WHERE d.server_id = $1 ORDER BY r.check_id, r.ran_at DESC`, serverID)
@@ -673,7 +682,7 @@ func (s *Store) LatestDiagnostics(ctx context.Context, serverID string) ([]Diagn
 
 func (s *Store) ActiveDiagnosticRun(ctx context.Context, serverID string) (*DiagnosticRun, error) {
 	var id string
-	err := s.DB.QueryRow(ctx, `SELECT id FROM server_diagnostic_runs WHERE server_id = $1 AND status IN ('queued', 'running') ORDER BY created_at DESC LIMIT 1`, serverID).Scan(&id)
+	err := s.SQL(ctx).QueryRow(ctx, `SELECT id FROM server_diagnostic_runs WHERE server_id = $1 AND status IN ('queued', 'running') ORDER BY created_at DESC LIMIT 1`, serverID).Scan(&id)
 	if err != nil {
 		return nil, noRows(err)
 	}
@@ -681,7 +690,7 @@ func (s *Store) ActiveDiagnosticRun(ctx context.Context, serverID string) (*Diag
 }
 
 func (s *Store) ListDiagnosticRuns(ctx context.Context, serverID string, limit int) ([]DiagnosticRun, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT d.id, d.server_id, d.checks, d.status, d.requested_by, d.created_at, d.finished_at
 		FROM server_diagnostic_runs d WHERE d.server_id = $1 ORDER BY d.created_at DESC LIMIT $2`, serverID, limit)
 	if err != nil {
@@ -730,11 +739,11 @@ func scanServerJob(row pgx.Row) (*ServerJob, error) {
 }
 
 func (s *Store) GetServerJob(ctx context.Context, id string) (*ServerJob, error) {
-	return scanServerJob(s.DB.QueryRow(ctx, serverJobSelect+` WHERE j.id = $1 AND j.server_id IS NOT NULL`, id))
+	return scanServerJob(s.SQL(ctx).QueryRow(ctx, serverJobSelect+` WHERE j.id = $1 AND j.server_id IS NOT NULL`, id))
 }
 
 func (s *Store) ListServerJobs(ctx context.Context, serverID string, limit int) ([]ServerJob, error) {
-	rows, err := s.DB.Query(ctx, serverJobSelect+` WHERE j.server_id = $1 ORDER BY j.created_at DESC LIMIT $2`, serverID, limit)
+	rows, err := s.SQL(ctx).Query(ctx, serverJobSelect+` WHERE j.server_id = $1 ORDER BY j.created_at DESC LIMIT $2`, serverID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -755,7 +764,7 @@ func (s *Store) SetJobResult(ctx context.Context, jobID string, result any) erro
 	if err != nil {
 		return err
 	}
-	_, err = s.DB.Exec(ctx, `UPDATE jobs SET result = $2 WHERE id = $1`, jobID, b)
+	_, err = s.SQL(ctx).Exec(ctx, `UPDATE jobs SET result = $2 WHERE id = $1`, jobID, b)
 	return err
 }
 
@@ -778,8 +787,8 @@ type ActiveDeployment struct {
 
 func (s *Store) ServerActivity(ctx context.Context, serverID string) (ServerActivity, error) {
 	out := ServerActivity{Deployments: []ActiveDeployment{}, Jobs: []ServerJob{}}
-	rows, err := s.DB.Query(ctx, `
-		SELECT d.id, d.number, d.status, r.id, r.name, r.project_id, d.created_at
+	rows, err := s.SQL(ctx).Query(ctx, `
+		SELECT d.id, d.number, d.status, r.id, r.name, COALESCE(r.project_id::text,''), d.created_at
 		FROM deployments d JOIN resources r ON r.id = d.resource_id
 		WHERE r.server_id = $1 AND d.status IN ('queued', 'building', 'deploying') ORDER BY d.created_at`, serverID)
 	if err != nil {
@@ -794,7 +803,7 @@ func (s *Store) ServerActivity(ctx context.Context, serverID string) (ServerActi
 		out.Deployments = append(out.Deployments, d)
 	}
 	rows.Close()
-	jrows, err := s.DB.Query(ctx, serverJobSelect+` WHERE j.server_id = $1 AND j.status IN ('pending', 'running') ORDER BY j.created_at`, serverID)
+	jrows, err := s.SQL(ctx).Query(ctx, serverJobSelect+` WHERE j.server_id = $1 AND j.status IN ('pending', 'running') ORDER BY j.created_at`, serverID)
 	if err != nil {
 		return out, err
 	}
@@ -807,7 +816,7 @@ func (s *Store) ServerActivity(ctx context.Context, serverID string) (ServerActi
 		out.Jobs = append(out.Jobs, *j)
 	}
 	jrows.Close()
-	err = s.DB.QueryRow(ctx, `
+	err = s.SQL(ctx).QueryRow(ctx, `
 		SELECT count(*) FROM task_runs t JOIN scheduled_tasks st ON st.id = t.task_id JOIN resources r ON r.id = st.resource_id
 		WHERE r.server_id = $1 AND t.status IN ('queued', 'running')`, serverID).Scan(&out.TaskRuns)
 	return out, err
@@ -838,7 +847,7 @@ func (s *Store) ListServerDeployments(ctx context.Context, serverID string, q De
 
 // RetainedImageIDs are images deployments of this server's resources ran, which a rollback could need.
 func (s *Store) RetainedImageIDs(ctx context.Context, serverID string) (map[string]bool, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT DISTINCT d.image_id FROM deployments d JOIN resources r ON r.id = d.resource_id
 		WHERE r.server_id = $1 AND d.image_id <> '' AND d.status = 'successful'`, serverID)
 	if err != nil {
@@ -864,7 +873,7 @@ type ResourceRef struct {
 }
 
 func (s *Store) ResourceIndex(ctx context.Context) (map[string]ResourceRef, error) {
-	rows, err := s.DB.Query(ctx, `SELECT r.id, r.name, r.type, p.id, p.name, r.server_id, r.container_id FROM resources r JOIN projects p ON p.id = r.project_id`)
+	rows, err := s.SQL(ctx).Query(ctx, `SELECT r.id, r.name, r.type, COALESCE(p.id::text,''), COALESCE(p.name,'No project'), r.server_id, r.container_id FROM resources r LEFT JOIN projects p ON p.id = r.project_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -888,7 +897,7 @@ type ServerVolumeRow struct {
 }
 
 func (s *Store) ServerVolumes(ctx context.Context, serverID string) ([]ServerVolumeRow, error) {
-	rows, err := s.DB.Query(ctx, `SELECT v.resource_id, v.name, v.mount_path FROM resource_volumes v JOIN resources r ON r.id = v.resource_id WHERE r.server_id = $1`, serverID)
+	rows, err := s.SQL(ctx).Query(ctx, `SELECT v.resource_id, v.name, v.mount_path FROM resource_volumes v JOIN resources r ON r.id = v.resource_id WHERE r.server_id = $1`, serverID)
 	if err != nil {
 		return nil, err
 	}
@@ -915,8 +924,8 @@ type ServerDomain struct {
 }
 
 func (s *Store) ServerDomains(ctx context.Context, serverID string) ([]ServerDomain, error) {
-	rows, err := s.DB.Query(ctx, `
-		SELECT d.hostname, d.https, d.status, r.id, r.name, r.project_id FROM domains d JOIN resources r ON r.id = d.resource_id
+	rows, err := s.SQL(ctx).Query(ctx, `
+		SELECT d.hostname, d.https, d.status, r.id, r.name, COALESCE(r.project_id::text,'') FROM domains d JOIN resources r ON r.id = d.resource_id
 		WHERE r.server_id = $1 ORDER BY d.hostname`, serverID)
 	if err != nil {
 		return nil, err
@@ -978,7 +987,7 @@ func scanServerTask(row pgx.Row) (*ServerTask, error) {
 }
 
 func (s *Store) ListServerTasks(ctx context.Context, serverID string) ([]ServerTask, error) {
-	rows, err := s.DB.Query(ctx, serverTaskSelect+` WHERE server_id = $1 ORDER BY name`, serverID)
+	rows, err := s.SQL(ctx).Query(ctx, serverTaskSelect+` WHERE server_id = $1 ORDER BY name`, serverID)
 	if err != nil {
 		return nil, err
 	}
@@ -1002,12 +1011,12 @@ func (s *Store) ListServerTasks(ctx context.Context, serverID string) ([]ServerT
 }
 
 func (s *Store) GetServerTask(ctx context.Context, id string) (*ServerTask, error) {
-	return scanServerTask(s.DB.QueryRow(ctx, serverTaskSelect+` WHERE id = $1`, id))
+	return scanServerTask(s.SQL(ctx).QueryRow(ctx, serverTaskSelect+` WHERE id = $1`, id))
 }
 
 func (s *Store) CreateServerTask(ctx context.Context, t ServerTask, userID string) (string, error) {
 	var id string
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		INSERT INTO server_tasks (server_id, kind, name, description, schedule, timezone, enabled, timeout_seconds, max_attempts, concurrency, options, next_run_at, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13) RETURNING id`,
 		t.ServerID, t.Kind, t.Name, t.Description, t.Schedule, t.Timezone, t.Enabled, t.TimeoutSeconds, t.MaxAttempts, t.Concurrency, t.Options, t.NextRunAt, nullable(userID)).Scan(&id)
@@ -1015,7 +1024,7 @@ func (s *Store) CreateServerTask(ctx context.Context, t ServerTask, userID strin
 }
 
 func (s *Store) UpdateServerTask(ctx context.Context, t ServerTask) error {
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE server_tasks SET name = $2, description = $3, schedule = $4, timezone = $5, enabled = $6, timeout_seconds = $7, max_attempts = $8,
 		       concurrency = $9, options = $10, next_run_at = $11, updated_at = now()
 		WHERE id = $1`, t.ID, t.Name, t.Description, t.Schedule, t.Timezone, t.Enabled, t.TimeoutSeconds, t.MaxAttempts, t.Concurrency, t.Options, t.NextRunAt)
@@ -1023,12 +1032,12 @@ func (s *Store) UpdateServerTask(ctx context.Context, t ServerTask) error {
 }
 
 func (s *Store) DeleteServerTask(ctx context.Context, id string) error {
-	_, err := s.DB.Exec(ctx, `DELETE FROM server_tasks WHERE id = $1`, id)
+	_, err := s.SQL(ctx).Exec(ctx, `DELETE FROM server_tasks WHERE id = $1`, id)
 	return err
 }
 
 func (s *Store) SetServerTaskNextRun(ctx context.Context, id string, next *time.Time) error {
-	_, err := s.DB.Exec(ctx, `UPDATE server_tasks SET next_run_at = $2 WHERE id = $1`, id, next)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE server_tasks SET next_run_at = $2 WHERE id = $1`, id, next)
 	return err
 }
 
@@ -1056,7 +1065,7 @@ const serverTaskRunSelect = `
 	FROM server_task_runs t LEFT JOIN jobs j ON j.id = t.job_id`
 
 func (s *Store) ListServerTaskRuns(ctx context.Context, taskID string, limit int) ([]ServerTaskRun, error) {
-	rows, err := s.DB.Query(ctx, serverTaskRunSelect+` WHERE t.task_id = $1 ORDER BY t.created_at DESC LIMIT $2`, taskID, limit)
+	rows, err := s.SQL(ctx).Query(ctx, serverTaskRunSelect+` WHERE t.task_id = $1 ORDER BY t.created_at DESC LIMIT $2`, taskID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -1075,7 +1084,7 @@ func (s *Store) ListServerTaskRuns(ctx context.Context, taskID string, limit int
 
 func (s *Store) GetServerTaskRun(ctx context.Context, id string) (*ServerTaskRun, error) {
 	var r ServerTaskRun
-	err := s.DB.QueryRow(ctx, serverTaskRunSelect+` WHERE t.id = $1`, id).
+	err := s.SQL(ctx).QueryRow(ctx, serverTaskRunSelect+` WHERE t.id = $1`, id).
 		Scan(&r.ID, &r.TaskID, &r.JobID, &r.Trigger, &r.Status, &r.ScheduledFor, &r.Summary, &r.CreatedBy, &r.CreatedAt, &r.FinishedAt, &r.Attempts, &r.Error)
 	r.Error = strings.TrimPrefix(r.Error, "permanent failure: ")
 	return &r, noRows(err)
@@ -1109,14 +1118,14 @@ func (s *Store) AttachTaskRunJob(ctx context.Context, tx pgx.Tx, runID, jobID st
 }
 
 func (s *Store) FinishServerTaskRun(ctx context.Context, runID, status, summary string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE server_task_runs SET status = $2, summary = $3, finished_at = CASE WHEN $2 IN ('succeeded', 'failed', 'cancelled', 'skipped') THEN now() END WHERE id = $1`, runID, status, summary)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE server_task_runs SET status = $2, summary = $3, finished_at = CASE WHEN $2 IN ('succeeded', 'failed', 'cancelled', 'skipped') THEN now() END WHERE id = $1`, runID, status, summary)
 	return err
 }
 
 // ServerTaskCount is used by the removal preview.
 func (s *Store) ServerTaskCount(ctx context.Context, serverID string) (int, error) {
 	var n int
-	err := s.DB.QueryRow(ctx, `SELECT count(*) FROM server_tasks WHERE server_id = $1`, serverID).Scan(&n)
+	err := s.SQL(ctx).QueryRow(ctx, `SELECT count(*) FROM server_tasks WHERE server_id = $1`, serverID).Scan(&n)
 	return n, err
 }
 
@@ -1130,7 +1139,7 @@ type PortClaim struct {
 }
 
 func (s *Store) ServerPortClaims(ctx context.Context, serverID string) ([]PortClaim, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT r.id, r.name, p.host_port, p.protocol, p.bind_address FROM resource_ports p JOIN resources r ON r.id = p.resource_id
 		WHERE r.server_id = $1 AND p.host_port IS NOT NULL ORDER BY p.host_port`, serverID)
 	if err != nil {
@@ -1150,7 +1159,7 @@ func (s *Store) ServerPortClaims(ctx context.Context, serverID string) ([]PortCl
 
 // ClaimServerCheck lets exactly one worker check a server per interval.
 func (s *Store) ClaimServerCheck(ctx context.Context, id string, every time.Duration) (bool, error) {
-	tag, err := s.DB.Exec(ctx, `UPDATE servers SET check_claimed_at = now() WHERE id = $1 AND (check_claimed_at IS NULL OR check_claimed_at < now() - $2::interval)`,
+	tag, err := s.SQL(ctx).Exec(ctx, `UPDATE servers SET check_claimed_at = now() WHERE id = $1 AND (check_claimed_at IS NULL OR check_claimed_at < now() - $2::interval)`,
 		id, interval(every-2*time.Second))
 	return tag.RowsAffected() > 0, err
 }
@@ -1173,7 +1182,7 @@ func (s *Store) ServerJobLogs(ctx context.Context, serverID string, since time.T
 	if limit <= 0 || limit > 5000 {
 		limit = 1000
 	}
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT l.id, l.created_at, l.level, l.step, l.message, j.id, j.kind, COALESCE(r.name, ''), COALESCE(r.id::text, ''), d.number
 		FROM job_logs l JOIN jobs j ON j.id = l.job_id
 		LEFT JOIN resources r ON r.id = j.resource_id LEFT JOIN deployments d ON d.id = j.deployment_id
@@ -1201,7 +1210,7 @@ func (s *Store) ServerJobLogs(ctx context.Context, serverID string, since time.T
 // SetServerHostFacts stores what the host probe read about the machine (CPU model, cores, boot time).
 func (s *Store) SetServerHostFacts(ctx context.Context, id string, facts any) error {
 	b, _ := json.Marshal(facts)
-	_, err := s.DB.Exec(ctx, `UPDATE servers SET host_facts = $2 WHERE id = $1`, id, b)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE servers SET host_facts = $2 WHERE id = $1`, id, b)
 	return err
 }
 
@@ -1223,9 +1232,15 @@ type ServerCapacity struct {
 
 // FleetCapacity reads committed limits and window statistics for every server in one pass.
 // External databases aren't run by Ignition, so they commit nothing.
-func (s *Store) FleetCapacity(ctx context.Context, window time.Duration) (map[string]*ServerCapacity, error) {
+// allTeams counts every team's workloads (for platform administrators); otherwise only what the
+// request's team can see.
+func (s *Store) FleetCapacity(ctx context.Context, window time.Duration, allTeams bool) (map[string]*ServerCapacity, error) {
 	out := map[string]*ServerCapacity{}
-	rows, err := s.DB.Query(ctx, `
+	db := s.SQL(ctx)
+	if allTeams {
+		db = s.DB
+	}
+	rows, err := db.Query(ctx, `
 		SELECT sv.id, count(r.id), COALESCE(sum(r.memory_mb), 0)::bigint * 1048576, COALESCE(sum(r.cpus), 0)::float8
 		FROM servers sv LEFT JOIN resources r ON r.server_id = sv.id AND r.desired_state = 'running'
 		     AND r.status <> 'removing' AND r.source_type <> 'external'
@@ -1245,7 +1260,7 @@ func (s *Store) FleetCapacity(ctx context.Context, window time.Duration) (map[st
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	rows, err = s.DB.Query(ctx, `
+	rows, err = s.SQL(ctx).Query(ctx, `
 		SELECT server_id, count(*),
 		       percentile_cont(0.95) WITHIN GROUP (ORDER BY cpu_percent), avg(cpu_percent),
 		       percentile_cont(0.95) WITHIN GROUP (ORDER BY memory_used), max(memory_total)::float8,
@@ -1282,7 +1297,7 @@ func (s *Store) FleetCapacity(ctx context.Context, window time.Duration) (map[st
 // without waiting for the next full check to rewrite info.
 func (s *Store) SetServerCollector(ctx context.Context, id, collector string, metrics any) error {
 	b, _ := json.Marshal(metrics)
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE servers SET info = jsonb_set(info, '{collector}', to_jsonb($2::text)),
 		       capabilities = jsonb_set(capabilities, '{metrics}', $3::jsonb)
 		WHERE id = $1 AND info ? 'collector' AND capabilities ? 'metrics'`, id, collector, b)

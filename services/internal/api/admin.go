@@ -22,6 +22,16 @@ import (
 
 type instanceSettings struct {
 	Name string `json:"name"`
+	// InfrastructureAdminOnly moves Servers, Sources, Domains, Networking and Logs & monitoring into
+	// Instance administration: teams no longer see them, and the server/network APIs refuse non-admins.
+	InfrastructureAdminOnly bool `json:"infrastructureAdminOnly"`
+	// Experiences this installation offers. Infrastructure is always on; Hosting isn't built yet, so
+	// turning it on records the choice. Unset until changed: then it follows onboarding's answer.
+	Hosting *bool `json:"hosting,omitempty"`
+	// Maintenance closes the dashboard and API to everyone but platform administrators, who see
+	// MaintenanceMessage's banner instead. Running workloads aren't touched.
+	Maintenance        bool   `json:"maintenance"`
+	MaintenanceMessage string `json:"maintenanceMessage"`
 }
 
 // Deployment defaults applied to new resources (each resource can change them afterwards).
@@ -41,6 +51,10 @@ func (s *Server) instance(ctx context.Context) instanceSettings {
 	s.Store.GetSetting(ctx, "instance", &inst)
 	if inst.Name == "" {
 		inst.Name = "Ignition"
+	}
+	if inst.Hosting == nil {
+		hosting := s.onboarding(ctx).UseCase == "hosting"
+		inst.Hosting = &hosting
 	}
 	return inst
 }
@@ -75,6 +89,11 @@ func (s *Server) putGeneral(w http.ResponseWriter, r *http.Request, u *store.Use
 		Name         string           `json:"name"`
 		DashboardURL string           `json:"dashboardUrl"` // "" = use IGNITION_PUBLIC_URL from .env
 		Defaults     resourceDefaults `json:"defaults"`
+		// nil keeps the current choice, so older clients don't reset it.
+		InfrastructureAdminOnly *bool   `json:"infrastructureAdminOnly"`
+		Hosting                 *bool   `json:"hosting"`
+		Maintenance             *bool   `json:"maintenance"`
+		MaintenanceMessage      *string `json:"maintenanceMessage"`
 	}
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
@@ -110,11 +129,32 @@ func (s *Server) putGeneral(w http.ResponseWriter, r *http.Request, u *store.Use
 	if d.BuildMode != "auto" && d.BuildMode != "dockerfile" {
 		f["buildMode"] = "Choose a builder."
 	}
+	if in.MaintenanceMessage != nil {
+		*in.MaintenanceMessage = strings.TrimSpace(*in.MaintenanceMessage)
+		if len(*in.MaintenanceMessage) > 500 {
+			f["maintenanceMessage"] = "Up to 500 characters."
+		}
+	}
 	if len(f) > 0 {
 		return httpx.Invalid(f)
 	}
 	inst := s.instance(r.Context())
 	inst.Name = in.Name
+	if in.InfrastructureAdminOnly != nil && *in.InfrastructureAdminOnly != inst.InfrastructureAdminOnly {
+		inst.InfrastructureAdminOnly = *in.InfrastructureAdminOnly
+		s.Store.Audit(r.Context(), u, "instance.infrastructure_visibility", "instance", "", map[string]any{"adminOnly": inst.InfrastructureAdminOnly}, clientIP(r))
+	}
+	if in.Hosting != nil && *in.Hosting != *inst.Hosting {
+		inst.Hosting = in.Hosting
+		s.Store.Audit(r.Context(), u, "instance.experiences", "instance", "", map[string]any{"hosting": *in.Hosting}, clientIP(r))
+	}
+	if in.MaintenanceMessage != nil {
+		inst.MaintenanceMessage = *in.MaintenanceMessage
+	}
+	if in.Maintenance != nil && *in.Maintenance != inst.Maintenance {
+		inst.Maintenance = *in.Maintenance
+		s.Store.Audit(r.Context(), u, "instance.maintenance", "instance", "", map[string]any{"on": inst.Maintenance, "message": inst.MaintenanceMessage}, clientIP(r))
+	}
 	if err := s.Store.SetSetting(r.Context(), "instance", inst); err != nil {
 		return err
 	}
@@ -576,4 +616,47 @@ func (s *Server) putUserPermissions(w http.ResponseWriter, r *http.Request, acto
 func (s *Server) listPermissions(w http.ResponseWriter, r *http.Request, _ *store.User) error {
 	httpx.JSON(w, 200, map[string]any{"permissions": permissionCatalog, "roles": roleOrder})
 	return nil
+}
+
+// getInstanceLimits shows the instance limits and, next to each, the highest current use across teams, so
+// an administrator can see what a new limit would affect.
+func (s *Server) getInstanceLimits(w http.ResponseWriter, r *http.Request, _ *store.User) error {
+	var usage struct {
+		Projects  int `json:"projects"`
+		Resources int `json:"resources"`
+		Members   int `json:"members"`
+		Teams     int `json:"teams"`
+	}
+	err := s.Store.DB.QueryRow(r.Context(), `SELECT
+		coalesce((SELECT max(n) FROM (SELECT count(*) n FROM projects GROUP BY team_id) x),0),
+		coalesce((SELECT max(n) FROM (SELECT count(*) n FROM resources GROUP BY team_id) x),0),
+		coalesce((SELECT max(n) FROM (SELECT count(*) n FROM team_memberships GROUP BY team_id) x),0),
+		coalesce((SELECT max(n) FROM (SELECT count(*) n FROM team_memberships WHERE role='owner' GROUP BY user_id) x),0)`).
+		Scan(&usage.Projects, &usage.Resources, &usage.Members, &usage.Teams)
+	if err != nil {
+		return err
+	}
+	httpx.JSON(w, 200, map[string]any{"limits": s.Store.Limits(r.Context()), "highest": usage})
+	return nil
+}
+
+func (s *Server) putInstanceLimits(w http.ResponseWriter, r *http.Request, u *store.User) error {
+	var in store.InstanceLimits
+	if err := httpx.Decode(r, &in); err != nil {
+		return err
+	}
+	f := map[string]string{}
+	for key, v := range map[string]int{"teamsPerUser": in.TeamsPerUser, "projectsPerTeam": in.ProjectsPerTeam, "resourcesPerTeam": in.ResourcesPerTeam, "membersPerTeam": in.MembersPerTeam} {
+		if v < 0 || v > 100000 {
+			f[key] = "0 (unlimited) to 100,000."
+		}
+	}
+	if len(f) > 0 {
+		return httpx.Invalid(f)
+	}
+	if err := s.Store.SetSetting(r.Context(), "limits", in); err != nil {
+		return err
+	}
+	s.Store.Audit(r.Context(), u, "instance.limits", "instance", "", map[string]any{"limits": in}, clientIP(r))
+	return s.getInstanceLimits(w, r, u)
 }

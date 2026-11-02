@@ -141,7 +141,7 @@ func (s *Server) testHealth(w http.ResponseWriter, r *http.Request, u *store.Use
 	if !s.limiter.allow("health-test:" + id) {
 		return httpx.TooMany("That's a lot of checks in a minute. Try again shortly.")
 	}
-	jobID, err := jobs.Enqueue(r.Context(), s.Store.DB, jobs.NewJob{Kind: jobs.KindHealth, ResourceID: id, CreatedBy: u.ID, Payload: map[string]any{"config": c}, MaxAttempts: 1})
+	jobID, err := jobs.Enqueue(r.Context(), s.Store.SQL(r.Context()), jobs.NewJob{Kind: jobs.KindHealth, ResourceID: id, CreatedBy: u.ID, Payload: map[string]any{"config": c}, MaxAttempts: 1})
 	if err != nil {
 		return err
 	}
@@ -149,7 +149,7 @@ func (s *Server) testHealth(w http.ResponseWriter, r *http.Request, u *store.Use
 	defer cancel()
 	for {
 		var status, progress, lastErr string
-		if err := s.Store.DB.QueryRow(ctx, `SELECT status, progress, last_error FROM jobs WHERE id = $1`, jobID).Scan(&status, &progress, &lastErr); err != nil {
+		if err := s.Store.SQL(ctx).QueryRow(ctx, `SELECT status, progress, last_error FROM jobs WHERE id = $1`, jobID).Scan(&status, &progress, &lastErr); err != nil {
 			return err
 		}
 		switch status {

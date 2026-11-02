@@ -100,9 +100,14 @@ func (w *Worker) execute(parent context.Context, owner string, job *jobs.Job) {
 	}
 	ctx, cancel := context.WithTimeout(parent, limit)
 	defer cancel()
+	ctx = store.WithAuditTeam(ctx, job.TeamID)
 	log := slog.With("job", job.ID, "kind", job.Kind, "attempt", job.Attempts)
 	log.Info("job started")
 
+	if !w.Store.JobOwnershipValid(ctx, job.TeamID, job.ResourceID, job.DeploymentID, job.ServerID) {
+		w.Queue.Fail(ctx, job, fmt.Errorf("%w: job ownership or assigned capacity changed", jobs.ErrPermanent))
+		return
+	}
 	// Heartbeat keeps the lease alive and turns a cancellation request into context cancellation.
 	cancelled := make(chan struct{})
 	go func() {
@@ -356,7 +361,7 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 	}
 	sort.Strings(customKeys)
 	labels["ignition.labels"] = strings.Join(customKeys, ",")
-	for k, v := range map[string]string{"ignition.managed": "true", "ignition.resource": res.ID, "ignition.deployment": dep.ID, "ignition.project": res.ProjectID} {
+	for k, v := range map[string]string{"ignition.managed": "true", "ignition.resource": res.ID, "ignition.deployment": dep.ID, "ignition.project": res.ProjectID, "ignition.team": res.TeamID} {
 		labels[k] = v
 	}
 	// Each environment has its own private network; shared networks connect resources across projects on purpose.

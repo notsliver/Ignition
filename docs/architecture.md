@@ -38,7 +38,13 @@ A status sync loop in the worker inspects running containers every 10 seconds so
 
 ## Data model
 
-See `services/internal/database/migrations`. Highlights:
+See `services/internal/database/migrations`. Team ownership and rollout details are in [the teams implementation plan](teams-implementation-plan.md).
+
+- Every workload belongs to a team; a project is an optional grouping. Deployment environments retain stable IDs independently of grouping.
+- Team memberships and project assignments determine workload permissions. Instance account roles govern platform administration.
+- Workload API routes use `/api/teams/{teamId}/...`; transaction-local database policies enforce that scope, including inherited records and aggregate queries.
+
+Additional model details:
 
 - `resources` keeps **desired state** (set by users) separately from **observed status** (written by the worker from Docker).
 - `deployments` are numbered per resource; rollbacks create new rows rather than rewriting history.

@@ -4,10 +4,11 @@ import { Button, FormField, Logo, Notice, TextInput } from '../ui';
 import { api, onUnauthenticated } from '../api/client';
 import { EnrollTwoFactor, RecoveryCodes } from './TwoFactor';
 import { Onboarding } from './Onboarding';
+import { AuthShell } from './AuthShell';
 import { adoptServerPreferences, setPreferenceSaver } from './preferences';
 import './AuthGate.css';
 
-const SessionContext = createContext(null);
+export const SessionContext = createContext(null);
 export const useSession = () => useContext(SessionContext);
 
 /** Whether the signed-in user has a permission (role defaults plus grants, minus denials). */
@@ -28,6 +29,17 @@ export function AuthGate({ children }) {
   const onboarding = useRef({ pending: false, useCase: '' });
 
   async function check() {
+    const teamInvite=location.pathname.match(/^\/join-team\/([A-Za-z0-9_-]+)$/);
+    if(teamInvite){
+      try {const invitation=await api.teamInvitation(teamInvite[1]);sessionStorage.setItem('ignition:team-invitation',teamInvite[1]);
+        try {enter(withPermissions(await api.me()));} catch(e) {if(e.status!==401)throw e;setState({phase:'teamJoin',token:teamInvite[1],invitation});}
+      } catch(error) {
+        // A used, revoked or expired link isn't an outage: say so on the sign-in screen.
+        if(error.status===404){history.replaceState(null,'','/');sessionStorage.removeItem('ignition:team-invitation');return setState({phase:'login',message:'That team invitation has expired, was revoked, or was already used. Ask the team for a new link.'});}
+        setState({phase:'error',error});
+      }
+      return;
+    }
     // Invite and password reset links (/join/<token>) work whether or not someone is signed in here.
     const join = location.pathname.match(/^\/join\/([A-Za-z0-9_-]+)$/);
     if (join) return setState({ phase: 'join', token: join[1] });
@@ -65,9 +77,7 @@ export function AuthGate({ children }) {
   }}>{children}</SessionContext.Provider>;
   if (state.phase === 'setup' || state.phase === 'secure') return <Onboarding instance={instance} user={state.phase === 'secure' ? state.user : null}
     useCase={onboarding.current.useCase} onDone={finishSetup} />;
-  return <div className="auth-screen">
-    <main className="auth-column">
-      <div className="auth-brand"><Logo className="auth-logo" /><span>{instance}</span></div>
+  return <AuthShell title={instance}>
       <div className="auth-card">
         {state.phase === 'loading' && <p className="auth-loading">Connecting…</p>}
         {state.phase === 'error' && <div className="auth-form">
@@ -75,6 +85,7 @@ export function AuthGate({ children }) {
           <Notice tone="danger" title="The API didn't answer">{state.error.message}</Notice>
           <Button variant="primary" onClick={check}>Try again</Button>
         </div>}
+        {state.phase === 'teamJoin' && <TeamJoinForm invitation={state.invitation} token={state.token} onDone={out=>{sessionStorage.removeItem('ignition:team-invitation');history.replaceState(null,'','/dashboard');proceed(out);}} onSignIn={()=>restart('Sign in with the email address on your team invitation.')} />}
         {state.phase === 'join' && <JoinForm token={state.token} onInstance={setInstance}
           onDone={out => proceed(out, () => history.replaceState(null, '', '/'))}
           onCancel={() => { history.replaceState(null, '', '/'); setState({ phase: 'loading' }); check(); }} />}
@@ -82,9 +93,7 @@ export function AuthGate({ children }) {
         {state.phase === 'mfa' && <MfaForm ticket={state.ticket} onDone={proceed} onRestart={restart} />}
         {state.phase === 'enroll' && <EnrollForm ticket={state.ticket} instance={instance} onDone={proceed} onRestart={restart} />}
       </div>
-      <p className="auth-foot"><LockClosedIcon />Self-hosted. Your apps and data stay on this machine.</p>
-    </main>
-  </div>;
+  </AuthShell>;
 }
 
 function useForm(initial) {
@@ -234,5 +243,25 @@ function JoinForm({ token, onDone, onCancel, onInstance }) {
     <FormField label="Confirm password" htmlFor="confirm" error={f.errors.confirm}><PasswordInput autoComplete="new-password" {...f.bind('confirm')} /></FormField>
     <Button type="submit" variant="primary" disabled={f.pending}>{f.pending ? 'One moment…' : invite ? 'Create my account' : 'Set password and sign in'}</Button>
     <button type="button" className="auth-link" onClick={onCancel}>{invite ? 'I already have an account' : 'Cancel'}</button>
+  </form>;
+}
+
+const TEAM_ROLE_TEXT = { admin: 'an admin: members, projects and every resource', developer: 'a developer: deploy and configure every resource', viewer: 'a viewer: see everything, change nothing', member: "a member: the projects you're assigned to" };
+
+function TeamJoinForm({ invitation, token, onDone, onSignIn }) {
+  const f = useForm({ name: '', password: '', confirm: '' });
+  const submit = e => {
+    e.preventDefault();
+    if (f.values.password !== f.values.confirm) return f.setErrors({ confirm: "The passwords don't match." });
+    f.submit(async v => onDone(await api.registerTeamInvitation(token, { name: v.name, password: v.password })));
+  };
+  return <form className="auth-form" onSubmit={submit}>
+    <header><h1>Join {invitation.teamName}</h1><p>You're invited as {TEAM_ROLE_TEXT[invitation.role] ?? invitation.role}. Create your account for <strong>{invitation.email}</strong>.</p></header>
+    {f.message && <Notice tone="danger" title={f.message} />}
+    <FormField label="Full name" htmlFor="team-join-name" error={f.errors.name}><TextInput autoComplete="name" autoFocus {...f.bind('name')} id="team-join-name" /></FormField>
+    <FormField label="Password" htmlFor="team-join-password" error={f.errors.password}><PasswordInput autoComplete="new-password" count {...f.bind('password')} id="team-join-password" /></FormField>
+    <FormField label="Confirm password" htmlFor="team-join-confirm" error={f.errors.confirm}><PasswordInput autoComplete="new-password" {...f.bind('confirm')} id="team-join-confirm" /></FormField>
+    <Button variant="primary" type="submit" disabled={f.pending}>{f.pending ? 'Creating…' : 'Create account and join'}</Button>
+    <button type="button" className="auth-link" onClick={onSignIn}>I already have an account</button>
   </form>;
 }

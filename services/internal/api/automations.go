@@ -53,6 +53,9 @@ func (in *automationInput) spec(hasNotify bool) automations.Automation {
 
 func canManageAutomation(u *store.User, scope string) bool {
 	if scope == automations.ScopeServers {
+		if u.TeamID != "" && roleRank[u.InstanceRole] < roleRank["admin"] {
+			return false
+		}
 		return can(u, "automations.manage") && can(u, "servers.update")
 	}
 	return can(u, "automations.manage")
@@ -61,6 +64,9 @@ func canManageAutomation(u *store.User, scope string) bool {
 // canRunAutomation: running or deciding on server-scoped automations also needs server rights.
 func canRunAutomation(u *store.User, scope string) bool {
 	if scope == automations.ScopeServers {
+		if u.TeamID != "" && roleRank[u.InstanceRole] < roleRank["admin"] {
+			return false
+		}
 		return can(u, "automations.run") && can(u, "servers.update")
 	}
 	return can(u, "automations.run")
@@ -134,7 +140,7 @@ func (s *Server) listAutomations(w http.ResponseWriter, r *http.Request, _ *stor
 		}
 		// Resource automations on this server's workloads show up as a count, linking there.
 		var res int
-		s.Store.DB.QueryRow(ctx, `SELECT count(*) FROM automations a JOIN resources r ON r.id = a.resource_id WHERE r.server_id = $1 AND a.enabled`, srv.ID).Scan(&res)
+		s.Store.SQL(ctx).QueryRow(ctx, `SELECT count(*) FROM automations a JOIN resources r ON r.id = a.resource_id WHERE r.server_id = $1 AND a.enabled`, srv.ID).Scan(&res)
 		out["resourceAutomations"] = res
 		servers, _ := s.serverIndex(ctx)
 		out["managedServers"] = len(servers)
@@ -502,6 +508,26 @@ func (s *Server) automationHook(w http.ResponseWriter, r *http.Request) error {
 	}
 	if err != nil {
 		return err
+	}
+	if a.CreatorID == nil {
+		r = r.WithContext(store.WithAuditTeam(r.Context(), a.TeamID))
+	} else {
+		issuer, err := s.Store.GetUser(r.Context(), *a.CreatorID)
+		if err != nil || issuer.Status != "active" {
+			return httpx.NotFound("Hook")
+		}
+		member, err := s.Store.Membership(r.Context(), a.TeamID, issuer.ID)
+		if err != nil {
+			return httpx.NotFound("Hook")
+		}
+		actor := &store.User{Role: member.Role, Permissions: member.Overrides, TeamID: a.TeamID, InstanceRole: issuer.Role}
+		if !canRunAutomation(actor, a.Scope) {
+			return httpx.NotFound("Hook")
+		}
+		r = r.WithContext(store.WithScope(r.Context(), store.Scope{TeamID: a.TeamID, UserID: issuer.ID, Permission: "automations.run", MinRank: 2}))
+		if _, err = s.Store.GetAutomation(r.Context(), a.ID); err != nil {
+			return httpx.NotFound("Hook")
+		}
 	}
 	if !a.Enabled {
 		return httpx.Conflict("This automation is paused.")

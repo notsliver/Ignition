@@ -60,7 +60,7 @@ func scanDomain(row pgx.Row) (*Domain, error) {
 }
 
 func (s *Store) ListDomains(ctx context.Context, resourceID string) ([]Domain, error) {
-	rows, err := s.DB.Query(ctx, domainSelect+` WHERE resource_id = $1 ORDER BY is_primary DESC, created_at`, resourceID)
+	rows, err := s.SQL(ctx).Query(ctx, domainSelect+` WHERE resource_id = $1 ORDER BY is_primary DESC, created_at`, resourceID)
 	if err != nil {
 		return nil, err
 	}
@@ -77,7 +77,7 @@ func (s *Store) ListDomains(ctx context.Context, resourceID string) ([]Domain, e
 }
 
 func (s *Store) GetDomain(ctx context.Context, id string) (*Domain, error) {
-	return scanDomain(s.DB.QueryRow(ctx, domainSelect+` WHERE id = $1`, id))
+	return scanDomain(s.SQL(ctx).QueryRow(ctx, domainSelect+` WHERE id = $1`, id))
 }
 
 // CreateDomain adds a hostname; the first one on a resource becomes its primary.
@@ -98,7 +98,7 @@ func (s *Store) CreateDomain(ctx context.Context, resourceID string, n NewDomain
 	if n.RedirectCode == 0 {
 		n.RedirectCode = 308
 	}
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		INSERT INTO domains (resource_id, hostname, port, https, token, created_by, path_prefix, strip_prefix, redirect_to, redirect_code, allow_ips, is_primary)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
 		        $7 = '' AND $9 = '' AND NOT EXISTS (SELECT 1 FROM domains WHERE resource_id = $1 AND is_primary))
@@ -112,7 +112,7 @@ func (s *Store) SetDomainDNS(ctx context.Context, id string, providerID *string,
 		recs = []DNSRecordRef{}
 	}
 	b, _ := json.Marshal(recs)
-	_, err := s.DB.Exec(ctx, `UPDATE domains SET dns_provider_id = $2, dns_records = $3 WHERE id = $1`, id, providerID, b)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE domains SET dns_provider_id = $2, dns_records = $3 WHERE id = $1`, id, providerID, b)
 	return err
 }
 
@@ -128,11 +128,11 @@ type DomainRow struct {
 }
 
 func (s *Store) AllDomains(ctx context.Context) ([]DomainRow, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT d.id, d.resource_id, d.hostname, d.port, d.https, d.is_primary, d.status, d.status_message, d.addresses, d.cert_issuer,
 		       d.cert_expires_at, d.last_checked_at, d.created_at, d.token, d.path_prefix, d.strip_prefix, d.redirect_to, d.redirect_code,
-		       d.allow_ips, d.dns_provider_id, d.dns_records, r.name, r.type, r.status, p.id, p.name, e.name
-		FROM domains d JOIN resources r ON r.id = d.resource_id JOIN projects p ON p.id = r.project_id JOIN environments e ON e.id = r.environment_id
+		       d.allow_ips, d.dns_provider_id, d.dns_records, r.name, r.type, r.status, COALESCE(p.id::text,''), COALESCE(p.name,'No project'), e.name
+		FROM domains d JOIN resources r ON r.id = d.resource_id LEFT JOIN projects p ON p.id = r.project_id JOIN environments e ON e.id = r.environment_id
 		ORDER BY d.hostname, d.path_prefix`)
 	if err != nil {
 		return nil, err
@@ -172,7 +172,7 @@ type DomainPatch struct {
 }
 
 func (s *Store) UpdateDomain(ctx context.Context, id string, p DomainPatch) error {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -196,7 +196,7 @@ func (s *Store) UpdateDomain(ctx context.Context, id string, p DomainPatch) erro
 
 // DeleteDomain removes a hostname and hands "primary" to the oldest remaining one.
 func (s *Store) DeleteDomain(ctx context.Context, id string) error {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -223,7 +223,7 @@ func (s *Store) SetDomainCheck(ctx context.Context, id string, c DomainCheck) er
 	if c.Addresses == nil {
 		c.Addresses = []string{}
 	}
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE domains SET status = $2, status_message = $3, addresses = $4, cert_issuer = $5, cert_expires_at = $6, last_checked_at = now()
 		WHERE id = $1`, id, c.Status, c.Message, c.Addresses, c.CertIssuer, c.CertExpiresAt)
 	return err
@@ -245,7 +245,7 @@ type ProxyRoute struct {
 }
 
 func (s *Store) ProxyRoutes(ctx context.Context) ([]ProxyRoute, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT d.hostname, d.https, d.token, COALESCE(d.port, r.port, 0),
 		       CASE WHEN r.status = 'running' THEN COALESCE(r.container_id, '') ELSE '' END, r.name,
 		       d.path_prefix, d.strip_prefix, d.redirect_to, d.redirect_code, d.allow_ips
@@ -264,4 +264,10 @@ func (s *Store) ProxyRoutes(ctx context.Context) ([]ProxyRoute, error) {
 		out = append(out, p)
 	}
 	return out, rows.Err()
+}
+
+// PlatformProxyRoutes rebuilds shared proxy configuration after an authorized team change.
+// It is internal reconciliation, never a response containing another team's routes.
+func (s *Store) PlatformProxyRoutes(ctx context.Context) ([]ProxyRoute, error) {
+	return s.ProxyRoutes(context.WithValue(ctx, scopeKey{}, nil))
 }

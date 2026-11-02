@@ -58,16 +58,17 @@ func (s *Server) getAccess(w http.ResponseWriter, r *http.Request, _ *store.User
 		return err
 	}
 	type person struct {
-		ID     string `json:"id"`
-		Name   string `json:"name"`
-		Email  string `json:"email"`
-		Role   string `json:"role"`
-		Can    string `json:"can"`
-		Status string `json:"status"`
+		ID        string `json:"id"`
+		Name      string `json:"name"`
+		Email     string `json:"email"`
+		Role      string `json:"role"`
+		Can       string `json:"can"`
+		Status    string `json:"status"`
+		AvatarURL string `json:"avatarUrl"`
 	}
 	people := []person{}
 	for _, u := range users {
-		people = append(people, person{u.ID, u.Name, u.Email, u.Role, roleCan[u.Role], u.Status})
+		people = append(people, person{u.ID, u.Name, u.Email, u.Role, roleCan[u.Role], u.Status, u.AvatarURL})
 	}
 	tokens, err := s.Store.ListTokens(r.Context(), id)
 	if err != nil {
@@ -137,7 +138,7 @@ func (s *Server) deleteHook(w http.ResponseWriter, r *http.Request, u *store.Use
 	if err != nil {
 		return err
 	}
-	if _, err := s.Store.DB.Exec(r.Context(), `DELETE FROM resource_tokens WHERE resource_id = $1 AND kind = 'hook'`, id); err != nil {
+	if _, err := s.Store.SQL(r.Context()).Exec(r.Context(), `DELETE FROM resource_tokens WHERE resource_id = $1 AND kind = 'hook'`, id); err != nil {
 		return err
 	}
 	s.Store.Audit(r.Context(), u, "resource.hook_delete", "resource", id, nil, clientIP(r))
@@ -248,6 +249,24 @@ func (s *Server) deployHook(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return notFound(err, "Resource")
 	}
+	scope := store.Scope{TeamID: res.TeamID, Permission: "deployments.create", MinRank: 2}
+	if t.CreatorID == nil {
+		scope.CredentialResourceID = res.ID
+	} else {
+		issuer, err := s.Store.GetUser(r.Context(), *t.CreatorID)
+		if err != nil || issuer.Status != "active" {
+			return httpx.NotFound("Hook")
+		}
+		if _, err = s.Store.Membership(r.Context(), res.TeamID, issuer.ID); err != nil {
+			return httpx.NotFound("Hook")
+		}
+		scope.UserID = issuer.ID
+	}
+	scoped := store.WithScope(r.Context(), scope)
+	r = r.WithContext(scoped)
+	if _, err = s.Store.GetResource(scoped, res.ID); err != nil {
+		return httpx.NotFound("Hook")
+	}
 	s.Store.TouchToken(r.Context(), t.ID, clientIP(r))
 
 	var push pushInfo
@@ -277,7 +296,7 @@ func (s *Server) deployHook(w http.ResponseWriter, r *http.Request) error {
 	// Several pushes in a row become one deployment while it's still waiting to start.
 	var queuedID string
 	var queuedNumber int
-	s.Store.DB.QueryRow(r.Context(), `SELECT id, number FROM deployments WHERE resource_id = $1 AND status = 'queued' ORDER BY number DESC LIMIT 1`, res.ID).Scan(&queuedID, &queuedNumber)
+	s.Store.SQL(r.Context()).QueryRow(r.Context(), `SELECT id, number FROM deployments WHERE resource_id = $1 AND status = 'queued' ORDER BY number DESC LIMIT 1`, res.ID).Scan(&queuedID, &queuedNumber)
 	if queuedID != "" {
 		httpx.JSON(w, 202, map[string]any{"deployed": true, "deploymentId": queuedID, "number": queuedNumber, "message": "A deployment was already waiting to start; it will pick up this change."})
 		return nil
@@ -293,7 +312,7 @@ func (s *Server) deployHook(w http.ResponseWriter, r *http.Request) error {
 		c := push.Commits[len(push.Commits)-1]
 		reason = fmt.Sprintf("Push: %s (%.7s)", firstLine(c.Message), c.ID)
 	}
-	tx, err := s.Store.DB.Begin(r.Context())
+	tx, err := s.Store.SQL(r.Context()).Begin(r.Context())
 	if err != nil {
 		return err
 	}
@@ -362,7 +381,7 @@ func (s *Server) tokenUser(r *http.Request, raw string) (*store.User, error) {
 	if t.ExpiresAt != nil && time.Now().After(*t.ExpiresAt) {
 		return nil, &httpx.Error{Status: 401, Code: "token_expired", Message: "This token expired. Create a new one under Access & Secrets."}
 	}
-	need, ok := tokenRoutes[r.Pattern]
+	need, ok := tokenRoutes[originalPattern(r.Pattern)]
 	if !ok {
 		return nil, httpx.Forbidden("Resource tokens can read status, deployments and logs, and deploy. This endpoint needs a signed-in user.")
 	}
@@ -370,7 +389,7 @@ func (s *Server) tokenUser(r *http.Request, raw string) (*store.User, error) {
 		return nil, httpx.Forbidden("This token is read only.")
 	}
 	resourceID := r.PathValue("id")
-	if strings.HasPrefix(r.Pattern, "GET /api/deployments/") || strings.HasPrefix(r.Pattern, "POST /api/deployments/") {
+	if strings.HasPrefix(originalPattern(r.Pattern), "GET /api/deployments/") || strings.HasPrefix(originalPattern(r.Pattern), "POST /api/deployments/") {
 		d, err := s.Store.GetDeployment(r.Context(), resourceID)
 		if err != nil {
 			return nil, httpx.NotFound("Deployment")
@@ -380,11 +399,29 @@ func (s *Server) tokenUser(r *http.Request, raw string) (*store.User, error) {
 	if resourceID != t.ResourceID {
 		return nil, httpx.Forbidden("This token only works for its own resource.")
 	}
+	res, err := s.Store.GetResource(r.Context(), t.ResourceID)
+	if err != nil || res.TeamID != r.PathValue("teamId") {
+		return nil, httpx.NotFound("Resource")
+	}
+	if t.CreatorID != nil {
+		issuer, err := s.Store.GetUser(r.Context(), *t.CreatorID)
+		if err != nil || issuer.Status != "active" {
+			return nil, httpx.Unauthorized()
+		}
+		if _, err = s.Store.Membership(r.Context(), res.TeamID, issuer.ID); err != nil {
+			return nil, httpx.Unauthorized()
+		}
+	}
 	s.Store.TouchToken(r.Context(), t.ID, clientIP(r))
 	role := map[string]string{"read": "viewer", "deploy": "developer"}[t.Scope]
 	id := ""
 	if t.CreatorID != nil {
 		id = *t.CreatorID // deployments and the audit log show who created the token
 	}
-	return &store.User{ID: id, Email: tokenActorPrefix + t.Name, Name: t.Name, Role: role, Status: "active"}, nil
+	actor := &store.User{ID: id, Email: tokenActorPrefix + t.Name, Name: t.Name, Role: role, Status: "active", CredentialTokenID: t.ID}
+	if t.CreatorID == nil {
+		actor.ServiceResourceID = t.ResourceID
+		actor.TeamID = res.TeamID
+	}
+	return actor, nil
 }

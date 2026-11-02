@@ -9,6 +9,8 @@ import (
 )
 
 type Automation struct {
+	CreatorID      *string         `json:"-"`
+	TeamID         string          `json:"teamId"`
 	ID             string          `json:"id"`
 	Name           string          `json:"name"`
 	Description    string          `json:"description"`
@@ -38,13 +40,13 @@ type Automation struct {
 const automationSelect = `
 	SELECT a.id, a.name, a.description, a.scope, a.resource_id, COALESCE(r.name, ''), a.targets, a.trigger, a.conditions, a.steps, a.mode, a.enabled,
 	       a.paused_reason, a.escalate_after, a.max_runs_per_hour, a.notify_url_enc, a.hook_hash IS NOT NULL, a.next_run_at, a.failures,
-	       COALESCE(u.email, ''), a.created_at, a.updated_at
+	       COALESCE(u.email, ''), a.created_at, a.updated_at, a.team_id, a.created_by
 	FROM automations a LEFT JOIN resources r ON r.id = a.resource_id LEFT JOIN users u ON u.id = a.created_by`
 
 func scanAutomation(row pgx.Row) (*Automation, error) {
 	var a Automation
 	err := row.Scan(&a.ID, &a.Name, &a.Description, &a.Scope, &a.ResourceID, &a.ResourceName, &a.Targets, &a.Trigger, &a.Conditions, &a.Steps, &a.Mode, &a.Enabled,
-		&a.PausedReason, &a.EscalateAfter, &a.MaxRunsPerHour, &a.NotifySealed, &a.HasHook, &a.NextRunAt, &a.Failures, &a.CreatedBy, &a.CreatedAt, &a.UpdatedAt)
+		&a.PausedReason, &a.EscalateAfter, &a.MaxRunsPerHour, &a.NotifySealed, &a.HasHook, &a.NextRunAt, &a.Failures, &a.CreatedBy, &a.CreatedAt, &a.UpdatedAt, &a.TeamID, &a.CreatorID)
 	a.HasNotify = len(a.NotifySealed) > 0
 	return &a, noRows(err)
 }
@@ -57,7 +59,7 @@ type AutomationFilter struct {
 }
 
 func (s *Store) ListAutomations(ctx context.Context, f AutomationFilter) ([]Automation, error) {
-	rows, err := s.DB.Query(ctx, automationSelect+`
+	rows, err := s.SQL(ctx).Query(ctx, automationSelect+`
 		WHERE ($1 = '' OR a.resource_id::text = $1) AND ($2 = '' OR a.scope = $2)
 		ORDER BY a.created_at`, f.ResourceID, f.Scope)
 	if err != nil {
@@ -82,25 +84,25 @@ func (s *Store) ListAutomations(ctx context.Context, f AutomationFilter) ([]Auto
 }
 
 func (s *Store) GetAutomation(ctx context.Context, id string) (*Automation, error) {
-	return scanAutomation(s.DB.QueryRow(ctx, automationSelect+` WHERE a.id = $1`, id))
+	return scanAutomation(s.SQL(ctx).QueryRow(ctx, automationSelect+` WHERE a.id = $1`, id))
 }
 
 func (s *Store) AutomationByHook(ctx context.Context, hash []byte) (*Automation, error) {
-	return scanAutomation(s.DB.QueryRow(ctx, automationSelect+` WHERE a.hook_hash = $1`, hash))
+	return scanAutomation(s.SQL(ctx).QueryRow(ctx, automationSelect+` WHERE a.hook_hash = $1`, hash))
 }
 
 // SaveAutomation inserts (empty ID) or updates. notify: nil keeps the sealed URL, empty slice clears it.
 func (s *Store) SaveAutomation(ctx context.Context, a *Automation, notify []byte, userID string) (string, error) {
 	if a.ID == "" {
 		var id string
-		err := s.DB.QueryRow(ctx, `
+		err := s.SQL(ctx).QueryRow(ctx, `
 			INSERT INTO automations (name, description, scope, resource_id, targets, trigger, conditions, steps, mode, enabled, escalate_after, max_runs_per_hour, notify_url_enc, next_run_at, created_by)
 			VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15) RETURNING id`,
 			a.Name, a.Description, a.Scope, a.ResourceID, a.Targets, a.Trigger, a.Conditions, a.Steps, a.Mode, a.Enabled, a.EscalateAfter, a.MaxRunsPerHour,
 			notify, a.NextRunAt, nullable(userID)).Scan(&id)
 		return id, err
 	}
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE automations SET name = $2, description = $3, targets = $4, trigger = $5, conditions = $6, steps = $7, mode = $8, enabled = $9,
 		       escalate_after = $10, max_runs_per_hour = $11, notify_url_enc = CASE WHEN $12::bytea IS NULL THEN notify_url_enc WHEN length($12::bytea) = 0 THEN NULL ELSE $12::bytea END,
 		       next_run_at = $13, paused_reason = CASE WHEN $9 THEN '' ELSE paused_reason END, failures = CASE WHEN $9 AND NOT enabled THEN 0 ELSE failures END,
@@ -110,12 +112,12 @@ func (s *Store) SaveAutomation(ctx context.Context, a *Automation, notify []byte
 }
 
 func (s *Store) SetAutomationHook(ctx context.Context, id string, hash []byte) error {
-	_, err := s.DB.Exec(ctx, `UPDATE automations SET hook_hash = $2 WHERE id = $1`, id, hash)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE automations SET hook_hash = $2 WHERE id = $1`, id, hash)
 	return err
 }
 
 func (s *Store) DeleteAutomation(ctx context.Context, id string) error {
-	_, err := s.DB.Exec(ctx, `DELETE FROM automations WHERE id = $1`, id)
+	_, err := s.SQL(ctx).Exec(ctx, `DELETE FROM automations WHERE id = $1`, id)
 	return err
 }
 
@@ -187,22 +189,22 @@ func (s *Store) collectRuns(rows pgx.Rows, err error) ([]AutomationRun, error) {
 }
 
 func (s *Store) AutomationRuns(ctx context.Context, automationID string, limit int) ([]AutomationRun, error) {
-	return s.collectRuns(s.DB.Query(ctx, runSelect+` WHERE r.automation_id = $1 ORDER BY r.created_at DESC LIMIT $2`, automationID, limit))
+	return s.collectRuns(s.SQL(ctx).Query(ctx, runSelect+` WHERE r.automation_id = $1 ORDER BY r.created_at DESC LIMIT $2`, automationID, limit))
 }
 
 // RunsByIDs returns runs of the given automations that need someone: awaiting approval or flagged.
 func (s *Store) AttentionRuns(ctx context.Context, automationIDs []string) ([]AutomationRun, error) {
-	return s.collectRuns(s.DB.Query(ctx, runSelect+`
+	return s.collectRuns(s.SQL(ctx).Query(ctx, runSelect+`
 		WHERE r.automation_id = ANY($1::uuid[]) AND (r.status = 'awaiting_approval' OR r.attention)
 		ORDER BY r.created_at DESC LIMIT 50`, automationIDs))
 }
 
 func (s *Store) GetAutomationRun(ctx context.Context, id string) (*AutomationRun, error) {
-	r, err := scanRun(s.DB.QueryRow(ctx, runSelect+` WHERE r.id = $1`, id))
+	r, err := scanRun(s.SQL(ctx).QueryRow(ctx, runSelect+` WHERE r.id = $1`, id))
 	if err != nil {
 		return nil, err
 	}
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT seq, target_kind, target_id, target_name, action, status, output, verification, verified, ref, started_at, finished_at
 		FROM automation_run_steps WHERE run_id = $1 ORDER BY seq`, id)
 	if err != nil {
@@ -227,7 +229,7 @@ func (s *Store) CreateAutomationRun(ctx context.Context, automationID, trigger, 
 		tb = []byte("[]")
 	}
 	var id, status string
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		INSERT INTO automation_runs (automation_id, trigger, reason, requested_by, targets, status, summary, finished_at)
 		SELECT $1, $2, $3, $4, $5,
 		       CASE WHEN over THEN 'skipped' ELSE 'queued' END,
@@ -241,7 +243,7 @@ func (s *Store) CreateAutomationRun(ctx context.Context, automationID, trigger, 
 }
 
 func (s *Store) DecideRun(ctx context.Context, id, status, by, note string) (bool, error) {
-	tag, err := s.DB.Exec(ctx, `
+	tag, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE automation_runs SET status = $2, decided_by = $3, decided_at = now(), decision_note = $4,
 		       finished_at = CASE WHEN $2 = 'rejected' THEN now() ELSE finished_at END
 		WHERE id = $1 AND status = 'awaiting_approval'`, id, status, by, note)
@@ -249,12 +251,12 @@ func (s *Store) DecideRun(ctx context.Context, id, status, by, note string) (boo
 }
 
 func (s *Store) AcknowledgeRun(ctx context.Context, id, by string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE automation_runs SET attention = false, decided_by = CASE WHEN decided_by = '' THEN $2 ELSE decided_by END WHERE id = $1`, id, by)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE automation_runs SET attention = false, decided_by = CASE WHEN decided_by = '' THEN $2 ELSE decided_by END WHERE id = $1`, id, by)
 	return err
 }
 
 func (s *Store) CancelAutomationRun(ctx context.Context, id string) (bool, error) {
-	tag, err := s.DB.Exec(ctx, `UPDATE automation_runs SET status = 'cancelled', finished_at = now(), attention = false
+	tag, err := s.SQL(ctx).Exec(ctx, `UPDATE automation_runs SET status = 'cancelled', finished_at = now(), attention = false
 		WHERE id = $1 AND status IN ('queued', 'awaiting_approval', 'approved')`, id)
 	return tag.RowsAffected() == 1, err
 }
@@ -269,7 +271,7 @@ type AutomationCounts struct {
 
 func (s *Store) CountAutomations(ctx context.Context, ids []string) (AutomationCounts, error) {
 	var c AutomationCounts
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		SELECT (SELECT count(*) FROM automations WHERE id = ANY($1::uuid[]) AND enabled),
 		       (SELECT count(*) FROM automation_runs WHERE automation_id = ANY($1::uuid[]) AND attention)
 		         + (SELECT count(*) FROM automations WHERE id = ANY($1::uuid[]) AND NOT enabled AND paused_reason <> ''),

@@ -54,7 +54,7 @@ func run() error {
 	st := &store.Store{DB: pool}
 	srv := &api.Server{
 		Store: st, Runtime: docker, Secrets: box, Servers: &servers.Registry{Store: st, Secrets: box, Local: docker},
-		PublicURL: cfg.PublicURL, SecureCookies: cfg.SecureCookies, WebDir: cfg.WebDir, PublishHost: cfg.PublishHost,
+		PublicURL: cfg.PublicURL, SecureCookies: cfg.SecureCookies, WebDir: cfg.WebDir, UploadsDir: cfg.UploadsDir, PublishHost: cfg.PublishHost,
 		Proxy: proxy.New(cfg.ProxySocket, cfg.ProxyAddr, cfg.ProxyHTTPPort, cfg.ProxyHTTPSPort),
 	}
 	store.ProxyHTTPPort, store.ProxyHTTPSPort = cfg.ProxyHTTPPort, cfg.ProxyHTTPSPort

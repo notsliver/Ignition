@@ -39,14 +39,16 @@ type capacityTotals struct {
 // fleetCapacity compares what every server has with what's committed to it and what it actually
 // uses over a window (p95), and projects when disks fill. Nothing here is estimated from engine
 // data alone: a server without host samples is reported as unknown.
-func (s *Server) fleetCapacity(w http.ResponseWriter, r *http.Request, _ *store.User) error {
+func (s *Server) fleetCapacity(w http.ResponseWriter, r *http.Request, u *store.User) error {
 	windows := map[string]time.Duration{"24h": 24 * time.Hour, "7d": 7 * 24 * time.Hour}
 	rg := r.URL.Query().Get("window")
 	window, ok := windows[rg]
 	if !ok {
 		rg, window = "7d", windows["7d"]
 	}
-	caps, err := s.Store.FleetCapacity(r.Context(), window)
+	// A server's capacity is about everything on it: platform administrators see every team's
+	// workloads counted; anyone else only their own team's.
+	caps, err := s.Store.FleetCapacity(r.Context(), window, roleRank[u.InstanceRole] >= roleRank["admin"])
 	if err != nil {
 		return err
 	}

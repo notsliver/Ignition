@@ -1,3 +1,4 @@
+import './team-api.mjs';
 // End-to-end checks for project imports (Git, Compose, duplicate), database imports into every engine,
 // external databases and functions. Needs IGNITION_URL/EMAIL/PASSWORD and the docker CLI (to verify data).
 import { execFileSync } from 'node:child_process';

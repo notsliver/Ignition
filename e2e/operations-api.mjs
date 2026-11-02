@@ -1,3 +1,4 @@
+import './team-api.mjs';
 // End-to-end checks for Health Checks, Rollback History, Scheduled Tasks, Access & Secrets and Advanced
 // Settings against a running Ignition (IGNITION_URL, IGNITION_EMAIL, IGNITION_PASSWORD). Uses real containers.
 const BASE = process.env.IGNITION_URL;

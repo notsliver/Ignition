@@ -11,11 +11,13 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/notsliver/Ignition/services/internal/auth"
 	"github.com/notsliver/Ignition/services/internal/httpx"
 	"github.com/notsliver/Ignition/services/internal/proxy"
@@ -34,6 +36,7 @@ type Server struct {
 	Secrets       *secrets.Box
 	PublicURL     string
 	SecureCookies bool
+	UploadsDir    string
 	WebDir        string
 	PublishHost   string
 	Proxy         *proxy.Client
@@ -71,9 +74,38 @@ func (s *Server) Handler() http.Handler {
 		mux.Handle(pattern, httpx.Handler(func(w http.ResponseWriter, r *http.Request) error { return domainError(fn(w, r)) }))
 	}
 	authed := func(pattern, minRole string, fn func(http.ResponseWriter, *http.Request, *store.User) error) {
-		mux.Handle(pattern, s.requireUser(permissionFor(pattern, minRole), func(w http.ResponseWriter, r *http.Request, u *store.User) error { return domainError(fn(w, r, u)) }))
+		handler := s.requireUser(permissionFor(pattern, minRole), func(w http.ResponseWriter, r *http.Request, u *store.User) error { return domainError(fn(w, r, u)) })
+		mux.Handle(pattern, handler)
+		if teamRoute(pattern) {
+			mux.Handle(strings.Replace(pattern, "/api/", "/api/teams/{teamId}/", 1), handler)
+		}
 	}
 
+	authed("GET /api/platform/capacity", "admin", s.teamCapacity)
+	authed("GET /api/platform/teams", "admin", s.platformTeams)
+	authed("GET /api/usage", "viewer", s.teamUsage)
+	authed("POST /api/platform/capacity", "admin", s.teamCapacity)
+	authed("GET /api/teams", "viewer", s.listTeams)
+	authed("POST /api/teams", "viewer", s.createTeam)
+	authed("GET /api/teams/{teamId}", "viewer", s.teamInfo)
+	authed("PATCH /api/teams/{teamId}", "viewer", s.updateTeam)
+	authed("GET /api/teams/{teamId}/members", "viewer", s.teamMembers)
+	authed("PUT /api/teams/{teamId}/members/{id}", "viewer", s.putTeamMember)
+	authed("DELETE /api/teams/{teamId}/members/{id}", "viewer", s.putTeamMember)
+	authed("GET /api/teams/{teamId}/invitations", "viewer", s.teamInvitations)
+	authed("POST /api/teams/{teamId}/invitations", "viewer", s.teamInvitations)
+	authed("DELETE /api/teams/{teamId}/invitations/{id}", "viewer", s.teamInvitations)
+	authed("POST /api/team-invitations/{token}/accept", "viewer", s.acceptTeamInvitation)
+	authed("POST /api/teams/{teamId}/environments", "viewer", s.teamEnvironments)
+	authed("GET /api/teams/{teamId}/environments", "viewer", s.teamEnvironments)
+	authed("GET /api/projects/{id}/assignments", "admin", s.assignments)
+	authed("PUT /api/projects/{id}/assignments", "admin", s.assignments)
+	authed("PUT /api/resources/{id}/project", "admin", s.groupResource)
+	authed("POST /api/resources", "developer", s.createResource)
+	authed("POST /api/external-databases", "developer", s.createExternal)
+	authed("POST /api/games", "developer", s.createGame)
+	h("GET /api/team-invitations/{token}", s.inspectTeamInvitation)
+	h("POST /api/team-invitations/{token}/register", s.registerTeamInvitation)
 	h("GET /api/health", func(w http.ResponseWriter, r *http.Request) error {
 		httpx.JSON(w, 200, map[string]string{"status": "ok"})
 		return nil
@@ -92,6 +124,11 @@ func (s *Server) Handler() http.Handler {
 	h("POST /api/auth/mfa/setup/confirm", s.mfaConfirmWithTicket)
 	h("GET /api/auth/oidc/start", s.oidcStart)
 	h("GET /api/auth/oidc/callback", s.oidcCallback)
+	authed("POST /api/account/avatar", "viewer", s.accountAvatar)
+	authed("DELETE /api/account/avatar", "viewer", s.accountAvatar)
+	authed("GET /api/account/images/{kind}/{filename}", "viewer", s.getImage)
+	authed("POST /api/teams/{teamId}/icon", "viewer", s.teamIcon)
+	authed("DELETE /api/teams/{teamId}/icon", "viewer", s.teamIcon)
 	authed("GET /api/account/security", "viewer", s.accountSecurity)
 	authed("POST /api/setup/complete", "viewer", s.completeOnboarding)
 	authed("GET /api/account/preferences", "viewer", s.getPreferences)
@@ -151,6 +188,10 @@ func (s *Server) Handler() http.Handler {
 	authed("GET /api/audit", "admin", s.listAudit)
 	authed("GET /api/audit/export", "admin", s.exportAudit)
 	authed("GET /api/settings/general", "admin", s.getGeneral)
+	authed("GET /api/settings/limits", "admin", s.getInstanceLimits)
+	authed("PUT /api/settings/limits", "admin", s.putInstanceLimits)
+	authed("GET /api/settings/quotas", "admin", s.getQuotas)
+	authed("PUT /api/settings/quotas", "admin", s.putQuotas)
 	authed("PUT /api/settings/general", "admin", s.putGeneral)
 	authed("GET /api/settings/updates", "admin", s.getUpdates)
 	authed("PUT /api/settings/updates", "admin", s.putUpdates)
@@ -254,6 +295,11 @@ func (s *Server) Handler() http.Handler {
 	authed("GET /api/servers/capacity", "viewer", s.fleetCapacity)
 	authed("GET /api/servers/{id}", "viewer", s.getServer)
 	authed("PATCH /api/servers/{id}", "admin", s.updateServer)
+	authed("PUT /api/servers/{id}/visibility", "admin", s.setServerVisibility)
+	authed("GET /api/servers/{id}/allocations", "viewer", s.listAllocations)
+	authed("POST /api/servers/{id}/allocations", "admin", s.addAllocations)
+	authed("POST /api/servers/{id}/allocations/delete", "admin", s.deleteAllocations)
+	authed("PATCH /api/servers/{id}/allocations/{allocation}", "admin", s.updateAllocation)
 	authed("DELETE /api/servers/{id}", "admin", s.deleteServer)
 	authed("GET /api/servers/{id}/removal", "admin", s.serverRemovalPreview)
 	authed("POST /api/servers/{id}/test", "developer", s.testServer)
@@ -380,6 +426,29 @@ func (s *Server) Handler() http.Handler {
 
 // domainError turns store-level rule violations into the matching API error.
 func domainError(err error) error {
+	var limit *store.LimitError
+	if errors.As(err, &limit) {
+		return httpx.Conflict(limit.Error())
+	}
+	var quota *store.QuotaError
+	if errors.As(err, &quota) {
+		return httpx.Conflict(quota.Error())
+	}
+	if errors.Is(err, store.ErrLastOwner) {
+		return httpx.Conflict("Transfer team ownership before removing or suspending its last active owner.")
+	}
+	var pg *pgconn.PgError
+	if errors.As(err, &pg) {
+		switch pg.Code {
+		case "42501":
+			return httpx.Forbidden("This action is outside your team or project permissions.")
+		case "23503":
+			return httpx.NotFound("Referenced object")
+		case "23505":
+			return httpx.Conflict("That name, hostname or port is already in use.")
+		}
+	}
+
 	var blocked *store.DeploymentsBlocked
 	if errors.As(err, &blocked) {
 		return httpx.Conflict(blocked.Error())
@@ -427,7 +496,7 @@ func (s *Server) checkOrigin(next http.Handler) http.Handler {
 	})
 }
 
-var roleRank = map[string]int{"viewer": 0, "developer": 1, "admin": 2, "owner": 3}
+var roleRank = map[string]int{"member": -1, "viewer": 0, "developer": 1, "admin": 2, "owner": 3}
 
 func (s *Server) requireUser(perm string, fn func(http.ResponseWriter, *http.Request, *store.User) error) http.Handler {
 	return httpx.Handler(func(w http.ResponseWriter, r *http.Request) error {
@@ -436,8 +505,24 @@ func (s *Server) requireUser(perm string, fn func(http.ResponseWriter, *http.Req
 			if err != nil {
 				return err
 			}
-			if !allowed(user, perm) {
+			if err := s.maintenanceCheck(r, user); err != nil {
+				return err
+			}
+			r, user, err = s.scopedRequest(r, user, perm)
+			if err != nil {
+				return err
+			}
+			if r.PathValue("teamId") == "" && !allowed(user, perm) {
 				return httpx.Forbidden("This token can't do this.")
+			}
+			if user.TeamID != "" {
+				w.Header().Set("X-Ignition-Team", user.TeamID)
+				w.Header().Set("X-Ignition-Authorization-Version", strconv.FormatInt(user.TeamVersion, 10))
+			}
+			if user.TeamID != "" && (strings.Contains(r.Pattern, "/logs") || strings.Contains(r.Pattern, "/terminal")) {
+				ctx, cancel := s.watchTeam(r.Context(), user)
+				defer cancel()
+				r = r.WithContext(ctx)
 			}
 			return fn(w, r, user)
 		}
@@ -455,11 +540,46 @@ func (s *Server) requireUser(perm string, fn func(http.ResponseWriter, *http.Req
 		if err := s.mfaDeadlineCheck(w, r, user, c.Value); err != nil {
 			return err
 		}
-		if !allowed(user, perm) {
+		if err := s.maintenanceCheck(r, user); err != nil {
+			return err
+		}
+		r, user, err = s.scopedRequest(r, user, perm)
+		if err != nil {
+			return err
+		}
+		if r.PathValue("teamId") == "" && !allowed(user, perm) {
 			return httpx.Forbidden(deniedMessage(user, perm))
+		}
+		if user.TeamID != "" {
+			w.Header().Set("X-Ignition-Team", user.TeamID)
+			w.Header().Set("X-Ignition-Authorization-Version", strconv.FormatInt(user.TeamVersion, 10))
+		}
+		if user.TeamID != "" && (strings.Contains(r.Pattern, "/logs") || strings.Contains(r.Pattern, "/terminal")) {
+			ctx, cancel := s.watchTeam(r.Context(), user)
+			defer cancel()
+			r = r.WithContext(ctx)
 		}
 		return fn(w, r, user)
 	})
+}
+
+// maintenanceCheck closes the dashboard and API to everyone but platform administrators while the
+// instance is in maintenance mode. Workloads keep running; people can still see who they are and
+// the maintenance message, and sign out.
+func (s *Server) maintenanceCheck(r *http.Request, u *store.User) error {
+	inst := s.instance(r.Context())
+	if !inst.Maintenance || roleRank[u.Role] >= roleRank["admin"] {
+		return nil
+	}
+	switch r.Pattern {
+	case "GET /api/auth/me", "GET /api/system", "GET /api/account/preferences":
+		return nil
+	}
+	msg := inst.MaintenanceMessage
+	if msg == "" {
+		msg = "This instance is down for maintenance. Please try again later."
+	}
+	return &httpx.Error{Status: 503, Code: "maintenance", Message: msg}
 }
 
 func (s *Server) ready(w http.ResponseWriter, r *http.Request) error {

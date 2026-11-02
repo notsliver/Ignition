@@ -122,10 +122,10 @@ export function AccessSecrets({ resource }) {
 
     <section className="settings-group">
       <h2>People</h2>
-      <p>Access comes from each person's role and applies to every resource. Roles are managed in Settings › Users & Permissions.</p>
+      <p>Access comes from each person's role and applies to every resource. Roles are managed in Settings › Team Members.</p>
       <div className="rp-card">
         {people.map(p => <div key={p.id} className={cx('rp-row', p.status === 'suspended' && 'ops-unavailable')}>
-          <Avatar name={p.name || p.email} size={26} />
+          <Avatar src={p.avatarUrl} name={p.name || p.email} size={26} />
           <span className="rp-row-main"><strong>{p.name || p.email}{p.id === user.id && <span className="rp-chip">You</span>}{p.status === 'suspended' && <span className="rp-chip">Suspended</span>}</strong><span>{p.email}</span></span>
           <span className="ops-can" title={CAN[p.can]}>{CAN[p.can]}</span>
           <span className="rp-chip">{ROLE[p.role] ?? p.role}</span>

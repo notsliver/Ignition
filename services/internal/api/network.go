@@ -383,7 +383,7 @@ func (s *Server) liveNetwork(ctx context.Context, dk *runtime.Docker, all []runt
 	return l
 }
 
-func (s *Server) listNetworks(w http.ResponseWriter, r *http.Request, _ *store.User) error {
+func (s *Server) listNetworks(w http.ResponseWriter, r *http.Request, u *store.User) error {
 	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
 	defer cancel()
 	shared, err := s.Store.ListSharedNetworks(ctx)
@@ -416,7 +416,7 @@ func (s *Server) listNetworks(w http.ResponseWriter, r *http.Request, _ *store.U
 		Live          liveNetwork `json:"live"`
 	}
 	ev := []envView{}
-	rows, err := s.Store.DB.Query(ctx, `SELECT e.id, p.name || ' · ' || e.name FROM environments e JOIN projects p ON p.id = e.project_id
+	rows, err := s.Store.SQL(ctx).Query(ctx, `SELECT e.id, COALESCE(p.name,'No project') || ' · ' || e.name FROM environments e LEFT JOIN projects p ON p.id = e.project_id
 		WHERE EXISTS (SELECT 1 FROM resources r WHERE r.environment_id = e.id) ORDER BY p.name, e.name`)
 	if err == nil {
 		for rows.Next() {
@@ -431,8 +431,18 @@ func (s *Server) listNetworks(w http.ResponseWriter, r *http.Request, _ *store.U
 		ev[i].Live = s.liveNetwork(ctx, dk, all, ev[i].Docker)
 	}
 	// Subnets in use anywhere on the host, so new ones can avoid them.
+	allowed := map[string]bool{}
+	for _, n := range sv {
+		allowed[n.Docker] = true
+	}
+	for _, n := range ev {
+		allowed[n.Docker] = true
+	}
 	used := []map[string]string{}
 	for _, n := range all {
+		if roleRank[u.InstanceRole] < roleRank["admin"] && !allowed[n.Name] {
+			continue
+		}
 		for _, sub := range n.Subnets {
 			used = append(used, map[string]string{"network": n.Name, "subnet": sub})
 		}
@@ -610,7 +620,7 @@ func (s *Server) deleteNetwork(w http.ResponseWriter, r *http.Request, u *store.
 func (s *Server) proxyStatus(w http.ResponseWriter, r *http.Request, _ *store.User) error {
 	ctx, cancel := context.WithTimeout(r.Context(), 6*time.Second)
 	defer cancel()
-	routes, err := s.Store.ProxyRoutes(ctx)
+	routes, err := s.Store.PlatformProxyRoutes(ctx)
 	if err != nil {
 		return err
 	}
@@ -680,7 +690,7 @@ func (s *Server) putProxySettings(w http.ResponseWriter, r *http.Request, u *sto
 
 // reloadProxy re-sends the config and re-checks every domain.
 func (s *Server) reloadProxy(w http.ResponseWriter, r *http.Request, u *store.User) error {
-	routes, err := s.Store.ProxyRoutes(r.Context())
+	routes, err := s.Store.PlatformProxyRoutes(r.Context())
 	if err != nil {
 		return err
 	}
@@ -905,7 +915,7 @@ func (s *Server) createDNSRecords(ctx context.Context, d *store.Domain, provider
 		recs = append(recs, store.DNSRecordRef{Type: rr.typ, ID: rec.ID, ZoneID: zone.ID, Content: rr.ip})
 	}
 	// Every route on the hostname shares the records.
-	s.Store.DB.Exec(ctx, `UPDATE domains SET dns_provider_id = NULL, dns_records = '[]' WHERE hostname = $1 AND id <> $2`, d.Hostname, d.ID)
+	s.Store.SQL(ctx).Exec(ctx, `UPDATE domains SET dns_provider_id = NULL, dns_records = '[]' WHERE hostname = $1 AND id <> $2`, d.Hostname, d.ID)
 	return s.Store.SetDomainDNS(ctx, d.ID, &p.ID, recs)
 }
 

@@ -38,19 +38,26 @@ func noRows(err error) error {
 /* ---------------------------------- Users ---------------------------------- */
 
 type User struct {
-	ID           string        `json:"id"`
-	Email        string        `json:"email"`
-	Name         string        `json:"name"`
-	Role         string        `json:"role"`
-	Status       string        `json:"status"`
-	PasswordHash string        `json:"-"`
-	FailedLogins int           `json:"-"`
-	LockedUntil  *time.Time    `json:"-"`
-	CreatedAt    time.Time     `json:"createdAt"`
-	MFAEnabledAt *time.Time    `json:"mfaEnabledAt"`
-	Permissions  PermOverrides `json:"permissionOverrides"`
-	SSO          bool          `json:"sso"` // linked to an OpenID Connect identity
-	HasPassword  bool          `json:"hasPassword"`
+	AvatarURL         string        `json:"avatarUrl"`
+	ServiceResourceID string        `json:"-"`
+	CredentialTokenID string        `json:"-"`
+	TeamVersion       int64         `json:"-"`
+	TeamID            string        `json:"teamId,omitempty"`
+	TeamRole          string        `json:"teamRole,omitempty"`
+	InstanceRole      string        `json:"instanceRole,omitempty"`
+	ID                string        `json:"id"`
+	Email             string        `json:"email"`
+	Name              string        `json:"name"`
+	Role              string        `json:"role"`
+	Status            string        `json:"status"`
+	PasswordHash      string        `json:"-"`
+	FailedLogins      int           `json:"-"`
+	LockedUntil       *time.Time    `json:"-"`
+	CreatedAt         time.Time     `json:"createdAt"`
+	MFAEnabledAt      *time.Time    `json:"mfaEnabledAt"`
+	Permissions       PermOverrides `json:"permissionOverrides"`
+	SSO               bool          `json:"sso"` // linked to an OpenID Connect identity
+	HasPassword       bool          `json:"hasPassword"`
 }
 
 // PermOverrides adjust a user's role defaults: grant adds permissions, deny removes them.
@@ -59,18 +66,19 @@ type PermOverrides struct {
 	Deny  []string `json:"deny"`
 }
 
-const userCols = `id, email, name, role, status, password_hash, failed_logins, locked_until, created_at, totp_enabled_at, permissions, oidc_subject`
+const userCols = `id, email, name, role, status, password_hash, failed_logins, locked_until, created_at, totp_enabled_at, permissions, oidc_subject, avatar_file`
 
 func scanUser(row pgx.Row) (*User, error) {
 	var u User
 	var perms []byte
 	var subject *string
-	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.Status, &u.PasswordHash, &u.FailedLogins, &u.LockedUntil, &u.CreatedAt, &u.MFAEnabledAt, &perms, &subject)
+	err := row.Scan(&u.ID, &u.Email, &u.Name, &u.Role, &u.Status, &u.PasswordHash, &u.FailedLogins, &u.LockedUntil, &u.CreatedAt, &u.MFAEnabledAt, &perms, &subject, &u.AvatarURL)
 	u.finish(perms, subject)
 	return &u, noRows(err)
 }
 
 func (u *User) finish(perms []byte, subject *string) {
+	u.AvatarURL = ImageURL("avatars", u.AvatarURL)
 	json.Unmarshal(perms, &u.Permissions)
 	if u.Permissions.Grant == nil {
 		u.Permissions.Grant = []string{}
@@ -83,17 +91,20 @@ func (u *User) finish(perms []byte, subject *string) {
 }
 
 func (s *Store) CountUsers(ctx context.Context) (n int, err error) {
-	err = s.DB.QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&n)
+	err = s.SQL(ctx).QueryRow(ctx, `SELECT count(*) FROM users`).Scan(&n)
 	return
 }
 
 func (s *Store) CreateUser(ctx context.Context, email, name, hash, role string) (*User, error) {
-	return scanUser(s.DB.QueryRow(ctx, `INSERT INTO users (email, name, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING `+userCols, email, name, hash, role))
+	return scanUser(s.SQL(ctx).QueryRow(ctx, `INSERT INTO users (email, name, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING `+userCols, email, name, hash, role))
 }
 
 // CreateFirstOwner creates the initial owner only if no user exists, atomically.
 func (s *Store) CreateFirstOwner(ctx context.Context, email, name, hash string) (*User, error) {
-	tx, err := s.DB.Begin(ctx)
+	return s.CreateFirstOwnerForExperience(ctx, email, name, hash, "infrastructure")
+}
+func (s *Store) CreateFirstOwnerForExperience(ctx context.Context, email, name, hash, experience string) (*User, error) {
+	tx, err := s.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -112,15 +123,29 @@ func (s *Store) CreateFirstOwner(ctx context.Context, email, name, hash string) 
 	if err != nil {
 		return nil, err
 	}
+	if err := s.initializeTeam(ctx, tx, LegacyTeamID, u.ID); err != nil {
+		return nil, err
+	}
+	// The first team is the owner's own, named after their email (Limits › Default team).
+	if s.Limits(ctx).PersonalTeams {
+		if _, err := tx.Exec(ctx, `UPDATE teams SET name = $2 WHERE id = $1`, LegacyTeamID, u.Email); err != nil {
+			return nil, err
+		}
+	}
+	if experience == "hosting" {
+		if _, err = tx.Exec(ctx, `INSERT INTO team_experiences(team_id,experience) VALUES($1,'hosting') ON CONFLICT DO NOTHING`, LegacyTeamID); err != nil {
+			return nil, err
+		}
+	}
 	return u, tx.Commit(ctx)
 }
 
 func (s *Store) UserByEmail(ctx context.Context, email string) (*User, error) {
-	return scanUser(s.DB.QueryRow(ctx, `SELECT `+userCols+` FROM users WHERE lower(email) = lower($1)`, email))
+	return scanUser(s.SQL(ctx).QueryRow(ctx, `SELECT `+userCols+` FROM users WHERE lower(email) = lower($1)`, email))
 }
 
 func (s *Store) RecordFailedLogin(ctx context.Context, id string, maxAttempts int, lockFor time.Duration) error {
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE users SET failed_logins = failed_logins + 1,
 		       locked_until = CASE WHEN failed_logins + 1 >= $2 THEN now() + $3::interval ELSE locked_until END
 		WHERE id = $1`, id, maxAttempts, interval(lockFor))
@@ -128,14 +153,14 @@ func (s *Store) RecordFailedLogin(ctx context.Context, id string, maxAttempts in
 }
 
 func (s *Store) ResetFailedLogins(ctx context.Context, id string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = $1`, id)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE users SET failed_logins = 0, locked_until = NULL WHERE id = $1`, id)
 	return err
 }
 
 /* --------------------------------- Sessions -------------------------------- */
 
 func (s *Store) CreateSession(ctx context.Context, userID string, tokenHash []byte, ua, ip string, ttl time.Duration, method string) error {
-	_, err := s.DB.Exec(ctx, `INSERT INTO sessions (user_id, token_hash, user_agent, ip, expires_at, method) VALUES ($1, $2, $3, $4, now() + $5::interval, $6)`,
+	_, err := s.SQL(ctx).Exec(ctx, `INSERT INTO sessions (user_id, token_hash, user_agent, ip, expires_at, method) VALUES ($1, $2, $3, $4, now() + $5::interval, $6)`,
 		userID, tokenHash, ua, ip, interval(ttl), method)
 	return err
 }
@@ -143,7 +168,7 @@ func (s *Store) CreateSession(ctx context.Context, userID string, tokenHash []by
 // UserBySession returns the session's active user and slides last_seen_at forward.
 // A session idle for longer than idle (0 = no limit) has ended.
 func (s *Store) UserBySession(ctx context.Context, tokenHash []byte, idle time.Duration) (*User, error) {
-	return scanUser(s.DB.QueryRow(ctx, `
+	return scanUser(s.SQL(ctx).QueryRow(ctx, `
 		WITH touched AS (
 			UPDATE sessions SET last_seen_at = now() WHERE token_hash = $1 AND expires_at > now()
 			       AND ($2 = 0 OR last_seen_at > now() - make_interval(secs => $2)) RETURNING user_id
@@ -152,7 +177,7 @@ func (s *Store) UserBySession(ctx context.Context, tokenHash []byte, idle time.D
 }
 
 func (s *Store) DeleteSession(ctx context.Context, tokenHash []byte) error {
-	_, err := s.DB.Exec(ctx, `DELETE FROM sessions WHERE token_hash = $1`, tokenHash)
+	_, err := s.SQL(ctx).Exec(ctx, `DELETE FROM sessions WHERE token_hash = $1`, tokenHash)
 	return err
 }
 
@@ -191,6 +216,9 @@ type Environment struct {
 }
 
 type Project struct {
+	Permissions   []string      `json:"permissions,omitempty"`
+	EffectiveRole string        `json:"effectiveRole,omitempty"`
+	TeamID        string        `json:"teamId"`
 	ID            string        `json:"id"`
 	Name          string        `json:"name"`
 	Description   string        `json:"description"`
@@ -208,19 +236,19 @@ type Project struct {
 const projectSelect = `
 	SELECT p.id, p.name, p.description, p.archived_at IS NOT NULL,
 	       EXISTS (SELECT 1 FROM project_favorites f WHERE f.project_id = p.id AND f.user_id = $1),
-	       COALESCE((SELECT json_agg(json_build_object('id', e.id, 'name', e.name) ORDER BY e.position, e.name) FROM environments e WHERE e.project_id = p.id), '[]'),
+	       COALESCE((SELECT json_agg(json_build_object('id', e.id, 'name', e.name) ORDER BY e.position, e.name) FROM environments e JOIN project_environments pe ON pe.environment_id=e.id WHERE pe.project_id = p.id), '[]'),
 	       (SELECT count(*) FROM resources r WHERE r.project_id = p.id),
 	       (SELECT count(*) FROM resources r WHERE r.project_id = p.id AND r.status = 'running'),
 	       (SELECT count(*) FROM resources r WHERE r.project_id = p.id AND r.status = 'failed'),
 	       (SELECT count(*) FROM resources r WHERE r.project_id = p.id AND r.status = 'deploying'),
 	       (SELECT max(d.created_at) FROM deployments d JOIN resources r ON r.id = d.resource_id WHERE r.project_id = p.id),
-	       p.created_at
+	       p.created_at, p.team_id
 	FROM projects p`
 
 func scanProject(row pgx.Row) (*Project, error) {
 	var p Project
 	var envs []byte
-	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.Archived, &p.Favorite, &envs, &p.ResourceCount, &p.Running, &p.Failed, &p.Deploying, &p.LastDeployAt, &p.CreatedAt)
+	err := row.Scan(&p.ID, &p.Name, &p.Description, &p.Archived, &p.Favorite, &envs, &p.ResourceCount, &p.Running, &p.Failed, &p.Deploying, &p.LastDeployAt, &p.CreatedAt, &p.TeamID)
 	if err != nil {
 		return nil, noRows(err)
 	}
@@ -229,7 +257,7 @@ func scanProject(row pgx.Row) (*Project, error) {
 }
 
 func (s *Store) ListProjects(ctx context.Context, userID, query string, archived bool) ([]Project, error) {
-	rows, err := s.DB.Query(ctx, projectSelect+`
+	rows, err := s.SQL(ctx).Query(ctx, projectSelect+`
 		WHERE (p.archived_at IS NOT NULL) = $2 AND ($3 = '' OR p.name ILIKE '%' || $3 || '%' OR p.description ILIKE '%' || $3 || '%')
 		ORDER BY 5 DESC, p.name`, userID, archived, query)
 	if err != nil {
@@ -248,12 +276,12 @@ func (s *Store) ListProjects(ctx context.Context, userID, query string, archived
 }
 
 func (s *Store) GetProject(ctx context.Context, userID, id string) (*Project, error) {
-	return scanProject(s.DB.QueryRow(ctx, projectSelect+` WHERE p.id = $2`, userID, id))
+	return scanProject(s.SQL(ctx).QueryRow(ctx, projectSelect+` WHERE p.id = $2`, userID, id))
 }
 
 // CreateProject creates the project with a default Production environment in one transaction.
 func (s *Store) CreateProject(ctx context.Context, userID, name, description string) (string, error) {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -265,11 +293,14 @@ func (s *Store) CreateProject(ctx context.Context, userID, name, description str
 	if _, err := tx.Exec(ctx, `INSERT INTO environments (project_id, name, position) VALUES ($1, 'Production', 0)`, id); err != nil {
 		return "", err
 	}
+	if _, err := tx.Exec(ctx, `INSERT INTO project_environments(project_id,environment_id) SELECT $1,id FROM environments WHERE project_id=$1 ON CONFLICT DO NOTHING`, id); err != nil {
+		return "", err
+	}
 	return id, tx.Commit(ctx)
 }
 
 func (s *Store) UpdateProject(ctx context.Context, id string, name, description *string, archived *bool) error {
-	tag, err := s.DB.Exec(ctx, `
+	tag, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE projects SET name = COALESCE($2, name), description = COALESCE($3, description),
 		       archived_at = CASE WHEN $4::boolean IS NULL THEN archived_at WHEN $4 THEN COALESCE(archived_at, now()) ELSE NULL END,
 		       updated_at = now()
@@ -283,21 +314,50 @@ func (s *Store) UpdateProject(ctx context.Context, id string, name, description 
 func (s *Store) SetFavorite(ctx context.Context, projectID, userID string, on bool) error {
 	var err error
 	if on {
-		_, err = s.DB.Exec(ctx, `INSERT INTO project_favorites (project_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, projectID, userID)
+		_, err = s.SQL(ctx).Exec(ctx, `INSERT INTO project_favorites (project_id, user_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`, projectID, userID)
 	} else {
-		_, err = s.DB.Exec(ctx, `DELETE FROM project_favorites WHERE project_id = $1 AND user_id = $2`, projectID, userID)
+		_, err = s.SQL(ctx).Exec(ctx, `DELETE FROM project_favorites WHERE project_id = $1 AND user_id = $2`, projectID, userID)
 	}
 	return err
 }
 
+// DeleteProject first checks scoped authority, then detaches rows with an explicit team predicate.
+// It deliberately preserves workloads even when the caller loses access by deleting the grouping.
 func (s *Store) DeleteProject(ctx context.Context, id string) error {
-	_, err := s.DB.Exec(ctx, `DELETE FROM projects WHERE id = $1`, id)
-	return err
+	var team string
+	if scope, ok := ScopeFrom(ctx); ok {
+		if _, err := s.GetProject(ctx, scope.UserID, id); err != nil {
+			return err
+		}
+		team = scope.TeamID
+	} else {
+		if err := s.DB.QueryRow(ctx, `SELECT team_id FROM projects WHERE id=$1`, id).Scan(&team); err != nil {
+			return noRows(err)
+		}
+	}
+	tx, err := s.DB.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+	if _, err = tx.Exec(ctx, `UPDATE resources SET project_id=NULL WHERE project_id=$1 AND team_id=$2`, id, team); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `UPDATE environments SET project_id=NULL,is_team_default=false WHERE project_id=$1 AND team_id=$2`, id, team); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(ctx, `DELETE FROM projects WHERE id=$1 AND team_id=$2`, id, team); err != nil {
+		return err
+	}
+	return tx.Commit(ctx)
 }
 
 /* -------------------------------- Resources -------------------------------- */
 
 type Resource struct {
+	Permissions         []string   `json:"permissions,omitempty"`
+	EffectiveRole       string     `json:"effectiveRole,omitempty"`
+	TeamID              string     `json:"teamId"`
 	ID                  string     `json:"id"`
 	ProjectID           string     `json:"projectId"`
 	EnvironmentID       string     `json:"environmentId"`
@@ -348,24 +408,24 @@ func withPort(url *string) string {
 }
 
 const resourceSelect = `
-	SELECT r.id, r.project_id, r.environment_id, e.name, r.name, r.type, r.source_type, r.image, r.repo_url, r.branch, r.dockerfile,
+	SELECT r.id, COALESCE(r.project_id::text,''), r.environment_id, e.name, r.name, r.type, r.source_type, r.image, r.repo_url, r.branch, r.dockerfile,
 	       r.port, r.command, r.data_path, r.memory_mb, r.cpus::float8, r.desired_state, r.status, r.container_id, r.host_port, r.current_deployment_id, r.running_since, r.source_id,
 	       (SELECT CASE WHEN d.https THEN 'https://' ELSE 'http://' END || d.hostname FROM domains d WHERE d.resource_id = r.id AND d.status = 'active' ORDER BY d.is_primary DESC, d.created_at LIMIT 1),
 	       COALESCE((SELECT array_agg(v.mount_path ORDER BY v.created_at, v.name) FROM resource_volumes v WHERE v.resource_id = r.id), '{}'),
-	       (SELECT max(d.created_at) FROM deployments d WHERE d.resource_id = r.id), r.server_id, r.engine, r.created_at, r.updated_at
+	       (SELECT max(d.created_at) FROM deployments d WHERE d.resource_id = r.id), r.server_id, r.engine, r.created_at, r.updated_at, r.team_id
 	FROM resources r JOIN environments e ON e.id = r.environment_id`
 
 func scanResource(row pgx.Row) (*Resource, error) {
 	var r Resource
 	var domain *string
 	err := row.Scan(&r.ID, &r.ProjectID, &r.EnvironmentID, &r.Environment, &r.Name, &r.Type, &r.SourceType, &r.Image, &r.RepoURL, &r.Branch, &r.Dockerfile,
-		&r.Port, &r.Command, &r.DataPath, &r.MemoryMB, &r.CPUs, &r.DesiredState, &r.Status, &r.ContainerID, &r.HostPort, &r.CurrentDeploymentID, &r.RunningSince, &r.SourceID, &domain, &r.Volumes, &r.LastDeployAt, &r.ServerID, &r.Engine, &r.CreatedAt, &r.UpdatedAt)
+		&r.Port, &r.Command, &r.DataPath, &r.MemoryMB, &r.CPUs, &r.DesiredState, &r.Status, &r.ContainerID, &r.HostPort, &r.CurrentDeploymentID, &r.RunningSince, &r.SourceID, &domain, &r.Volumes, &r.LastDeployAt, &r.ServerID, &r.Engine, &r.CreatedAt, &r.UpdatedAt, &r.TeamID)
 	r.Domain = withPort(domain)
 	return &r, noRows(err)
 }
 
 func (s *Store) ListResources(ctx context.Context, projectID, environmentID, query, typ string) ([]Resource, error) {
-	rows, err := s.DB.Query(ctx, resourceSelect+`
+	rows, err := s.SQL(ctx).Query(ctx, resourceSelect+`
 		WHERE r.project_id = $1 AND ($2 = '' OR r.environment_id::text = $2) AND ($3 = '' OR r.name ILIKE '%' || $3 || '%' OR r.image ILIKE '%' || $3 || '%' OR r.repo_url ILIKE '%' || $3 || '%')
 		  AND ($4 = '' OR r.type = $4)
 		ORDER BY r.type, r.name`, projectID, environmentID, query, typ)
@@ -385,7 +445,7 @@ func (s *Store) ListResources(ctx context.Context, projectID, environmentID, que
 }
 
 func (s *Store) GetResource(ctx context.Context, id string) (*Resource, error) {
-	return scanResource(s.DB.QueryRow(ctx, resourceSelect+` WHERE r.id = $1`, id))
+	return scanResource(s.SQL(ctx).QueryRow(ctx, resourceSelect+` WHERE r.id = $1`, id))
 }
 
 type NewResource struct {
@@ -401,7 +461,7 @@ func (s *Store) CreateResource(ctx context.Context, tx pgx.Tx, r NewResource) (s
 	err := tx.QueryRow(ctx, `
 		INSERT INTO resources (project_id, environment_id, name, type, source_type, image, repo_url, branch, dockerfile, port, command, data_path, memory_mb, cpus, created_by, source_id, engine)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17) RETURNING id`,
-		r.ProjectID, r.EnvironmentID, r.Name, r.Type, r.SourceType, r.Image, r.RepoURL, r.Branch, r.Dockerfile, r.Port, r.Command, r.DataPath, r.MemoryMB, r.CPUs, nullable(r.CreatedBy), nullable(r.SourceID), r.Engine).Scan(&id)
+		nullable(r.ProjectID), r.EnvironmentID, r.Name, r.Type, r.SourceType, r.Image, r.RepoURL, r.Branch, r.Dockerfile, r.Port, r.Command, r.DataPath, r.MemoryMB, r.CPUs, nullable(r.CreatedBy), nullable(r.SourceID), r.Engine).Scan(&id)
 	if err == nil && r.Defaults != nil {
 		d := r.Defaults
 		_, err = tx.Exec(ctx, `UPDATE resources SET health_seconds = $2, stop_grace_seconds = $3, restart_policy = $4, build_mode = $5 WHERE id = $1`,
@@ -430,7 +490,7 @@ type ResourcePatch struct {
 }
 
 func (s *Store) UpdateResource(ctx context.Context, id string, p ResourcePatch) error {
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE resources SET image = COALESCE($2, image), repo_url = COALESCE($3, repo_url), branch = COALESCE($4, branch),
 		       dockerfile = COALESCE($5, dockerfile), port = COALESCE($6, port), command = COALESCE($7, command),
 		       memory_mb = COALESCE($8, memory_mb), cpus = COALESCE($9, cpus),
@@ -441,23 +501,23 @@ func (s *Store) UpdateResource(ctx context.Context, id string, p ResourcePatch) 
 
 // SetRuntimeState is written by the worker from what Docker reports.
 func (s *Store) SetRuntimeState(ctx context.Context, id, status, containerID string, hostPort *int) error {
-	_, err := s.DB.Exec(ctx, `UPDATE resources SET status = $2, container_id = $3, host_port = $4, updated_at = now() WHERE id = $1`, id, status, containerID, hostPort)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE resources SET status = $2, container_id = $3, host_port = $4, updated_at = now() WHERE id = $1`, id, status, containerID, hostPort)
 	return err
 }
 
 func (s *Store) SetStatus(ctx context.Context, id, status string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE resources SET status = $2, updated_at = now() WHERE id = $1`, id, status)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE resources SET status = $2, updated_at = now() WHERE id = $1`, id, status)
 	return err
 }
 
 func (s *Store) SetDesiredState(ctx context.Context, id, desired string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE resources SET desired_state = $2, updated_at = now() WHERE id = $1`, id, desired)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE resources SET desired_state = $2, updated_at = now() WHERE id = $1`, id, desired)
 	return err
 }
 
 // SetRunningSince records when the current container started (nil when it isn't running).
 func (s *Store) SetRunningSince(ctx context.Context, id string, since *time.Time) error {
-	_, err := s.DB.Exec(ctx, `UPDATE resources SET running_since = $2 WHERE id = $1 AND running_since IS DISTINCT FROM $2`, id, since)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE resources SET running_since = $2 WHERE id = $1 AND running_since IS DISTINCT FROM $2`, id, since)
 	return err
 }
 
@@ -480,8 +540,8 @@ func (s *Store) ListServerResources(ctx context.Context, serverID string) ([]Res
 
 func (s *Store) listResourcesWithUsage(ctx context.Context, query, typ, serverID string) ([]Resource, error) {
 	// Same columns as resourceSelect, plus the project name and the newest sample.
-	sql := strings.Replace(resourceSelect, "\n\tFROM resources r", ", p.name, m.cpu_percent, m.memory_bytes, m.at\n\tFROM resources r", 1) + `
-		JOIN projects p ON p.id = r.project_id
+	sql := strings.Replace(resourceSelect, "\n\tFROM resources r", ", COALESCE(p.name,''), m.cpu_percent, m.memory_bytes, m.at\n\tFROM resources r", 1) + `
+		LEFT JOIN projects p ON p.id = r.project_id
 		LEFT JOIN LATERAL (
 			SELECT cpu_percent, memory_bytes, at FROM metric_samples
 			WHERE resource_id = r.id AND at > now() - interval '60 seconds' ORDER BY at DESC LIMIT 1
@@ -490,7 +550,7 @@ func (s *Store) listResourcesWithUsage(ctx context.Context, query, typ, serverID
 		  AND ($1 = '' OR r.name ILIKE '%' || $1 || '%' OR r.image ILIKE '%' || $1 || '%' OR r.repo_url ILIKE '%' || $1 || '%')
 		  AND ($2 = '' OR r.type = $2)
 		ORDER BY p.name, r.type, r.name`
-	rows, err := s.DB.Query(ctx, sql, query, typ, serverID)
+	rows, err := s.SQL(ctx).Query(ctx, sql, query, typ, serverID)
 	if err != nil {
 		return nil, err
 	}
@@ -503,7 +563,7 @@ func (s *Store) listResourcesWithUsage(ctx context.Context, query, typ, serverID
 		var at *time.Time
 		var domain *string
 		err := rows.Scan(&r.ID, &r.ProjectID, &r.EnvironmentID, &r.Environment, &r.Name, &r.Type, &r.SourceType, &r.Image, &r.RepoURL, &r.Branch, &r.Dockerfile,
-			&r.Port, &r.Command, &r.DataPath, &r.MemoryMB, &r.CPUs, &r.DesiredState, &r.Status, &r.ContainerID, &r.HostPort, &r.CurrentDeploymentID, &r.RunningSince, &r.SourceID, &domain, &r.Volumes, &r.LastDeployAt, &r.ServerID, &r.Engine, &r.CreatedAt, &r.UpdatedAt,
+			&r.Port, &r.Command, &r.DataPath, &r.MemoryMB, &r.CPUs, &r.DesiredState, &r.Status, &r.ContainerID, &r.HostPort, &r.CurrentDeploymentID, &r.RunningSince, &r.SourceID, &domain, &r.Volumes, &r.LastDeployAt, &r.ServerID, &r.Engine, &r.CreatedAt, &r.UpdatedAt, &r.TeamID,
 			&r.ProjectName, &cpu, &mem, &at)
 		if err != nil {
 			return nil, err
@@ -518,7 +578,7 @@ func (s *Store) listResourcesWithUsage(ctx context.Context, query, typ, serverID
 }
 
 func (s *Store) DeleteResourceRow(ctx context.Context, id string) error {
-	_, err := s.DB.Exec(ctx, `DELETE FROM resources WHERE id = $1`, id)
+	_, err := s.SQL(ctx).Exec(ctx, `DELETE FROM resources WHERE id = $1`, id)
 	return err
 }
 
@@ -534,7 +594,7 @@ type EnvVar struct {
 }
 
 func (s *Store) ListEnv(ctx context.Context, resourceID string) ([]EnvVar, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT v.key, v.value_enc, v.secret, COALESCE(u.email, ''), v.updated_at
 		FROM env_vars v LEFT JOIN users u ON u.id = v.updated_by WHERE v.resource_id = $1 ORDER BY v.key`, resourceID)
 	if err != nil {
@@ -554,7 +614,7 @@ func (s *Store) ListEnv(ctx context.Context, resourceID string) ([]EnvVar, error
 
 // ReplaceEnv swaps the full variable set atomically. Unchanged rows keep their updated_by/at.
 func (s *Store) ReplaceEnv(ctx context.Context, resourceID, userID string, vars []EnvVar) error {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -616,7 +676,7 @@ func scanDeployment(row pgx.Row) (*Deployment, error) {
 }
 
 func (s *Store) ListDeployments(ctx context.Context, resourceID string, limit int) ([]Deployment, error) {
-	rows, err := s.DB.Query(ctx, deploymentSelect+` WHERE d.resource_id = $1 ORDER BY d.number DESC LIMIT $2`, resourceID, limit)
+	rows, err := s.SQL(ctx).Query(ctx, deploymentSelect+` WHERE d.resource_id = $1 ORDER BY d.number DESC LIMIT $2`, resourceID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -633,7 +693,7 @@ func (s *Store) ListDeployments(ctx context.Context, resourceID string, limit in
 }
 
 func (s *Store) GetDeployment(ctx context.Context, id string) (*Deployment, error) {
-	return scanDeployment(s.DB.QueryRow(ctx, deploymentSelect+` WHERE d.id = $1`, id))
+	return scanDeployment(s.SQL(ctx).QueryRow(ctx, deploymentSelect+` WHERE d.id = $1`, id))
 }
 
 // CreateDeployment numbers deployments per resource; the row lock on the resource serializes numbering.
@@ -682,7 +742,7 @@ func nullable(s string) *string {
 }
 
 func (s *Store) SetDeploymentStatus(ctx context.Context, id, status, errMsg string) error {
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE deployments SET status = $2, error = $3,
 		       started_at = CASE WHEN $2 IN ('building', 'deploying') THEN COALESCE(started_at, now()) ELSE started_at END,
 		       finished_at = CASE WHEN $2 IN ('successful', 'failed', 'cancelled') THEN now() ELSE finished_at END
@@ -691,12 +751,12 @@ func (s *Store) SetDeploymentStatus(ctx context.Context, id, status, errMsg stri
 }
 
 func (s *Store) SetDeploymentArtifact(ctx context.Context, id, imageRef, commit string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE deployments SET image_ref = $2, commit_sha = COALESCE(NULLIF($3, ''), commit_sha) WHERE id = $1`, id, imageRef, commit)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE deployments SET image_ref = $2, commit_sha = COALESCE(NULLIF($3, ''), commit_sha) WHERE id = $1`, id, imageRef, commit)
 	return err
 }
 
 func (s *Store) MarkCurrent(ctx context.Context, resourceID, deploymentID string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE resources SET current_deployment_id = $2, updated_at = now() WHERE id = $1`, resourceID, deploymentID)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE resources SET current_deployment_id = $2, updated_at = now() WHERE id = $1`, resourceID, deploymentID)
 	return err
 }
 
@@ -709,7 +769,7 @@ type JobLog struct {
 }
 
 func (s *Store) JobLogs(ctx context.Context, jobID string, afterID int64) ([]JobLog, error) {
-	rows, err := s.DB.Query(ctx, `SELECT id, level, step, message, created_at FROM job_logs WHERE job_id = $1 AND id > $2 ORDER BY id LIMIT 2000`, jobID, afterID)
+	rows, err := s.SQL(ctx).Query(ctx, `SELECT id, level, step, message, created_at FROM job_logs WHERE job_id = $1 AND id > $2 ORDER BY id LIMIT 2000`, jobID, afterID)
 	if err != nil {
 		return nil, err
 	}
@@ -740,6 +800,13 @@ type AuditEvent struct {
 
 // Audit records an event. Callers must never put secret values in detail.
 func (s *Store) Audit(ctx context.Context, actor *User, action, targetType, targetID string, detail map[string]any, ip string) {
+	if scope, ok := ScopeFrom(ctx); ok && scope.InstanceAdmin {
+		merged := map[string]any{"asInstanceAdministrator": true}
+		for k, v := range detail {
+			merged[k] = v
+		}
+		detail = merged
+	}
 	b, _ := json.Marshal(detail)
 	var id, email *string
 	if actor != nil {
@@ -748,12 +815,19 @@ func (s *Store) Audit(ctx context.Context, actor *User, action, targetType, targ
 			id = &actor.ID
 		}
 	}
-	s.DB.Exec(ctx, `INSERT INTO audit_events (actor_id, actor_email, action, target_type, target_id, detail, ip) VALUES ($1, COALESCE($2, 'system'), $3, $4, $5, $6, $7)`,
-		id, email, action, targetType, targetID, b, ip)
+	var team *string
+	if scope, ok := ScopeFrom(ctx); ok {
+		team = &scope.TeamID
+	} else if auditTeam, ok := ctx.Value(auditTeamKey{}).(string); ok {
+		team = &auditTeam
+	}
+	// Audit writes have explicit trusted ownership and must also record actions which relinquish access.
+	s.DB.Exec(ctx, `INSERT INTO audit_events(team_id,actor_id,actor_email,action,target_type,target_id,detail,ip) VALUES($1,$2,COALESCE($3,'system'),$4,$5,$6,$7,$8)`, team, id, email, action, targetType, targetID, b, ip)
+
 }
 
 func (s *Store) ListAudit(ctx context.Context, targetID string, limit int) ([]AuditEvent, error) {
-	rows, err := s.DB.Query(ctx, `SELECT id, actor_email, action, target_type, target_id, detail, ip, created_at FROM audit_events
+	rows, err := s.SQL(ctx).Query(ctx, `SELECT id, actor_email, action, target_type, target_id, detail, ip, created_at FROM audit_events
 		WHERE ($1 = '' OR target_id = $1) ORDER BY id DESC LIMIT $2`, targetID, limit)
 	if err != nil {
 		return nil, err
@@ -768,4 +842,17 @@ func (s *Store) ListAudit(ctx context.Context, targetID string, limit int) ([]Au
 		out = append(out, e)
 	}
 	return out, rows.Err()
+}
+
+func (r Resource) MarshalJSON() ([]byte, error) {
+	type alias Resource
+	var project *string
+	if r.ProjectID != "" {
+		id := r.ProjectID
+		project = &id
+	}
+	return json.Marshal(struct {
+		alias
+		ProjectID *string `json:"projectId"`
+	}{alias(r), project})
 }

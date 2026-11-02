@@ -25,13 +25,13 @@ func (s *Store) deploymentsWhere(ctx context.Context, cond string, args []any, q
 	}
 	n := len(args)
 	qa, la, oa := fmt.Sprintf("$%d", n+1), fmt.Sprintf("$%d", n+2), fmt.Sprintf("$%d", n+3)
-	sql := strings.Replace(deploymentSelect, "\n\tFROM deployments d", `, r.name, r.type, p.id, p.name, e.name, e.id, count(*) OVER ()
+	sql := strings.Replace(deploymentSelect, "\n\tFROM deployments d", `, r.name, r.type, COALESCE(p.id::text,''), COALESCE(p.name,'No project'), e.name, e.id, count(*) OVER ()
 	FROM deployments d`, 1) + `
-		JOIN projects p ON p.id = r.project_id JOIN environments e ON e.id = r.environment_id
+		LEFT JOIN projects p ON p.id = r.project_id JOIN environments e ON e.id = r.environment_id
 		WHERE ` + cond + ` AND ` + status + ` AND (` + qa + ` = '' OR r.name ILIKE '%' || ` + qa + ` || '%' OR p.name ILIKE '%' || ` + qa + ` || '%' OR d.commit_sha ILIKE ` + qa + ` || '%'
 		      OR d.image_ref ILIKE '%' || ` + qa + ` || '%' OR d.error ILIKE '%' || ` + qa + ` || '%' OR d.reason ILIKE '%' || ` + qa + ` || '%' OR d.id::text = ` + qa + `)
 		ORDER BY d.created_at DESC LIMIT ` + la + ` OFFSET ` + oa
-	rows, err := s.DB.Query(ctx, sql, append(args, q.Q, q.Limit, max(q.Offset, 0))...)
+	rows, err := s.SQL(ctx).Query(ctx, sql, append(args, q.Q, q.Limit, max(q.Offset, 0))...)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -77,7 +77,7 @@ type DayCount struct {
 
 func (s *Store) ProjectDeployStats(ctx context.Context, projectID, envID string, days int) (DeployStats, error) {
 	var st DeployStats
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		SELECT count(*), count(*) FILTER (WHERE d.status = 'successful'), count(*) FILTER (WHERE d.status = 'failed'),
 		       count(*) FILTER (WHERE d.status = 'cancelled'), count(*) FILTER (WHERE d.status IN ('queued', 'building', 'deploying')),
 		       avg(extract(epoch FROM d.finished_at - d.created_at)) FILTER (WHERE d.status = 'successful' AND d.finished_at IS NOT NULL),
@@ -88,7 +88,7 @@ func (s *Store) ProjectDeployStats(ctx context.Context, projectID, envID string,
 	if err != nil {
 		return st, err
 	}
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT g.day, count(d.id) FILTER (WHERE d.status = 'successful'), count(d.id) FILTER (WHERE d.status = 'failed')
 		FROM generate_series(date_trunc('day', now()) - make_interval(days => $3 - 1), date_trunc('day', now()), interval '1 day') g(day)
 		LEFT JOIN (deployments d JOIN resources r ON r.id = d.resource_id AND r.project_id = $1 AND ($2 = '' OR r.environment_id::text = $2))
@@ -133,11 +133,13 @@ type UsagePoint struct {
 	TxBps  *float64  `json:"txBps"`
 }
 
+// ProjectUsage is per-resource usage over a window; an empty projectID covers the whole team (what
+// row-level security lets the caller see).
 func (s *Store) ProjectUsage(ctx context.Context, projectID, envID string, window, step time.Duration) ([]time.Time, []ResourceUsage, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT r.id, r.name, r.type, r.status, e.name, r.memory_mb::bigint << 20, r.cpus::float8, r.running_since
 		FROM resources r JOIN environments e ON e.id = r.environment_id
-		WHERE r.project_id = $1 AND ($2 = '' OR e.id::text = $2) AND r.source_type <> 'external'
+		WHERE ($1 = '' OR r.project_id::text = $1) AND ($2 = '' OR e.id::text = $2) AND r.source_type <> 'external'
 		ORDER BY e.position, r.name`, projectID, envID)
 	if err != nil {
 		return nil, nil, err
@@ -156,7 +158,7 @@ func (s *Store) ProjectUsage(ctx context.Context, projectID, envID string, windo
 	rows.Close()
 	// The buckets every series shares, oldest first.
 	var buckets []time.Time
-	brows, err := s.DB.Query(ctx, `SELECT generate_series(date_bin($2::interval, now() - $1::interval, 'epoch'), now(), $2::interval)`, interval(window), interval(step))
+	brows, err := s.SQL(ctx).Query(ctx, `SELECT generate_series(date_bin($2::interval, now() - $1::interval, 'epoch'), now(), $2::interval)`, interval(window), interval(step))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -173,10 +175,10 @@ func (s *Store) ProjectUsage(ctx context.Context, projectID, envID string, windo
 	for i := range list {
 		list[i].Series = make([]*UsagePoint, len(buckets))
 	}
-	srows, err := s.DB.Query(ctx, `
+	srows, err := s.SQL(ctx).Query(ctx, `
 		SELECT m.resource_id, date_bin($3::interval, m.at, 'epoch'), avg(m.cpu_percent)::float8, avg(m.memory_bytes)::float8, avg(m.net_rx_bps)::float8, avg(m.net_tx_bps)::float8
 		FROM metric_samples m JOIN resources r ON r.id = m.resource_id
-		WHERE r.project_id = $1 AND ($4 = '' OR r.environment_id::text = $4) AND m.at >= now() - $2::interval - $3::interval
+		WHERE ($1 = '' OR r.project_id::text = $1) AND ($4 = '' OR r.environment_id::text = $4) AND m.at >= now() - $2::interval - $3::interval
 		GROUP BY 1, 2`, projectID, interval(window), interval(step), envID)
 	if err != nil {
 		return nil, nil, err
@@ -195,10 +197,10 @@ func (s *Store) ProjectUsage(ctx context.Context, projectID, envID string, windo
 		}
 	}
 	srows.Close()
-	lrows, err := s.DB.Query(ctx, `
+	lrows, err := s.SQL(ctx).Query(ctx, `
 		SELECT DISTINCT ON (m.resource_id) m.resource_id, m.at, m.cpu_percent::float8, m.memory_bytes::float8, m.net_rx_bps::float8, m.net_tx_bps::float8
 		FROM metric_samples m JOIN resources r ON r.id = m.resource_id
-		WHERE r.project_id = $1 AND m.at > now() - interval '60 seconds' ORDER BY m.resource_id, m.at DESC`, projectID)
+		WHERE ($1 = '' OR r.project_id::text = $1) AND m.at > now() - interval '60 seconds' ORDER BY m.resource_id, m.at DESC`, projectID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -220,7 +222,7 @@ func (s *Store) ProjectUsage(ctx context.Context, projectID, envID string, windo
 
 // ProjectActivity is the audit trail of the project and everything in it.
 func (s *Store) ProjectActivity(ctx context.Context, projectID string, limit int) ([]AuditEvent, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT a.id, a.actor_email, a.action, a.target_type, a.target_id, a.detail, a.ip, a.created_at FROM audit_events a
 		WHERE a.target_id = $1 OR a.target_id IN (SELECT id::text FROM resources WHERE project_id::text = $1)
 		ORDER BY a.id DESC LIMIT $2`, projectID, limit)
@@ -252,7 +254,7 @@ type EnvironmentRow struct {
 }
 
 func (s *Store) ProjectEnvironments(ctx context.Context, projectID string) ([]EnvironmentRow, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT e.id, e.name, e.position, count(r.id), count(r.id) FILTER (WHERE r.status = 'running'),
 		       (SELECT count(*) FROM domains d JOIN resources x ON x.id = d.resource_id WHERE x.environment_id = e.id), e.created_at
 		FROM environments e LEFT JOIN resources r ON r.environment_id = e.id
@@ -274,15 +276,15 @@ func (s *Store) ProjectEnvironments(ctx context.Context, projectID string) ([]En
 
 func (s *Store) CreateEnvironment(ctx context.Context, projectID, name string) (string, error) {
 	var id string
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		INSERT INTO environments (project_id, name, position)
-		VALUES ($1, $2, COALESCE((SELECT max(position) + 1 FROM environments WHERE project_id = $1), 0)) RETURNING id`, projectID, name).Scan(&id)
+		VALUES ($1, $2, COALESCE((SELECT max(position) + 1 FROM environments WHERE project_id = $1), 0)) RETURNING id`, nullable(projectID), name).Scan(&id)
 	return id, err
 }
 
 // EnvironmentProject returns the project an environment belongs to.
 func (s *Store) EnvironmentProject(ctx context.Context, id string) (projectID, name string, resources int, err error) {
-	err = s.DB.QueryRow(ctx, `SELECT e.project_id, e.name, (SELECT count(*) FROM resources r WHERE r.environment_id = e.id) FROM environments e WHERE e.id = $1`, id).
+	err = s.SQL(ctx).QueryRow(ctx, `SELECT COALESCE(e.project_id::text,''), e.name, (SELECT count(*) FROM resources r WHERE r.environment_id = e.id) FROM environments e WHERE e.id = $1`, id).
 		Scan(&projectID, &name, &resources)
 	return projectID, name, resources, noRows(err)
 }
@@ -290,18 +292,18 @@ func (s *Store) EnvironmentProject(ctx context.Context, id string) (projectID, n
 // EnvironmentNameTaken: environment names are unique per project regardless of case.
 func (s *Store) EnvironmentNameTaken(ctx context.Context, projectID, name, exceptID string) bool {
 	var n int
-	s.DB.QueryRow(ctx, `SELECT count(*) FROM environments WHERE project_id = $1 AND lower(name) = lower($2) AND id::text <> $3`, projectID, name, exceptID).Scan(&n)
+	s.SQL(ctx).QueryRow(ctx, `SELECT count(*) FROM environments WHERE project_id = $1 AND lower(name) = lower($2) AND id::text <> $3`, projectID, name, exceptID).Scan(&n)
 	return n > 0
 }
 
 func (s *Store) RenameEnvironment(ctx context.Context, id, name string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE environments SET name = $2 WHERE id = $1`, id, name)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE environments SET name = $2 WHERE id = $1`, id, name)
 	return err
 }
 
 // ReorderEnvironments sets positions in the given order; the first is the project's default.
 func (s *Store) ReorderEnvironments(ctx context.Context, projectID string, ids []string) error {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -316,10 +318,10 @@ func (s *Store) ReorderEnvironments(ctx context.Context, projectID string, ids [
 
 // DeleteEnvironment refuses while resources live in it, and never deletes a project's last one.
 func (s *Store) DeleteEnvironment(ctx context.Context, id string) error {
-	tag, err := s.DB.Exec(ctx, `
+	tag, err := s.SQL(ctx).Exec(ctx, `
 		DELETE FROM environments e WHERE e.id = $1
 		AND NOT EXISTS (SELECT 1 FROM resources r WHERE r.environment_id = e.id)
-		AND (SELECT count(*) FROM environments x WHERE x.project_id = e.project_id) > 1`, id)
+		AND NOT e.is_team_default AND (e.project_id IS NULL OR (SELECT count(*) FROM environments x WHERE x.project_id = e.project_id) > 1)`, id)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}

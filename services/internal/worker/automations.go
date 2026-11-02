@@ -147,7 +147,7 @@ func (w *Worker) resolveTargets(ctx context.Context, p parsed) ([]target, map[st
 	var out []target
 	for i := range list {
 		s := &list[i]
-		if s.Removing {
+		if s.Removing || !w.Store.ServerAssigned(ctx, p.row.TeamID, s.ID) {
 			continue
 		}
 		match := tg.Matches(s.ID, s.Environment, s.Labels)
@@ -500,6 +500,19 @@ func (w *Worker) executePlan(ctx context.Context, p parsed, run *store.Automatio
 	var summaryParts []string
 	stopRollout := false
 	for _, pt := range plan {
+		if pt.Target.Kind == "resource" {
+			target, err := w.Store.GetResource(ctx, pt.Target.ID)
+			if err != nil || target.TeamID != p.row.TeamID {
+				lastError = "Target ownership changed"
+				failedTargets++
+				continue
+			}
+		}
+		if pt.Target.Kind == "server" && !w.Store.ServerAssigned(ctx, p.row.TeamID, pt.Target.ID) {
+			lastError = "Assigned capacity changed"
+			failedTargets++
+			continue
+		}
 		if pt.Skipped != "" {
 			seq++
 			w.Store.DB.Exec(ctx, `INSERT INTO automation_run_steps (run_id, seq, target_kind, target_id, target_name, action, status, output, finished_at)

@@ -1,3 +1,4 @@
+import './team-api.mjs';
 // Git-specific paths of the operations pages: built-image rollback, purging old images, hook branch
 // filtering, and a scratch image without a shell (tasks and command checks explain themselves).
 const BASE = process.env.IGNITION_URL;

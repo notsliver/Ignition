@@ -8,6 +8,7 @@ import {
 
 export const topItems = [
   { title: 'Dashboard', icon: Squares2X2Icon },
+  { title: 'Resources', icon: CubeIcon },
   { title: 'Projects', icon: RectangleStackIcon },
   { title: 'Monitor', icon: ChartBarIcon },
   { title: 'Settings', icon: Cog6ToothIcon },
@@ -19,25 +20,50 @@ export const groups = [
   { label: 'Discover', items: ['Templates', 'Changelog', 'Documentation'] },
 ];
 
+// Settings: what's yours. Your team, and you.
 export const settingsSections = [
   [
-    { title: 'General', icon: Cog6ToothIcon },
-    { title: 'Authentication & Security', icon: ShieldCheckIcon },
-    { title: 'Backups', icon: ArchiveBoxIcon },
-    { title: 'Notifications', icon: BellIcon },
-    { title: 'Updates', icon: ArrowPathIcon },
-    { title: 'Advanced', icon: WrenchScrewdriverIcon },
-  ],
-  [
-    { title: 'Users & Permissions', icon: UsersIcon },
-    { title: 'API Tokens', icon: KeyIcon },
-    { title: 'Audit Log', icon: ClipboardDocumentListIcon },
+    { title: 'Team', icon: UserGroupIcon },
+    { title: 'Team Members', icon: UsersIcon },
+    { title: 'Team Sources', icon: CodeBracketIcon },
   ],
   [
     { title: 'Profile', icon: UserCircleIcon },
     { title: 'Preferences', icon: AdjustmentsHorizontalIcon },
+    { title: 'API Tokens', icon: KeyIcon },
   ],
 ];
+
+// Instance administration (/admin): the whole installation, for platform admins. Every team is
+// affected by these, so they don't live in a team's settings.
+export const adminSections = [
+  { label: 'Instance', items: [
+    { title: 'General', icon: Cog6ToothIcon },
+    { title: 'Updates', icon: ArrowPathIcon },
+    { title: 'Limits', icon: AdjustmentsHorizontalIcon },
+    { title: 'Backups', icon: ArchiveBoxIcon },
+    { title: 'Notifications', icon: BellIcon },
+    { title: 'Advanced', icon: WrenchScrewdriverIcon },
+  ] },
+  { label: 'People & access', items: [
+    { title: 'Users', icon: UsersIcon },
+    { title: 'Teams', icon: UserGroupIcon },
+    { title: 'Authentication & Security', icon: ShieldCheckIcon },
+  ] },
+  { label: 'Records', items: [
+    { title: 'Audit Log', icon: ClipboardDocumentListIcon },
+  ] },
+];
+export const adminPages = adminSections.flatMap(s => s.items.map(i => i.title));
+// When General › Infrastructure is "Instance administration only", these join the admin sidebar.
+export const infrastructureSection = { label: 'Infrastructure', items: [
+  { title: 'Servers', icon: ServerStackIcon },
+  { title: 'Sources', icon: CodeBracketIcon },
+  { title: 'Domains', icon: GlobeAltIcon },
+  { title: 'Networking', icon: ShareIcon },
+  { title: 'Logs & monitoring', icon: PresentationChartLineIcon },
+] };
+export const infrastructurePages = infrastructureSection.items.map(i => i.title);
 
 export const settingsPages = settingsSections.flat().map(item => item.title);
 
@@ -121,6 +147,7 @@ export const serverSections = [
     { title: 'Docker', icon: Square3Stack3DIcon },
     { title: 'Storage', icon: CircleStackIcon },
     { title: 'Networking', icon: ShareIcon },
+    { title: 'Allocations', icon: MapIcon },
   ] },
   { label: 'Operations', items: [
     { title: 'Maintenance', icon: WrenchScrewdriverIcon },

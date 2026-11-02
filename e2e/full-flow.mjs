@@ -23,6 +23,7 @@ const step = async (name, fn) => {
     throw e;
   }
 };
+const apiUrl = path => {const team=process.env.IGNITION_TEAM_ID ?? new URL(page.url()).pathname.match(/^\/teams\/([^/]+)/)?.[1];if(!team)throw new Error('No active team in the browser URL');return `${BASE}/api/teams/${team}${path}`;};
 const shot = name => page.screenshot({ path: `${SHOTS}/${name}.png` });
 const resourceRow = name => page.locator('.resource-row', { has: page.locator('strong', { hasText: new RegExp(`^${name}$`) }) });
 async function waitForStatus(name, status, timeout = 180_000) {
@@ -38,8 +39,8 @@ try {
     await page.getByRole('heading', { name: 'Dashboard' }).waitFor();
   });
 
-  await step('dashboard is labelled as sample data', async () => {
-    await page.getByText('Preview with sample data').first().waitFor();
+  await step('dashboard uses the active team', async () => {
+    await page.locator('.quick-actions').waitFor();
     await shot('01-dashboard');
   });
 
@@ -56,8 +57,9 @@ try {
 
   await step('unsupported options explain themselves', async () => {
     await page.getByRole('button', { name: 'Add resource' }).click();
-    await page.getByRole('menuitem', { name: 'Scheduled job' }).click();
-    await page.getByText('Scheduled jobs aren\'t supported yet.').waitFor();
+    await page.getByRole('menuitem', { name: 'Application', exact: true }).click();
+    await page.getByRole('menuitem', { name: 'Select a template', exact: true }).click();
+    await page.getByRole('dialog').waitFor();
     await page.getByRole('button', { name: 'Got it' }).click();
   });
 
@@ -126,12 +128,12 @@ try {
   });
 
   await step('secret values are never sent to the browser', async () => {
-    const res = await page.request.get(`${BASE}/api/projects`);
+    const res = await page.request.get(apiUrl('/projects'));
     const { projects } = await res.json();
     const p = projects.find(x => x.name === project);
-    const { resources } = await (await page.request.get(`${BASE}/api/projects/${p.id}/resources`)).json();
+    const { resources } = await (await page.request.get(apiUrl(`/projects/${p.id}/resources`))).json();
     const hello = resources.find(r => r.name === 'hello-world');
-    const env = await (await page.request.get(`${BASE}/api/resources/${hello.id}/env`)).text();
+    const env = await (await page.request.get(apiUrl(`/resources/${hello.id}/env`))).text();
     if (env.includes('do-not-leak-me')) throw new Error('secret value leaked in the env API');
     if (!env.includes('hello from e2e')) throw new Error('plain variable missing');
     globalThis.ids = { project: p.id, hello: hello.id };
@@ -156,9 +158,11 @@ try {
     await shot('07-after-delete');
   });
 
-  await step('project delete is refused while resources exist', async () => {
-    const res = await page.request.delete(`${BASE}/api/projects/${globalThis.ids.project}`, { headers: { Origin: BASE } });
-    if (res.status() !== 409) throw new Error(`expected 409, got ${res.status()}`);
+  await step('deleting a project preserves its resources', async () => {
+    const res = await page.request.delete(apiUrl(`/projects/${globalThis.ids.project}`), { headers: { Origin: BASE } });
+    if (res.status() !== 204) throw new Error(`expected 204, got ${res.status()}`);
+    const { resources }=await (await page.request.get(apiUrl('/resources'))).json();
+    if (!resources.some(r=>r.name==='postgresql' && r.projectId===null)) throw new Error('Project deletion did not preserve its database');
   });
 
   console.log('\nAll steps passed.');

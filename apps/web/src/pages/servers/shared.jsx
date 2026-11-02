@@ -269,7 +269,7 @@ function MaintenanceDialog({ server, onClose, onDone }) {
     onConfirm={async () => onDone(await api.setServerMaintenance(server.id, entering, note))}>
     {entering && <>
       {a ? <ul className="sv-impact">
-        <li><strong>{a.workloads}</strong> workload(s) assigned, {a.running} running — they keep running.</li>
+        <li><strong>{a.workloads}</strong> {a.workloads === 1 ? 'workload' : 'workloads'} assigned, {a.running} running — they keep running.</li>
         <li><strong>{a.activity.deployments.length}</strong> deployment(s) in progress — they'll finish; new ones are refused.</li>
         <li><strong>{a.activity.jobs.length}</strong> server job(s) and <strong>{a.activity.taskRuns}</strong> task run(s) active.</li>
         <li><strong>{a.tasks}</strong> scheduled server task(s) — skipped while in maintenance, except diagnostics and checks.</li>

@@ -6,6 +6,7 @@ import { timeAgo, useQuery } from '../../api/hooks';
 import { projectOptions } from '../../app/createMenus';
 import { Unsupported } from '../../app/Unsupported';
 import { DuplicateProjectDialog, ImportComposeDialog, ImportGitDialog } from './ImportDialogs';
+import { ProjectAccessDialog } from '../../app/Teams';
 import './Projects.css';
 
 const views = [
@@ -44,6 +45,7 @@ export function Projects({ onOpen }) {
   const [deleting, setDeleting] = useState(null);
   const [unsupported, setUnsupported] = useState(null);
   const [importing, setImporting] = useState(null); // { kind: 'git'|'compose'|'duplicate', provider?, project? }
+  const [accessProject, setAccessProject] = useState(null);
   const [actionError, setActionError] = useState('');
   useEffect(() => { const t = setTimeout(() => setDebounced(query.trim()), 250); return () => clearTimeout(t); }, [query]);
 
@@ -60,7 +62,7 @@ export function Projects({ onOpen }) {
     'separator',
     { label: 'Edit project', icon: PencilSquareIcon, onSelect: () => setEditing(p) },
     { label: 'Duplicate project', icon: DocumentDuplicateIcon, onSelect: () => setImporting({ kind: 'duplicate', project: p }) },
-    { label: 'Manage access', icon: UserGroupIcon, onSelect: () => setUnsupported({ title: 'Per-project access isn\'t available yet', body: 'Today every signed-in user can see all projects, limited by their instance role (viewer, developer, admin, owner).' }) },
+    { label: 'Manage access', icon: UserGroupIcon, onSelect: () => setAccessProject(p) },
     'separator',
     p.archived
       ? { label: 'Unarchive project', icon: ArrowUturnLeftIcon, onSelect: () => run(() => api.updateProject(p.id, { archived: false })) }
@@ -129,10 +131,11 @@ export function Projects({ onOpen }) {
 
     {editing && <ProjectDialog project={editing} onClose={() => setEditing(null)} onSaved={p => { setEditing(null); refetch(); if (!editing.id) onOpen(p); }} />}
     <Dialog open={!!deleting} onClose={() => setDeleting(null)} title={`Delete ${deleting?.name}?`}
-      description={deleting?.resourceCount ? `It still has ${deleting.resourceCount} resources. Delete them first so their containers and data aren't left running.` : 'This removes the project and its environments. It can\'t be undone.'}
-      footer={<><Button onClick={() => setDeleting(null)}>Cancel</Button><Button className="danger-solid" disabled={!!deleting?.resourceCount} onClick={() => { const p = deleting; setDeleting(null); run(() => api.deleteProject(p.id)); }}>Delete project</Button></>} />
+      description="Resources, environments and storage are kept. Project-based access is removed from its resources."
+      footer={<><Button onClick={() => setDeleting(null)}>Cancel</Button><Button className="danger-solid" onClick={() => { const p = deleting; setDeleting(null); run(() => api.deleteProject(p.id)); }}>Delete project</Button></>} />
     <Unsupported info={unsupported} onClose={() => setUnsupported(null)} />
     {importing?.kind === 'duplicate' && <DuplicateProjectDialog projects={rows.length || !archived ? rows : []} project={importing.project} onClose={() => setImporting(null)} onCreated={p => { setImporting(null); refetch(); onOpen(p); }} />}
+    {accessProject && <ProjectAccessDialog project={accessProject} onClose={() => setAccessProject(null)} />}
     {creation.dialogs}
   </div>;
 }

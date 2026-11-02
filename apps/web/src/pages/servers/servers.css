@@ -291,3 +291,5 @@ td.sv-ellipsis{display:table-cell}
 .sv-capacity-bar i{display:block;height:100%;background:var(--accent)}
 .sv-capacity-bar.hot i{background:var(--danger)}
 .sv-capacity-table td.sv-findings{overflow:visible;text-overflow:clip;white-space:normal;min-width:220px}
+.sv-visibility{display:inline-flex;align-items:center;gap:8px;font-size:12.5px;color:var(--text-2)}
+.sv-name .sv-hidden{display:inline-flex;margin-left:6px;font-size:10.5px;height:18px}

@@ -46,7 +46,8 @@ const toForm = p => ({ ...p, ...Object.fromEntries(lists.map(k => [k, (p[k] ?? [
 const fromForm = v => ({ ...v, ...Object.fromEntries(lists.map(k => [k, v[k].split(',').map(x => x.trim()).filter(Boolean)])) });
 
 export function Security() {
-  const { user } = useSession();
+  const session = useSession();
+  const user = session.platformUser ?? session.user;
   const { data, error, refetch } = useQuery(() => api.security(), [], { pollMs: 60000 });
   const [saved, setSaved] = useState(null);
   const [values, setValues] = useState(null);
@@ -142,7 +143,7 @@ export function Security() {
           {values.mfaDeadline && <Button type="button" onClick={() => set('mfaDeadline')('')}>Clear</Button>}
         </SettingsField>
         {err('mfaDeadline')}
-        <SettingsField label="After the deadline" hint={values.mfaDeadlineAction === 'suspend' ? 'Suspended people can\'t sign in until an admin reactivates them on Users & Permissions. Owners and SSO-only accounts are never suspended.' : 'Their current sessions end, and the next sign-in walks them through setup.'} htmlFor="mfaDeadlineAction">
+        <SettingsField label="After the deadline" hint={values.mfaDeadlineAction === 'suspend' ? 'Suspended people can\'t sign in until an admin reactivates them under Instance administration › Users. Owners and SSO-only accounts are never suspended.' : 'Their current sessions end, and the next sign-in walks them through setup.'} htmlFor="mfaDeadlineAction">
           <Select options={mfaActions} {...bind('mfaDeadlineAction')} />
         </SettingsField>
         <SettingsField label="Note in the reminder" hint="Optional. Why you're asking, or where to get help." htmlFor="mfaMessage">

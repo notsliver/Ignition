@@ -16,7 +16,7 @@ type MetricSample struct {
 }
 
 func (s *Store) InsertMetric(ctx context.Context, m MetricSample) error {
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		INSERT INTO metric_samples (resource_id, at, cpu_percent, memory_bytes, memory_limit, net_rx_bps, net_tx_bps)
 		VALUES ($1, $2, $3, $4, $5, $6, $7) ON CONFLICT DO NOTHING`,
 		m.ResourceID, m.At, m.CPUPercent, int64(m.MemoryBytes), int64(m.MemoryLimit), m.NetRxBps, m.NetTxBps)
@@ -24,7 +24,7 @@ func (s *Store) InsertMetric(ctx context.Context, m MetricSample) error {
 }
 
 func (s *Store) PruneMetrics(ctx context.Context, olderThan time.Duration) (int64, error) {
-	tag, err := s.DB.Exec(ctx, `DELETE FROM metric_samples WHERE at < now() - $1::interval`, interval(olderThan))
+	tag, err := s.SQL(ctx).Exec(ctx, `DELETE FROM metric_samples WHERE at < now() - $1::interval`, interval(olderThan))
 	return tag.RowsAffected(), err
 }
 
@@ -44,7 +44,7 @@ type MetricBucket struct {
 
 // MetricSeries returns evenly spaced buckets covering [now-window, now].
 func (s *Store) MetricSeries(ctx context.Context, resourceID string, window, step time.Duration) ([]MetricBucket, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		WITH buckets AS (
 			SELECT generate_series(date_bin($3::interval, now() - $2::interval, 'epoch'), now(), $3::interval) AS at
 		), agg AS (
@@ -76,6 +76,6 @@ func (s *Store) MetricSeries(ctx context.Context, resourceID string, window, ste
 
 func (s *Store) LastMetricAt(ctx context.Context, resourceID string) (*time.Time, error) {
 	var at *time.Time
-	err := s.DB.QueryRow(ctx, `SELECT max(at) FROM metric_samples WHERE resource_id = $1`, resourceID).Scan(&at)
+	err := s.SQL(ctx).QueryRow(ctx, `SELECT max(at) FROM metric_samples WHERE resource_id = $1`, resourceID).Scan(&at)
 	return at, err
 }

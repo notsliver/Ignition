@@ -83,7 +83,10 @@ func TestServerStatusFiltersAndDeploymentGate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.DeleteProject(ctx, projectID)
+	defer func() {
+		pool.Exec(ctx, `DELETE FROM resources WHERE project_id=$1`, projectID)
+		s.DeleteProject(ctx, projectID)
+	}()
 	var envID string
 	pool.QueryRow(ctx, `SELECT id FROM environments WHERE project_id = $1`, projectID).Scan(&envID)
 	tx, _ := pool.Begin(ctx)

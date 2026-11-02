@@ -9,6 +9,7 @@ import { useProjectCreation } from '../Projects/Projects';
 import { ResourceQuickCreate } from './ResourceQuickCreate';
 import '../project/Deployments/Deployments.css';
 import './Dashboard.css';
+import { useInfrastructureAdminOnly } from '../../app/instance';
 
 /*
  * The dashboard: what needs attention, the numbers that matter, the latest deployments across every
@@ -26,6 +27,10 @@ const percent = v => `${v.toFixed(1)}%`;
 const gb = b => b >= 1 << 30 ? `${(b / (1 << 30)).toFixed(1)} GB` : `${Math.round(b / (1 << 20))} MB`;
 
 export function Dashboard({ onOpenResource, onOpenProject, onOpenServer, onNavigate }) {
+  // With infrastructure managed in Instance administration, the dashboard (a team page) shows the team's
+  // own resources, even to platform admins: servers are in Instance administration › Infrastructure.
+  const infraAdmin = useInfrastructureAdminOnly();
+  const serversHere = !infraAdmin;
   const [resourceAction, setResourceAction] = useState(null);
   const { data, error, refetch } = useQuery(() => api.dashboard(), [], { pollMs: 5000 });
   const projectsQuery = useQuery(() => api.projects(), []);
@@ -35,7 +40,9 @@ export function Dashboard({ onOpenResource, onOpenProject, onOpenServer, onNavig
     : item.items ? { ...item, items: resourceMenu(item.items, `${prefix}${item.label}/`) }
       : { ...item, onSelect: () => setResourceAction({ path: `${prefix}${item.label}`, label: item.label }) });
   const localId = data?.localServer?.id;
-  const metrics = useQuery(() => (localId ? api.serverMetrics(localId, '1h') : Promise.resolve(null)), [localId], { pollMs: 30000 });
+  const metrics = useQuery(() => (serversHere && localId ? api.serverMetrics(localId, '1h') : Promise.resolve(null)), [localId, serversHere], { pollMs: 30000 });
+  // Without access to the servers, show what this team's own resources use instead of the whole host.
+  const usage = useQuery(() => (serversHere ? Promise.resolve(null) : api.teamUsage('1h')), [serversHere], { pollMs: 30000 });
 
   const open = link => link.kind === 'server'
     ? onOpenServer?.({ id: link.serverId }, link.view)
@@ -45,7 +52,7 @@ export function Dashboard({ onOpenResource, onOpenProject, onOpenServer, onNavig
   const stats = st ? [
     { label: 'Projects', value: st.projects, detail: st.resources ? `${st.resources} resource${st.resources === 1 ? '' : 's'}` : 'No resources yet', go: () => onNavigate?.('Projects') },
     { label: 'Running resources', value: st.running, detail: [st.failed && `${st.failed} failed`, st.resources - st.running - st.failed > 0 && `${st.resources - st.running - st.failed} not running`].filter(Boolean).join(' · ') || (st.resources ? 'All running' : '—') },
-    { label: 'Servers', value: `${st.serversOnline} / ${st.servers}`, detail: st.serversOnline === st.servers ? 'All connected' : `${st.servers - st.serversOnline} not connected`, go: () => onNavigate?.('Servers') },
+    { label: 'Servers', value: `${st.serversOnline} / ${st.servers}`, detail: st.serversOnline === st.servers ? 'All connected' : `${st.servers - st.serversOnline} not connected`, go: serversHere ? () => onNavigate?.('Servers') : undefined },
     { label: 'Deployments, 24 h', value: st.deployments24h, detail: st.activeDeployments ? `${st.activeDeployments} in progress` : st.deployments24h ? `${st.deployments24h - st.failedDeployments24h} successful · ${st.failedDeployments24h} failed` : 'None today' },
   ] : [];
 
@@ -54,7 +61,7 @@ export function Dashboard({ onOpenResource, onOpenProject, onOpenServer, onNavig
       <Menu className="button primary" label="Deploy application" items={resourceMenu(deployOptions, 'Application/')} align="start"><CloudArrowUpIcon />Deploy application</Menu>
       <Menu className="button" label="New project" items={projectCreation.items} align="start"><FolderPlusIcon />New project</Menu>
       <Menu className="button" label="New database" items={resourceMenu(databaseOptions, 'Database/')} align="start"><CircleStackIcon />New database</Menu>
-      <Menu className="button" label="Add server" items={serverOptions} align="start"><ServerIcon />Add server</Menu>
+      {serversHere && <Menu className="button" label="Add server" items={serverOptions} align="start"><ServerIcon />Add server</Menu>}
     </div>
 
     {error && !data && <Notice tone="danger" title="Couldn't load the dashboard">{error.message} <button type="button" className="inline-link" onClick={refetch}>Retry</button></Notice>}
@@ -109,14 +116,49 @@ export function Dashboard({ onOpenResource, onOpenProject, onOpenServer, onNavig
         </ol>}
     </Section>
 
-    <Section title={data?.localServer ? `Server resources · ${data.localServer.name}` : 'Server resources'} action="All servers" onAction={() => onNavigate?.('Servers')}>
+    {serversHere ? <Section title={data?.localServer ? `Server resources · ${data.localServer.name}` : 'Server resources'} action="All servers" onAction={() => onNavigate?.('Servers')}>
       <ServerUsage m={metrics.data} />
-    </Section>
+    </Section> : <Section title="Your team's resources" action="Monitor" onAction={() => onNavigate?.('Monitor')}>
+      <TeamUsage u={usage.data} error={usage.error} />
+    </Section>}
     {projectCreation.dialogs}
     {resourceAction && <ResourceQuickCreate action={resourceAction} projectsQuery={projectsQuery} onClose={() => setResourceAction(null)}
       onCreateProject={() => { setResourceAction(null); projectCreation.createEmpty(); }}
       onCreated={r => { setResourceAction(null); refetch(); onOpenResource?.(r); }}
       onOpen={r => { setResourceAction(null); onOpenResource?.(r); }} />}
+  </div>;
+}
+
+// The team's resources added together, one value per step: CPU and network summed, memory against
+// the sum of their limits.
+function TeamUsage({ u, error }) {
+  const resources = u?.resources ?? [];
+  const steps = u?.buckets?.length ?? 0;
+  const sum = (key, i) => { let t = null; for (const r of resources) { const v = r.series?.[i]?.[key]; if (v != null) t = (t ?? 0) + v; } return t; };
+  const series = key => Array.from({ length: steps }, (_, i) => sum(key, i));
+  const latest = key => { let t = null; for (const r of resources) { const v = r.latest?.[key]; if (v != null) t = (t ?? 0) + v; } return t; };
+  const limit = resources.reduce((n, r) => n + (r.status === 'running' ? r.memoryLimit || 0 : 0), 0);
+  const running = resources.filter(r => r.status === 'running').length;
+  const rate = v => v == null ? null : v >= 1 << 20 ? `${(v / (1 << 20)).toFixed(1)} MB/s` : `${Math.round(v / 1024)} KB/s`;
+  const cpu = latest('cpu'), mem = latest('memory');
+  const cards = [
+    { label: 'Running', value: u ? `${running} / ${resources.length}` : null, detail: 'Resources in this team', data: [] },
+    { label: 'CPU', value: cpu != null ? percent(cpu) : null, detail: 'Of one core, added up', data: series('cpu'), format: percent },
+    { label: 'Memory', value: mem != null ? gb(mem) : null, detail: limit ? `of ${gb(limit)} in limits` : '', data: series('memory') },
+    { label: 'Network in', value: rate(latest('rxBps')), detail: 'Last hour', data: series('rxBps') },
+    { label: 'Network out', value: rate(latest('txBps')), detail: 'Last hour', data: series('txBps') },
+  ];
+  if (error && !u) return <p className="stat-detail">{error.message}</p>;
+  return <div className="resources">
+    {cards.map(c => {
+      const has = c.value != null;
+      return <div key={c.label} className={cx('resource', !has && 'unmeasured')}>
+        <span className="stat-label">{c.label}</span>
+        <span className="resource-value">{has ? c.value : '—'}</span>
+        <span className="stat-detail">{!u ? 'Loading…' : has ? c.detail : running ? 'Waiting for samples' : 'Nothing running'}</span>
+        {c.data.some(v => v != null) && <Sparkline data={c.data} label={c.label} format={c.format} />}
+      </div>;
+    })}
   </div>;
 }
 

@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ArrowDownTrayIcon, ArrowUturnLeftIcon, CircleStackIcon, ExclamationTriangleIcon, PlusIcon, TrashIcon, XMarkIcon } from '@heroicons/react/16/solid';
 import { Button, Dialog, Notice, TextInput, cx } from '../../../ui';
-import { api } from '../../../api/client';
+import { api, teamApiUrl } from '../../../api/client';
 import { useQuery } from '../../../api/hooks';
 import { useSession, can } from '../../../app/AuthGate';
 import { SaveBar } from '../../settings/SettingsField';
@@ -16,7 +16,7 @@ import './Storage.css';
 
 const NAME_RE = /^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$/;
 const bytes = n => n == null ? null : n < 1024 ? `${n} B` : n < 1 << 20 ? `${(n / 1024).toFixed(1)} KB` : n < 1 << 30 ? `${(n / (1 << 20)).toFixed(1)} MB` : `${(n / (1 << 30)).toFixed(2)} GB`;
-const backupUrl = (resourceId, docker) => `/api/resources/${resourceId}/storage/${encodeURIComponent(docker)}/backup`;
+const backupUrl = (resourceId, docker) => teamApiUrl(`/api/resources/${resourceId}/storage/${encodeURIComponent(docker)}/backup`);
 
 export function Storage({ resource, onNavigate, onResourceChange }) {
   const { user } = useSession();

@@ -35,7 +35,7 @@ type NetworkMember struct {
 }
 
 func (s *Store) ListSharedNetworks(ctx context.Context) ([]SharedNetwork, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT n.id, n.name, n.description, n.pinned, n.subnet, n.gateway, n.ipv6, n.subnet6, n.internal, n.created_at
 		FROM shared_networks n ORDER BY n.name`)
 	if err != nil {
@@ -55,9 +55,9 @@ func (s *Store) ListSharedNetworks(ctx context.Context) ([]SharedNetwork, error)
 	if err := rows.Err(); err != nil {
 		return nil, err
 	}
-	rows, err = s.DB.Query(ctx, `
-		SELECT m.network_id, r.id, r.name, p.name, m.ipv4, m.ipv6
-		FROM resource_networks m JOIN resources r ON r.id = m.resource_id JOIN projects p ON p.id = r.project_id
+	rows, err = s.SQL(ctx).Query(ctx, `
+		SELECT m.network_id, r.id, r.name, COALESCE(p.name,'No project'), m.ipv4, m.ipv6
+		FROM resource_networks m JOIN resources r ON r.id = m.resource_id LEFT JOIN projects p ON p.id = r.project_id
 		ORDER BY p.name, r.name`)
 	if err != nil {
 		return nil, err
@@ -82,14 +82,14 @@ func (s *Store) ListSharedNetworks(ctx context.Context) ([]SharedNetwork, error)
 
 func (s *Store) GetSharedNetwork(ctx context.Context, name string) (*SharedNetwork, error) {
 	var n SharedNetwork
-	err := s.DB.QueryRow(ctx, `SELECT id, name, description, pinned, subnet, gateway, ipv6, subnet6, internal, created_at FROM shared_networks WHERE name = $1`, name).
+	err := s.SQL(ctx).QueryRow(ctx, `SELECT id, name, description, pinned, subnet, gateway, ipv6, subnet6, internal, created_at FROM shared_networks WHERE name = $1`, name).
 		Scan(&n.ID, &n.Name, &n.Description, &n.Pinned, &n.Subnet, &n.Gateway, &n.IPv6, &n.Subnet6, &n.Internal, &n.CreatedAt)
 	return &n, noRows(err)
 }
 
 func (s *Store) CreateSharedNetwork(ctx context.Context, name, description string, spec NetworkSpec, userID string) (string, error) {
 	var id string
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		INSERT INTO shared_networks (name, description, pinned, subnet, gateway, ipv6, subnet6, internal, created_by)
 		VALUES ($1, $2, true, $3, $4, $5, $6, $7, $8) RETURNING id`,
 		name, description, spec.Subnet, spec.Gateway, spec.IPv6, spec.Subnet6, spec.Internal, nullable(userID)).Scan(&id)
@@ -97,12 +97,12 @@ func (s *Store) CreateSharedNetwork(ctx context.Context, name, description strin
 }
 
 func (s *Store) UpdateSharedNetwork(ctx context.Context, name, description string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE shared_networks SET description = $2, pinned = true WHERE name = $1`, name, description)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE shared_networks SET description = $2, pinned = true WHERE name = $1`, name, description)
 	return err
 }
 
 func (s *Store) DeleteSharedNetwork(ctx context.Context, name string) error {
-	tag, err := s.DB.Exec(ctx, `DELETE FROM shared_networks n WHERE name = $1 AND NOT EXISTS (SELECT 1 FROM resource_networks m WHERE m.network_id = n.id)`, name)
+	tag, err := s.SQL(ctx).Exec(ctx, `DELETE FROM shared_networks n WHERE name = $1 AND NOT EXISTS (SELECT 1 FROM resource_networks m WHERE m.network_id = n.id)`, name)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
@@ -111,7 +111,7 @@ func (s *Store) DeleteSharedNetwork(ctx context.Context, name string) error {
 
 // NetworkAddresses returns a resource's fixed addresses per shared network.
 func (s *Store) NetworkAddresses(ctx context.Context, resourceID string) (map[string]NetAddress, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT n.name, m.ipv4, m.ipv6 FROM resource_networks m JOIN shared_networks n ON n.id = m.network_id
 		WHERE m.resource_id = $1 AND (m.ipv4 <> '' OR m.ipv6 <> '')`, resourceID)
 	if err != nil {
@@ -133,7 +133,7 @@ func (s *Store) NetworkAddresses(ctx context.Context, resourceID string) (map[st
 // TakenAddress reports which other resource already has ip on the network, if any.
 func (s *Store) TakenAddress(ctx context.Context, network, resourceID, ip string) (string, error) {
 	var name string
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		SELECT r.name FROM resource_networks m JOIN shared_networks n ON n.id = m.network_id JOIN resources r ON r.id = m.resource_id
 		WHERE n.name = $1 AND m.resource_id <> $2 AND (m.ipv4 = $3 OR m.ipv6 = $3) LIMIT 1`, network, resourceID, ip).Scan(&name)
 	if err != nil {
@@ -154,7 +154,7 @@ type PortReservation struct {
 }
 
 func (s *Store) PortReservations(ctx context.Context) ([]PortReservation, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT r.id, r.port, r.protocol, r.note, COALESCE(u.email, ''), r.created_at
 		FROM port_reservations r LEFT JOIN users u ON u.id = r.created_by ORDER BY r.port, r.protocol`)
 	if err != nil {
@@ -174,7 +174,7 @@ func (s *Store) PortReservations(ctx context.Context) ([]PortReservation, error)
 
 func (s *Store) ReservePort(ctx context.Context, port int, protocol, note, userID string) (string, error) {
 	var id string
-	err := s.DB.QueryRow(ctx, `INSERT INTO port_reservations (port, protocol, note, created_by) VALUES ($1, $2, $3, $4) RETURNING id`,
+	err := s.SQL(ctx).QueryRow(ctx, `INSERT INTO port_reservations (port, protocol, note, created_by) VALUES ($1, $2, $3, $4) RETURNING id`,
 		port, protocol, note, nullable(userID)).Scan(&id)
 	return id, err
 }
@@ -182,13 +182,13 @@ func (s *Store) ReservePort(ctx context.Context, port int, protocol, note, userI
 func (s *Store) DeleteReservation(ctx context.Context, id string) (int, string, error) {
 	var port int
 	var proto string
-	err := s.DB.QueryRow(ctx, `DELETE FROM port_reservations WHERE id = $1 RETURNING port, protocol`, id).Scan(&port, &proto)
+	err := s.SQL(ctx).QueryRow(ctx, `DELETE FROM port_reservations WHERE id = $1 RETURNING port, protocol`, id).Scan(&port, &proto)
 	return port, proto, noRows(err)
 }
 
 func (s *Store) ReservedPort(ctx context.Context, port int, protocol string) (string, bool) {
 	var note string
-	err := s.DB.QueryRow(ctx, `SELECT note FROM port_reservations WHERE port = $1 AND protocol = $2`, port, protocol).Scan(&note)
+	err := s.SQL(ctx).QueryRow(ctx, `SELECT note FROM port_reservations WHERE port = $1 AND protocol = $2`, port, protocol).Scan(&note)
 	return note, err == nil
 }
 
@@ -207,9 +207,9 @@ type PortAssignment struct {
 }
 
 func (s *Store) PortAssignments(ctx context.Context) ([]PortAssignment, error) {
-	rows, err := s.DB.Query(ctx, `
-		SELECT r.id, r.name, p.id, p.name, rp.host_port, rp.container_port, rp.protocol, rp.bind_address, r.status, COALESCE(r.container_id, '')
-		FROM resource_ports rp JOIN resources r ON r.id = rp.resource_id JOIN projects p ON p.id = r.project_id
+	rows, err := s.SQL(ctx).Query(ctx, `
+		SELECT r.id, r.name, COALESCE(p.id::text,''), COALESCE(p.name,'No project'), rp.host_port, rp.container_port, rp.protocol, rp.bind_address, r.status, COALESCE(r.container_id, '')
+		FROM resource_ports rp JOIN resources r ON r.id = rp.resource_id LEFT JOIN projects p ON p.id = r.project_id
 		ORDER BY rp.host_port NULLS LAST, r.name`)
 	if err != nil {
 		return nil, err
@@ -241,7 +241,7 @@ type FirewallRule struct {
 }
 
 func (s *Store) FirewallRules(ctx context.Context, serverID string) ([]FirewallRule, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT f.id, f.server_id, f.port, f.protocol, f.sources, f.note, f.enabled, COALESCE(u.email, ''), f.created_at
 		FROM firewall_rules f LEFT JOIN users u ON u.id = f.created_by
 		WHERE ($1 = '' OR f.server_id::text = $1) ORDER BY f.port, f.protocol`, serverID)
@@ -262,14 +262,14 @@ func (s *Store) FirewallRules(ctx context.Context, serverID string) ([]FirewallR
 
 func (s *Store) GetFirewallRule(ctx context.Context, id string) (*FirewallRule, error) {
 	var f FirewallRule
-	err := s.DB.QueryRow(ctx, `SELECT id, server_id, port, protocol, sources, note, enabled, '', created_at FROM firewall_rules WHERE id = $1`, id).
+	err := s.SQL(ctx).QueryRow(ctx, `SELECT id, server_id, port, protocol, sources, note, enabled, '', created_at FROM firewall_rules WHERE id = $1`, id).
 		Scan(&f.ID, &f.ServerID, &f.Port, &f.Protocol, &f.Sources, &f.Note, &f.Enabled, &f.CreatedBy, &f.CreatedAt)
 	return &f, noRows(err)
 }
 
 func (s *Store) SaveFirewallRule(ctx context.Context, f FirewallRule, userID string) (string, error) {
 	var id string
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		INSERT INTO firewall_rules (server_id, port, protocol, sources, note, enabled, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7)
 		ON CONFLICT (server_id, port, protocol) DO UPDATE SET sources = EXCLUDED.sources, note = EXCLUDED.note, enabled = EXCLUDED.enabled
 		RETURNING id`, f.ServerID, f.Port, f.Protocol, f.Sources, f.Note, f.Enabled, nullable(userID)).Scan(&id)
@@ -277,7 +277,7 @@ func (s *Store) SaveFirewallRule(ctx context.Context, f FirewallRule, userID str
 }
 
 func (s *Store) DeleteFirewallRule(ctx context.Context, id string) error {
-	tag, err := s.DB.Exec(ctx, `DELETE FROM firewall_rules WHERE id = $1`, id)
+	tag, err := s.SQL(ctx).Exec(ctx, `DELETE FROM firewall_rules WHERE id = $1`, id)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
@@ -298,7 +298,7 @@ type DNSProvider struct {
 }
 
 func (s *Store) DNSProviders(ctx context.Context) ([]DNSProvider, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT p.id, p.name, p.kind, p.zones, p.verified_at, (SELECT count(*) FROM domains d WHERE d.dns_provider_id = p.id), p.created_at, p.token_enc
 		FROM dns_providers p ORDER BY p.name`)
 	if err != nil {
@@ -318,14 +318,14 @@ func (s *Store) DNSProviders(ctx context.Context) ([]DNSProvider, error) {
 
 func (s *Store) GetDNSProvider(ctx context.Context, id string) (*DNSProvider, error) {
 	var p DNSProvider
-	err := s.DB.QueryRow(ctx, `SELECT id, name, kind, zones, verified_at, 0, created_at, token_enc FROM dns_providers WHERE id = $1`, id).
+	err := s.SQL(ctx).QueryRow(ctx, `SELECT id, name, kind, zones, verified_at, 0, created_at, token_enc FROM dns_providers WHERE id = $1`, id).
 		Scan(&p.ID, &p.Name, &p.Kind, &p.Zones, &p.VerifiedAt, &p.Domains, &p.CreatedAt, &p.TokenEnc)
 	return &p, noRows(err)
 }
 
 // CreateDNSProvider stores a provider; the token is sealed by the caller, bound to the new row's ID.
 func (s *Store) CreateDNSProvider(ctx context.Context, name, kind string, zones []string, seal func(id string) ([]byte, error), userID string) (string, error) {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -346,12 +346,12 @@ func (s *Store) CreateDNSProvider(ctx context.Context, name, kind string, zones 
 }
 
 func (s *Store) SetDNSProviderZones(ctx context.Context, id string, zones []string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE dns_providers SET zones = $2, verified_at = now() WHERE id = $1`, id, zones)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE dns_providers SET zones = $2, verified_at = now() WHERE id = $1`, id, zones)
 	return err
 }
 
 func (s *Store) DeleteDNSProvider(ctx context.Context, id string) error {
-	tag, err := s.DB.Exec(ctx, `DELETE FROM dns_providers WHERE id = $1`, id)
+	tag, err := s.SQL(ctx).Exec(ctx, `DELETE FROM dns_providers WHERE id = $1`, id)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}

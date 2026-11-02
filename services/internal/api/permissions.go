@@ -126,6 +126,9 @@ var permissionByKey = func() map[string]permission {
 // can reports whether the user has a permission: role default, plus grants, minus denies.
 // Non-grantable permissions follow the role only.
 func can(u *store.User, key string) bool {
+	if u.TeamID != "" && key == "resources.privileged" && roleRank[u.InstanceRole] < roleRank["admin"] {
+		return false
+	}
 	p, ok := permissionByKey[key]
 	if !ok {
 		return false
@@ -152,18 +155,32 @@ func effectivePermissions(u *store.User) []string {
 
 // accountRoutes concern only the signed-in person (or are harmless lookups) and need no permission.
 var accountRoutes = map[string]bool{
+	"POST /api/account/avatar": true, "DELETE /api/account/avatar": true,
+	"GET /api/account/images/{kind}/{filename}": true,
+	"POST /api/teams/{teamId}/icon":             true, "DELETE /api/teams/{teamId}/icon": true,
+	"POST /api/teams/{teamId}/environments": true,
+	"GET /api/teams":                        true, "POST /api/teams": true, "GET /api/teams/{teamId}": true, "PATCH /api/teams/{teamId}": true,
+	"GET /api/teams/{teamId}/members": true, "PUT /api/teams/{teamId}/members/{id}": true, "DELETE /api/teams/{teamId}/members/{id}": true,
+	"GET /api/teams/{teamId}/invitations": true, "POST /api/teams/{teamId}/invitations": true, "DELETE /api/teams/{teamId}/invitations/{id}": true,
+	"POST /api/team-invitations/{token}/accept": true, "GET /api/teams/{teamId}/environments": true,
 	"GET /api/auth/me": true, "GET /api/account/security": true, "POST /api/account/mfa/setup": true, "POST /api/account/mfa/enable": true,
 	"POST /api/account/mfa/disable": true, "POST /api/account/mfa/recovery-codes": true, "GET /api/permissions": true, "GET /api/system": true,
 	"PUT /api/projects/{id}/favorite": true, "DELETE /api/projects/{id}/favorite": true, "GET /api/cron/preview": true, "GET /api/databases/engines": true,
 	"GET /api/automations/catalog": true,
 	"GET /api/games":               true, "GET /api/games/{game}/versions": true, "GET /api/games/{game}/modpacks": true, "GET /api/games/{game}/modpacks/{project}/versions": true,
-	"POST /api/setup/complete": true, // the owner check is in the handler
+	"POST /api/setup/complete":     true, // the owner check is in the handler
 	"GET /api/account/preferences": true, "PUT /api/account/preferences": true,
 	"POST /api/invites": true, // who may invite is a setting; checked in createInvite
 }
 
 // routePerms names the permission each route needs. TestEveryRouteHasAPermission keeps it complete.
 var routePerms = map[string]string{
+	"PUT /api/resources/{id}/project": "resources.delete",
+	"GET /api/platform/capacity":      "servers.update", "POST /api/platform/capacity": "servers.update",
+	"GET /api/platform/teams":            "users.view",
+	"GET /api/usage":                     "resources.view",
+	"GET /api/projects/{id}/assignments": "projects.update", "PUT /api/projects/{id}/assignments": "projects.update",
+	"POST /api/resources": "resources.create", "POST /api/external-databases": "resources.create", "POST /api/games": "resources.create",
 	// Projects
 	"GET /api/projects":                         "projects.view",
 	"GET /api/projects/{id}":                    "projects.view",
@@ -364,6 +381,11 @@ var routePerms = map[string]string{
 	"POST /api/servers":                                      "servers.create",
 	"POST /api/servers/verify":                               "servers.create",
 	"PATCH /api/servers/{id}":                                "servers.update",
+	"PUT /api/servers/{id}/visibility":                       "servers.update",
+	"GET /api/servers/{id}/allocations":                      "servers.view",
+	"POST /api/servers/{id}/allocations":                     "servers.update",
+	"POST /api/servers/{id}/allocations/delete":              "servers.update",
+	"PATCH /api/servers/{id}/allocations/{allocation}":       "servers.update",
 	"PUT /api/servers/{id}/deployments":                      "servers.update",
 	"POST /api/servers/{id}/maintenance":                     "servers.update",
 	"PUT /api/servers/{id}/maintenance/note":                 "servers.update",
@@ -413,6 +435,10 @@ var routePerms = map[string]string{
 
 	// Administration
 	"GET /api/settings/general":                   "settings.view",
+	"GET /api/settings/limits":                    "settings.view",
+	"PUT /api/settings/limits":                    "settings.update",
+	"GET /api/settings/quotas":                    "settings.view",
+	"PUT /api/settings/quotas":                    "settings.update",
 	"GET /api/settings/updates":                   "settings.view",
 	"PUT /api/settings/general":                   "settings.update",
 	"PUT /api/settings/updates":                   "settings.update",

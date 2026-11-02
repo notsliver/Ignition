@@ -169,12 +169,32 @@ export function Settings({ server, onChanged, actions, setFeedback }) {
       setFeedback({ tone: 'danger', title: 'Couldn\'t save', text: err.message });
     }
   }
+  const [visibilityBusy, setVisibilityBusy] = useState(false);
+  // Saved at once, not with the form: it changes what every team sees.
+  async function setVisible(visible) {
+    if (!visible && !window.confirm(`Hide ${server.name} from teams? They won't see it or deploy anything new to it; what runs there keeps running.`)) return;
+    setVisibilityBusy(true);
+    try {
+      const out = await api.setServerVisibility(server.id, visible);
+      onChanged(out.server);
+      setFeedback({ tone: 'success', title: visible ? `${server.name} is visible to teams` : `${server.name} is hidden from teams` });
+    } catch (err) { setFeedback({ tone: 'danger', title: "Couldn't change visibility", text: err.message }); }
+    setVisibilityBusy(false);
+  }
   const field = (k, label, hint, props = {}) => <SettingsField label={label} hint={errors[k] ? <span className="rp-error">{errors[k]}</span> : hint} htmlFor={k}>
     <TextInput {...form.bindInput(k)} disabled={!admin} {...props} />
   </SettingsField>;
 
   return <form className="settings-page rp-settings sv-settings" onSubmit={save}>
     {!admin && <Notice tone="info" title="Read-only">Only admins can change server settings.</Notice>}
+    <SettingsGroup title="Visibility" description="Whether teams can use this server.">
+      <SettingsField label="Visible to teams" htmlFor="sv-visible" hint={server.visible
+        ? 'Every team can see this server and deploy to it.'
+        : "Hidden: teams don't see it and nothing new is deployed to it (for a private, reserved or maintenance machine). What already runs here keeps running. Platform admins still manage it."}>
+        <span className="sv-visibility"><Switch label="Visible to teams" checked={server.visible} disabled={!admin || visibilityBusy} onChange={setVisible} />
+          <span>{server.visible ? 'Visible' : 'Hidden from teams'}</span></span>
+      </SettingsField>
+    </SettingsGroup>
     <SettingsGroup title="General">
       {field('name', 'Display name', 'Shown everywhere in Ignition.', { maxLength: 64 })}
       {field('hostname', 'Hostname', 'For people; Ignition connects to the address under Connection.', { maxLength: 253 })}

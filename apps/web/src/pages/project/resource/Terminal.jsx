@@ -6,6 +6,7 @@ import { WebLinksAddon } from '@xterm/addon-web-links';
 import '@xterm/xterm/css/xterm.css';
 import { Button, Switch, cx } from '../../../ui';
 import { useSession, can } from '../../../app/AuthGate';
+import { teamApiUrl } from '../../../api/client';
 import { PageIntro } from './shared';
 import './Terminal.css';
 
@@ -80,7 +81,7 @@ export function Terminal({ resource, onNavigate }) {
     setState({ phase: 'connecting' });
     const proto = location.protocol === 'https:' ? 'wss' : 'ws';
     const params = new URLSearchParams({ cols: term.cols, rows: term.rows, ...(root ? { root: '1' } : {}) });
-    const ws = new WebSocket(`${proto}://${location.host}/api/resources/${resource.id}/terminal?${params}`);
+    const ws = new WebSocket(`${proto}://${location.host}${teamApiUrl(`/api/resources/${resource.id}/terminal?${params}`)}`);
     ws.binaryType = 'arraybuffer';
     wsRef.current = ws;
     let ready = false;

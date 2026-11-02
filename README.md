@@ -34,9 +34,9 @@ Open `http://<your-server-ip>:8080`, enter the setup code, and create your owner
 
 ### Updating
 
-Go to **Settings › Updates** and click **Update now**. IGNITION pulls the new image and restarts itself in about a minute; your apps keep running. You can also re-run the install command.
+Go to **Instance administration › Updates** and click **Update now**. IGNITION pulls the new image and restarts itself in about a minute; your apps keep running. You can also re-run the install command.
 
-To pin a version, set `IGNITION_TAG` when installing (for example `IGNITION_TAG=0.1.0-beta`), or pick a release channel in Settings › Updates:
+To pin a version, set `IGNITION_TAG` when installing (for example `IGNITION_TAG=0.1.0-beta`), or pick a release channel in Instance administration › Updates:
 
 | Tag | What |
 | --- | --- |

@@ -198,6 +198,7 @@ func resolveModpack(ctx context.Context, m *games.Modpack) error {
 /* ---------------------------------- Create ---------------------------------- */
 
 type gameInput struct {
+	ProjectID     string     `json:"projectId"`
 	EnvironmentID string     `json:"environmentId"`
 	Name          string     `json:"name"`
 	Game          string     `json:"game"`
@@ -229,19 +230,20 @@ func slugName(s string) string {
 }
 
 func (s *Server) createGame(w http.ResponseWriter, r *http.Request, u *store.User) error {
-	projectID, err := pathID(r, "Project")
-	if err != nil {
-		return err
-	}
-	project, err := s.Store.GetProject(r.Context(), u.ID, projectID)
-	if err != nil {
-		return notFound(err, "Project")
-	}
-	if _, err := s.localDocker(); err != nil {
-		return err
-	}
+	projectID := r.PathValue("id")
 	var in gameInput
 	if err := httpx.Decode(r, &in); err != nil {
+		return err
+	}
+	if projectID == "" {
+		projectID = in.ProjectID
+	}
+	project, err := s.creationProject(r, u, projectID)
+	if err != nil {
+		return err
+	}
+
+	if _, err := s.localDocker(); err != nil {
 		return err
 	}
 	adapter, ok := games.Get(in.Game)
@@ -310,7 +312,7 @@ func (s *Server) createGame(w http.ResponseWriter, r *http.Request, u *store.Use
 		return err
 	}
 
-	tx, err := s.Store.DB.Begin(r.Context())
+	tx, err := s.Store.SQL(r.Context()).Begin(r.Context())
 	if err != nil {
 		return err
 	}
@@ -326,6 +328,23 @@ func (s *Server) createGame(w http.ResponseWriter, r *http.Request, u *store.Use
 	}
 	if err := s.Store.CreateGameServer(r.Context(), tx, id, in.Game, in.Spec, u.ID); err != nil {
 		return err
+	}
+	// A server with allocations hands out its own IP:port pairs; the game's main port takes one.
+	if srv, err := s.Store.LocalServer(r.Context()); err == nil && s.Store.ServerHasAllocations(r.Context(), srv.ID) && len(ports) > 0 {
+		alloc, err := s.Store.ClaimAllocation(r.Context(), tx, srv.ID, id)
+		if errors.Is(err, store.ErrNotFound) {
+			return httpx.Conflict("Every allocation on this server is in use. A platform administrator can add more under Servers › Allocations.")
+		}
+		if err != nil {
+			return err
+		}
+		ports[0] = alloc.Port
+	}
+	if err := s.checkResourceCap(r.Context(), "game", 0, 0, len(rt.Ports)); err != nil {
+		return domainError(err)
+	}
+	if err := s.checkQuotas(r.Context(), store.QuotaOwner{Team: u.TeamID, User: u.ID, Location: s.Store.LocalLocation(r.Context())}, u.ID, quotaDemand{Ports: len(rt.Ports)}); err != nil {
+		return domainError(err)
 	}
 	for i, p := range rt.Ports {
 		if _, err := tx.Exec(r.Context(), `INSERT INTO resource_ports (resource_id, host_port, container_port, protocol, bind_address) VALUES ($1, $2, $3, $4, '0.0.0.0')`,
@@ -434,6 +453,14 @@ func (s *Server) gameAddress(r *http.Request, res *store.Resource, srv games.Ser
 		host = r.Host
 		if h, _, err := net.SplitHostPort(r.Host); err == nil {
 			host = h
+		}
+	}
+	// An allocation's alias (or its own IP) is the address players should use.
+	if alloc, err := s.Store.ResourceAllocation(r.Context(), res.ID); err == nil {
+		if alloc.Alias != "" {
+			host, public = alloc.Alias, true
+		} else if alloc.IP != "0.0.0.0" && alloc.IP != "::" {
+			host, public = alloc.IP, true
 		}
 	}
 	a := &gameAddress{Host: host, Port: port, Protocol: gp.Protocol, Default: port == gp.Preferred, Public: public}
@@ -569,7 +596,7 @@ func (s *Server) updateGame(w http.ResponseWriter, r *http.Request, u *store.Use
 
 // deployNow queues a deployment of the resource's current settings.
 func (s *Server) deployNow(ctx context.Context, resourceID string, u *store.User, reason string) (string, error) {
-	tx, err := s.Store.DB.Begin(ctx)
+	tx, err := s.Store.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return "", err
 	}

@@ -20,7 +20,7 @@ type GameServer struct {
 
 func (s *Store) GetGameServer(ctx context.Context, resourceID string) (*GameServer, error) {
 	var g GameServer
-	err := s.DB.QueryRow(ctx, `SELECT resource_id, game, spec, initialized, eula_accepted_at, updated_at FROM game_servers WHERE resource_id = $1`, resourceID).
+	err := s.SQL(ctx).QueryRow(ctx, `SELECT resource_id, game, spec, initialized, eula_accepted_at, updated_at FROM game_servers WHERE resource_id = $1`, resourceID).
 		Scan(&g.ResourceID, &g.Game, &g.Spec, &g.Initialized, &g.EULAAcceptedAt, &g.UpdatedAt)
 	if err != nil {
 		return nil, err
@@ -44,7 +44,7 @@ func (s *Store) UpdateGameServer(ctx context.Context, resourceID string, spec an
 	if err != nil {
 		return err
 	}
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -60,13 +60,13 @@ func (s *Store) UpdateGameServer(ctx context.Context, resourceID string, spec an
 
 // MarkGameInitialized records that the game wrote its own settings, so setup values stop being passed.
 func (s *Store) MarkGameInitialized(ctx context.Context, resourceID string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE game_servers SET initialized = true WHERE resource_id = $1 AND NOT initialized`, resourceID)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE game_servers SET initialized = true WHERE resource_id = $1 AND NOT initialized`, resourceID)
 	return err
 }
 
 // TakenHostPorts lists host ports Ignition has assigned (any protocol), for picking a free game port.
 func (s *Store) TakenHostPorts(ctx context.Context, protocol string) (map[int]bool, error) {
-	rows, err := s.DB.Query(ctx, `SELECT host_port FROM resource_ports WHERE host_port IS NOT NULL AND protocol = $1`, protocol)
+	rows, err := s.SQL(ctx).Query(ctx, `SELECT host_port FROM resource_ports WHERE host_port IS NOT NULL AND protocol = $1`, protocol)
 	if err != nil {
 		return nil, err
 	}

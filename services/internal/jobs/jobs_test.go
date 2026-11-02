@@ -30,6 +30,16 @@ func testQueue(t *testing.T) *Queue {
 	if err := database.Migrate(ctx, pool); err != nil {
 		t.Fatal(err)
 	}
+	// Queue fixtures truncate jobs; serialize their lifetime with API queue assertions.
+	lock, err := pool.Acquire(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = lock.Exec(ctx, `SELECT pg_advisory_lock(8724312)`); err != nil {
+		lock.Release()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { lock.Exec(context.Background(), `SELECT pg_advisory_unlock(8724312)`); lock.Release() })
 	if _, err := pool.Exec(ctx, `TRUNCATE jobs CASCADE`); err != nil {
 		t.Fatal(err)
 	}

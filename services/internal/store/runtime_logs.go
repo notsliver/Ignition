@@ -16,7 +16,7 @@ type RuntimeLine struct {
 // ArchiveRuntimeLogs stores a retired container's output under its deployment (replacing any earlier archive)
 // and prunes archives beyond the newest keep per resource.
 func (s *Store) ArchiveRuntimeLogs(ctx context.Context, deploymentID string, lines []RuntimeLine, keep int) error {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -55,7 +55,7 @@ func (s *Store) ArchiveRuntimeLogs(ctx context.Context, deploymentID string, lin
 
 // ArchivedRuntimeLogs returns the newest `tail` lines of an archived deployment at or after since.
 func (s *Store) ArchivedRuntimeLogs(ctx context.Context, deploymentID string, since time.Time, tail int) ([]RuntimeLine, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT at, stream, message FROM (
 			SELECT seq, at, stream, message FROM runtime_logs
 			WHERE deployment_id = $1 AND at >= $2 ORDER BY seq DESC LIMIT $3
@@ -89,7 +89,7 @@ type LogSource struct {
 }
 
 func (s *Store) LogSources(ctx context.Context, resourceID string) ([]LogSource, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT d.id, d.number, d.status, d.trigger, d.commit_sha, r.current_deployment_id IS NOT DISTINCT FROM d.id,
 		       COALESCE(d.started_at, d.created_at), d.logs_archived_at, d.logs_lines
 		FROM deployments d JOIN resources r ON r.id = d.resource_id

@@ -34,7 +34,7 @@ if (-not (Test-Path .env)) {
 $port = ((Get-Content .env | Where-Object { $_ -match '^IGNITION_PORT=' }) -replace '^IGNITION_PORT=', '')
 if (-not $port) { $port = '8080' }
 
-# Stamp the build with the commit it comes from (Settings > Updates compares it with the repository).
+# Stamp the build with the commit it comes from (Instance administration > Updates compares it with the repository).
 git rev-parse HEAD *> $null
 if ($LASTEXITCODE -eq 0) {
   $env:IGNITION_COMMIT = (git rev-parse HEAD)

@@ -43,3 +43,16 @@
 .auth-or::before,.auth-or::after{content:'';flex:1;height:1px;background:var(--border)}
 .auth-link{display:inline-flex;align-items:center;gap:5px}
 .auth-link-icon{width:12px}
+
+/* In the onboarding frame (AuthShell): no floating card; the step reads like onboarding's. */
+.auth-shell .ob-body{align-items:flex-start;padding-top:min(12vh,88px)}
+.auth-step-col{max-width:420px}
+.auth-step-col.wide{max-width:600px}
+.auth-shell .auth-card{padding:0;border-radius:0;background:none;box-shadow:none}
+.auth-shell .auth-form{gap:16px}
+.auth-shell .auth-form header{gap:8px;margin-bottom:4px}
+.auth-shell .auth-form h1{font-size:24px;letter-spacing:-.4px}
+.auth-shell .auth-form header p{font-size:14px;line-height:1.55}
+.auth-shell .auth-loading{text-align:left;padding:8px 0}
+.auth-shell .auth-hint,.auth-shell .auth-link{text-align:left;align-self:flex-start}
+.auth-shell .auth-foot{justify-content:flex-start;margin-top:8px;padding-top:16px;border-top:1px solid var(--border)}

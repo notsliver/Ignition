@@ -95,7 +95,7 @@ func (s *Server) getNetworking(w http.ResponseWriter, r *http.Request, _ *store.
 	}
 
 	var projectName string
-	s.Store.DB.QueryRow(r.Context(), `SELECT name FROM projects WHERE id = $1`, res.ProjectID).Scan(&projectName)
+	s.Store.SQL(r.Context()).QueryRow(r.Context(), `SELECT name FROM projects WHERE id = $1`, res.ProjectID).Scan(&projectName)
 	sharedInfo, err := s.Store.SharedNetworks(r.Context())
 	if err != nil {
 		return err
@@ -425,6 +425,26 @@ func (s *Server) putNetworking(w http.ResponseWriter, r *http.Request, u *store.
 		return httpx.Invalid(f)
 	}
 	before, _ := s.Store.GetNetworking(r.Context(), id)
+	published := func(ports []store.PortMapping) (n int) {
+		for _, p := range ports {
+			if p.BindAddress != "127.0.0.1" {
+				n++
+			}
+		}
+		return n
+	}
+	if err := s.checkResourceCap(r.Context(), res.Type, 0, 0, published(cfg.Ports)); err != nil {
+		return domainError(err)
+	}
+	if more := published(cfg.Ports) - published(before.Ports); more > 0 {
+		o, err := s.Store.ResourceQuotaOwner(r.Context(), id)
+		if err != nil {
+			return err
+		}
+		if err := s.checkQuotas(r.Context(), o, u.ID, quotaDemand{Ports: more}); err != nil {
+			return domainError(err)
+		}
+	}
 	if err := s.Store.SetNetworking(r.Context(), id, u.ID, cfg); store.IsUnique(err) {
 		return httpx.Invalid(map[string]string{"ports": "Another resource just took one of these host ports. Pick another."})
 	} else if err != nil {

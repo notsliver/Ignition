@@ -91,7 +91,7 @@ func installed() map[string]any {
 		"version": version.Version, "commit": version.Commit, "builtAt": version.BuiltAt, "dirty": version.Dirty == "true",
 		"sourceDir": os.Getenv("IGNITION_SOURCE_DIR"), "image": os.Getenv("IGNITION_IMAGE"),
 		// A release image carries its tag as the version; anything else was built from a checkout.
-		"fromSource": !release && version.Version != "edge",
+		"fromSource":       !release && version.Version != "edge",
 		"localDevelopment": localDevelopment(),
 	}
 }

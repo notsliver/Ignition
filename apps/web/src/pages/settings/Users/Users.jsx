@@ -11,25 +11,28 @@ import '../settings.css';
 import './Users.css';
 
 /*
- * Instance-wide accounts and roles. There's no email delivery in a self-hosted install, so invitations and
+ * Instance administration › Users: every account on this installation and its instance role (who may
+ * administer the installation). Access to projects and resources comes from team memberships instead.
+ * Accounts and roles. There's no email delivery in a self-hosted install, so invitations and
  * password resets are one-time links to share. Guardrails (enforced by the API too): you can't change or remove
  * yourself, only owners manage owners, and there's always at least one active owner.
  */
 
 const ROLES = [
-  { value: 'owner', label: 'Owner', description: 'Everything, including managing owners' },
-  { value: 'admin', label: 'Admin', description: 'Users, settings, projects and secrets' },
-  { value: 'developer', label: 'Developer', description: 'Deploy and configure resources' },
-  { value: 'viewer', label: 'Viewer', description: 'Read-only' },
+  { value: 'owner', label: 'Owner', description: 'Administers the whole instance, including other owners' },
+  { value: 'admin', label: 'Admin', description: 'Instance settings, updates, servers, accounts and teams' },
+  { value: 'developer', label: 'Developer', description: 'No instance administration; works in the teams they belong to' },
+  { value: 'viewer', label: 'Viewer', description: 'No instance administration; works in the teams they belong to' },
 ];
 const roleLabel = Object.fromEntries(ROLES.map(r => [r.value, r.label]));
 const rank = { viewer: 0, developer: 1, admin: 2, owner: 3 };
 const statusTone = { active: ['success', 'Active'], suspended: ['neutral', 'Suspended'] };
 
 export function Users() {
-  const { user: me } = useSession();
+  const session = useSession();
+  const me = session.platformUser ?? session.user;
   const { data, error, refetch } = useQuery(() => api.users(), [], { pollMs: 30000 });
-  const catalog = useQuery(() => api.permissions(), []).data?.permissions ?? [];
+  const catalog = (useQuery(() => api.permissions(), []).data?.permissions ?? []).filter(p=>/^(users\.|settings\.|servers\.|network\.|proxy\.|firewall\.)/.test(p.key) || ['security.manage','owners.manage','resources.privileged'].includes(p.key));
   const [editing, setEditing] = useState(null);
   const [query, setQuery] = useState('');
   const [tab, setTab] = useState('all');
@@ -103,7 +106,7 @@ export function Users() {
         const [tone, label] = u.locked ? ['warning', 'Locked'] : statusTone[u.status];
         const lock = lockReason(u);
         return <div key={u.id} className={cx('user-row', u.status !== 'active' && u.status)}>
-          <Avatar name={u.name || u.email} size={30} />
+          <Avatar src={u.avatarUrl} name={u.name || u.email} size={30} />
           <span className="user-main">
             <strong>{u.name || u.email}{u.id === me.id && <span className="rp-chip">You</span>}
               {u.mfaEnabledAt ? <span className="user-badge ok" title={`Two-factor authentication on since ${new Date(u.mfaEnabledAt).toLocaleDateString()}`}><ShieldCheckIcon />2FA</span> : null}
@@ -138,7 +141,7 @@ export function Users() {
 
     <section className="settings-group">
       <h2>Roles and permissions</h2>
-      <p>Roles set the defaults. Grant or deny single permissions for one person from their menu › Permissions. Every project is visible to everyone who can sign in.</p>
+      <p>These are instance roles: who can administer this installation. What someone can do with projects and resources comes from their role in each team (a team's Settings › Team Members). Grant or deny single permissions for one person from their menu › Permissions.</p>
       <div className="settings-card perm-table-wrap">
         <table className="perm-table">
           <thead><tr><th>Permission</th>{ROLES.map(r => { const n = users.filter(u => u.role === r.value).length; return <th key={r.value}>{r.label}<small>{n} {n === 1 ? 'user' : 'users'}</small></th>; })}</tr></thead>

@@ -1,3 +1,4 @@
+import './team-api.mjs';
 // Infrastructure › Servers against a running stack. Optional: a Docker-in-Docker engine started with
 // --tlsverify reachable as dind-remote:2376, its ca.pem/cert.pem/key.pem mounted at /certs, to test
 // enrolling a remote server through the wizard.

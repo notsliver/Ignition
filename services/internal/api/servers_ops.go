@@ -20,7 +20,7 @@ import (
 /* --------------------------------- Diagnostics --------------------------------- */
 
 func (s *Server) enqueueDiagnostics(ctx context.Context, serverID string, u *store.User, checks []string) (string, string, error) {
-	tx, err := s.Store.DB.Begin(ctx)
+	tx, err := s.Store.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return "", "", err
 	}
@@ -502,7 +502,7 @@ func (s *Server) runServerTask(w http.ResponseWriter, r *http.Request, u *store.
 	if err != nil {
 		return err
 	}
-	tx, err := s.Store.DB.Begin(r.Context())
+	tx, err := s.Store.SQL(r.Context()).Begin(r.Context())
 	if err != nil {
 		return err
 	}

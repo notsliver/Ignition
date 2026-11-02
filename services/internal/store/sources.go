@@ -42,7 +42,7 @@ func scanSource(row pgx.Row) (*Source, error) {
 }
 
 func (s *Store) ListSources(ctx context.Context, kind, query string) ([]Source, error) {
-	rows, err := s.DB.Query(ctx, sourceSelect+`
+	rows, err := s.SQL(ctx).Query(ctx, sourceSelect+`
 		WHERE ($1 = '' OR s.kind = $1) AND ($2 = '' OR s.name ILIKE '%' || $2 || '%' OR s.provider ILIKE '%' || $2 || '%' OR s.url ILIKE '%' || $2 || '%')
 		ORDER BY s.kind, lower(s.name)`, kind, query)
 	if err != nil {
@@ -61,7 +61,7 @@ func (s *Store) ListSources(ctx context.Context, kind, query string) ([]Source, 
 }
 
 func (s *Store) GetSource(ctx context.Context, id string) (*Source, error) {
-	return scanSource(s.DB.QueryRow(ctx, sourceSelect+` WHERE s.id = $1`, id))
+	return scanSource(s.SQL(ctx).QueryRow(ctx, sourceSelect+` WHERE s.id = $1`, id))
 }
 
 type SourceInput struct {
@@ -70,7 +70,7 @@ type SourceInput struct {
 
 // CreateSource inserts the row first so the secret can be sealed against its id, then stores it.
 func (s *Store) CreateSource(ctx context.Context, in SourceInput, seal func(id string) ([]byte, error)) (string, error) {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -103,7 +103,7 @@ type SourcePatch struct {
 
 // UpdateSource changes settings; any change resets the status, since the old test no longer applies.
 func (s *Store) UpdateSource(ctx context.Context, id string, p SourcePatch, sealed []byte, hint, publicKey *string, clearSecret bool) error {
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE sources SET name = COALESCE($2, name), url = COALESCE($3, url), username = COALESCE($4, username),
 		       auth_type = COALESCE($5, auth_type),
 		       secret_enc = CASE WHEN $8 THEN NULL WHEN $6::bytea IS NOT NULL THEN $6 ELSE secret_enc END,
@@ -115,12 +115,12 @@ func (s *Store) UpdateSource(ctx context.Context, id string, p SourcePatch, seal
 }
 
 func (s *Store) SetSourceStatus(ctx context.Context, id, status, message, account string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE sources SET status = $2, status_message = $3, account = $4, last_checked_at = now() WHERE id = $1`, id, status, message, account)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE sources SET status = $2, status_message = $3, account = $4, last_checked_at = now() WHERE id = $1`, id, status, message, account)
 	return err
 }
 
 func (s *Store) DeleteSource(ctx context.Context, id string) error {
-	_, err := s.DB.Exec(ctx, `DELETE FROM sources WHERE id = $1`, id)
+	_, err := s.SQL(ctx).Exec(ctx, `DELETE FROM sources WHERE id = $1`, id)
 	return err
 }
 
@@ -133,8 +133,8 @@ type LinkedResource struct {
 }
 
 func (s *Store) SourceResources(ctx context.Context, id string) ([]LinkedResource, error) {
-	rows, err := s.DB.Query(ctx, `
-		SELECT r.id, r.name, p.id, p.name, r.status FROM resources r JOIN projects p ON p.id = r.project_id
+	rows, err := s.SQL(ctx).Query(ctx, `
+		SELECT r.id, r.name, COALESCE(p.id::text,''), COALESCE(p.name,'No project'), r.status FROM resources r LEFT JOIN projects p ON p.id = r.project_id
 		WHERE r.source_id = $1 ORDER BY p.name, r.name`, id)
 	if err != nil {
 		return nil, err

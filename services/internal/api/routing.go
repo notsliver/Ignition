@@ -79,6 +79,6 @@ func validateAllowIPs(list []string) ([]string, string) {
 // proxy answers the ownership check once per hostname.
 func (s *Server) hostnameToken(ctx context.Context, host string) string {
 	var tok string
-	s.Store.DB.QueryRow(ctx, `SELECT token FROM domains WHERE hostname = $1 LIMIT 1`, host).Scan(&tok)
+	s.Store.SQL(ctx).QueryRow(ctx, `SELECT token FROM domains WHERE hostname = $1 LIMIT 1`, host).Scan(&tok)
 	return tok
 }

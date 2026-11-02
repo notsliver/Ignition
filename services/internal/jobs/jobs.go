@@ -27,6 +27,7 @@ const (
 )
 
 type Job struct {
+	TeamID       string
 	ID           string
 	Kind         string
 	Payload      json.RawMessage
@@ -94,9 +95,9 @@ func (q *Queue) Claim(ctx context.Context, owner string, lease time.Duration) (*
 			FOR UPDATE SKIP LOCKED
 			LIMIT 1
 		)
-		RETURNING id, kind, payload, resource_id, deployment_id, server_id, attempts, max_attempts`,
+		RETURNING id, kind, payload, resource_id, deployment_id, server_id, attempts, max_attempts, team_id`,
 		owner, fmt.Sprintf("%d seconds", int(lease.Seconds()))).
-		Scan(&j.ID, &j.Kind, &j.Payload, &j.ResourceID, &j.DeploymentID, &j.ServerID, &j.Attempts, &j.MaxAttempts)
+		Scan(&j.ID, &j.Kind, &j.Payload, &j.ResourceID, &j.DeploymentID, &j.ServerID, &j.Attempts, &j.MaxAttempts, &j.TeamID)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return nil, nil
 	}
@@ -147,7 +148,9 @@ func (q *Queue) Fail(ctx context.Context, j *Job, cause error) (final bool, err 
 }
 
 // RequestCancel flags a job. Pending jobs are cancelled immediately; running ones stop at the next heartbeat.
-func RequestCancel(ctx context.Context, db *pgxpool.Pool, id string) (status string, err error) {
+func RequestCancel(ctx context.Context, db interface {
+	QueryRow(context.Context, string, ...any) pgx.Row
+}, id string) (status string, err error) {
 	err = db.QueryRow(ctx, `
 		UPDATE jobs SET cancel_requested = true,
 		       status = CASE WHEN status = 'pending' THEN 'cancelled' ELSE status END,

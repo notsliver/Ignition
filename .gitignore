@@ -11,3 +11,7 @@ Thumbs.db
 .vscode/
 
 e2e/screenshots/
+
+# Local API uploads (Docker uses its own named volume).
+data/uploads/
+services/data/uploads/

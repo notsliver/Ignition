@@ -70,7 +70,7 @@ func (s *Server) setup(w http.ResponseWriter, r *http.Request) error {
 	if err != nil {
 		return err
 	}
-	user, err := s.Store.CreateFirstOwner(r.Context(), strings.TrimSpace(in.Email), strings.TrimSpace(in.Name), hash)
+	user, err := s.Store.CreateFirstOwnerForExperience(r.Context(), strings.TrimSpace(in.Email), strings.TrimSpace(in.Name), hash, in.UseCase)
 	if errors.Is(err, store.ErrNotFound) {
 		return httpx.Conflict("Ignition is already set up. Sign in instead.")
 	}

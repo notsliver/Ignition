@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
-import { ChevronRightIcon } from '@heroicons/react/16/solid';
+import { CheckIcon, ChevronRightIcon } from '@heroicons/react/16/solid';
 import { cx } from '../../utils/cx';
 import { pageZoom } from '../../utils/zoom';
 import './Menu.css';
@@ -34,7 +34,7 @@ export function MenuPopover({ anchor, items, label, onClose, align = 'end', side
       top: Math.max(8, Math.min(top, window.innerHeight - menu.height - 8)) / z,
       left: Math.max(8, Math.min(left, window.innerWidth - menu.width - 8)) / z,
     });
-    menuRef.current.querySelector('[role="menuitem"]')?.focus({ preventScroll: true });
+    menuRef.current.querySelector('[role^="menuitem"]')?.focus({ preventScroll: true });
   }, [anchor, align, side]);
 
   useEffect(() => {
@@ -60,7 +60,7 @@ export function MenuPopover({ anchor, items, label, onClose, align = 'end', side
 
   function onKeyDown(event) {
     if (event.target.closest('.menu') !== menuRef.current) return;
-    const buttons = [...menuRef.current.querySelectorAll(':scope > [role="menuitem"]')];
+    const buttons = [...menuRef.current.querySelectorAll(':scope > [role^="menuitem"]')];
     const index = buttons.indexOf(document.activeElement);
     const moves = { ArrowDown: index + 1, ArrowUp: index - 1, Home: 0, End: buttons.length - 1 };
     if (event.key in moves) {
@@ -81,17 +81,19 @@ export function MenuPopover({ anchor, items, label, onClose, align = 'end', side
   return createPortal(<div ref={menuRef} className={cx('menu', submenu && 'submenu')} role="menu" aria-label={label} onKeyDown={onKeyDown} onContextMenu={event => event.preventDefault()} style={position ?? { visibility: 'hidden' }}>
     {items.map((item, i) => {
       if (item === 'separator') return <div key={i} className="menu-separator" role="separator" />;
+      if (item.heading) return <div key={`h:${item.heading}`} className="menu-heading" role="presentation">{item.heading}</div>;
       const Icon = item.icon;
-      const icon = Icon && <Icon style={item.color ? { color: item.color } : undefined} />;
+      // mark: any element in the icon slot (e.g. a team's initials); hint: a second, quieter line.
+      const icon = item.mark ?? (Icon && <Icon style={item.color ? { color: item.color } : undefined} />);
       if (item.items) return <button key={item.label} role="menuitem" aria-haspopup="menu" aria-expanded={open?.index === i} data-submenu="true" data-index={i}
         className={cx('menu-item', open?.index === i && 'expanded')}
         onClick={event => openSubmenu(i, event.currentTarget, true)}
         onPointerEnter={event => { const el = event.currentTarget; clearTimeout(hoverTimer.current); hoverTimer.current = setTimeout(() => openSubmenu(i, el, false), 80); }}>
         {icon}{item.label}<ChevronRightIcon className="menu-chevron" />
       </button>;
-      return <button key={item.label} role="menuitem" className={cx('menu-item', item.danger && 'danger')}
+      return <button key={item.key ?? item.label} role={item.checked === undefined ? 'menuitem' : 'menuitemradio'} aria-checked={item.checked} className={cx('menu-item', item.danger && 'danger', item.hint && 'with-hint', item.mark && 'with-mark')}
         onPointerEnter={() => { clearTimeout(hoverTimer.current); hoverTimer.current = setTimeout(() => setOpen(null), 120); }}
-        onClick={() => { onDone(true); item.onSelect?.(); }}>{icon}{item.label}</button>;
+        onClick={() => { onDone(true); item.onSelect?.(); }}>{icon}{item.hint ? <span className="menu-text"><span>{item.label}</span><small>{item.hint}</small></span> : item.label}{item.checked && <CheckIcon className="menu-check" />}</button>;
     })}
     {open && <MenuPopover key={open.index} submenu side="right" anchor={open.anchor} items={items[open.index].items} label={items[open.index].label} onClose={onClose} onDone={onDone}
       onBack={() => { setOpen(null); menuRef.current.querySelector(`[data-index="${open.index}"]`)?.focus(); }} />}

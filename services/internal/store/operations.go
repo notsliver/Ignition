@@ -36,7 +36,7 @@ var DefaultHealth = HealthConfig{Kind: "http", Path: "/", ExpectStatus: "200-399
 
 func (s *Store) GetHealth(ctx context.Context, resourceID string) (HealthConfig, HealthState, error) {
 	c, st := DefaultHealth, HealthState{State: "unknown", Restarts: []time.Time{}}
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		SELECT enabled, kind, path, port, expect_status, command, interval_seconds, timeout_seconds, retries, start_period_seconds, restart_unhealthy,
 		       state, failures, last_checked_at, last_change_at, restarts
 		FROM resource_health WHERE resource_id = $1`, resourceID).
@@ -50,7 +50,7 @@ func (s *Store) GetHealth(ctx context.Context, resourceID string) (HealthConfig,
 
 // PutHealth saves the configuration; changing it starts the observed state over.
 func (s *Store) PutHealth(ctx context.Context, resourceID string, c HealthConfig) error {
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		INSERT INTO resource_health (resource_id, enabled, kind, path, port, expect_status, command, interval_seconds, timeout_seconds, retries, start_period_seconds, restart_unhealthy)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
 		ON CONFLICT (resource_id) DO UPDATE SET enabled = $2, kind = $3, path = $4, port = $5, expect_status = $6, command = $7, interval_seconds = $8,
@@ -61,7 +61,7 @@ func (s *Store) PutHealth(ctx context.Context, resourceID string, c HealthConfig
 }
 
 func (s *Store) SetHealthState(ctx context.Context, resourceID, state string, failures int, changed bool) error {
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE resource_health SET state = $2, failures = $3, last_checked_at = now(),
 		       last_change_at = CASE WHEN $4 THEN now() ELSE last_change_at END
 		WHERE resource_id = $1`, resourceID, state, failures, changed)
@@ -70,7 +70,7 @@ func (s *Store) SetHealthState(ctx context.Context, resourceID, state string, fa
 
 // NoteHealthRestart records an automatic restart and keeps only the last hour of them.
 func (s *Store) NoteHealthRestart(ctx context.Context, resourceID string) error {
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE resource_health SET state = 'starting', failures = 0, last_change_at = now(),
 		       restarts = ARRAY(SELECT t FROM unnest(restarts || now()) t WHERE t > now() - interval '1 hour' ORDER BY t)
 		WHERE resource_id = $1`, resourceID)
@@ -88,16 +88,16 @@ type HealthResult struct {
 
 // RecordHealth stores a result and keeps the latest 300 per resource.
 func (s *Store) RecordHealth(ctx context.Context, resourceID string, r HealthResult) error {
-	_, err := s.DB.Exec(ctx, `INSERT INTO health_results (resource_id, ok, latency_ms, detail, source) VALUES ($1, $2, $3, $4, $5)`,
+	_, err := s.SQL(ctx).Exec(ctx, `INSERT INTO health_results (resource_id, ok, latency_ms, detail, source) VALUES ($1, $2, $3, $4, $5)`,
 		resourceID, r.OK, r.LatencyMS, r.Detail, r.Source)
 	if err == nil {
-		s.DB.Exec(ctx, `DELETE FROM health_results WHERE resource_id = $1 AND id < (SELECT id FROM health_results WHERE resource_id = $1 ORDER BY id DESC OFFSET 299 LIMIT 1)`, resourceID)
+		s.SQL(ctx).Exec(ctx, `DELETE FROM health_results WHERE resource_id = $1 AND id < (SELECT id FROM health_results WHERE resource_id = $1 ORDER BY id DESC OFFSET 299 LIMIT 1)`, resourceID)
 	}
 	return err
 }
 
 func (s *Store) HealthResults(ctx context.Context, resourceID string, limit int) ([]HealthResult, error) {
-	rows, err := s.DB.Query(ctx, `SELECT id, checked_at, ok, latency_ms, detail, source FROM health_results WHERE resource_id = $1 ORDER BY id DESC LIMIT $2`, resourceID, limit)
+	rows, err := s.SQL(ctx).Query(ctx, `SELECT id, checked_at, ok, latency_ms, detail, source FROM health_results WHERE resource_id = $1 ORDER BY id DESC LIMIT $2`, resourceID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -123,7 +123,7 @@ type HealthTarget struct {
 }
 
 func (s *Store) HealthTargets(ctx context.Context) ([]HealthTarget, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT r.id, r.name, r.container_id, r.environment_id, r.port, r.running_since,
 		       h.kind, h.path, h.port, h.expect_status, h.command, h.interval_seconds, h.timeout_seconds, h.retries, h.start_period_seconds, h.restart_unhealthy,
 		       h.state, h.failures, h.last_checked_at, h.last_change_at, h.restarts
@@ -152,13 +152,13 @@ func (s *Store) HealthTargets(ctx context.Context) ([]HealthTarget, error) {
 /* --------------------------- Releases and rollbacks ------------------------- */
 
 func (s *Store) SetDeploymentImageID(ctx context.Context, id, imageID string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE deployments SET image_id = $2 WHERE id = $1`, id, imageID)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE deployments SET image_id = $2 WHERE id = $1`, id, imageID)
 	return err
 }
 
 // SnapshotEnv keeps the variables a deployment runs with (still sealed), so a rollback can restore them.
 func (s *Store) SnapshotEnv(ctx context.Context, deploymentID, resourceID string) error {
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		INSERT INTO deployment_env (deployment_id, key, value_enc, secret)
 		SELECT $1, key, value_enc, secret FROM env_vars WHERE resource_id = $2
 		ON CONFLICT DO NOTHING`, deploymentID, resourceID)
@@ -167,7 +167,7 @@ func (s *Store) SnapshotEnv(ctx context.Context, deploymentID, resourceID string
 
 // DeploymentEnv returns a deployment's kept variables, sealed.
 func (s *Store) DeploymentEnv(ctx context.Context, deploymentID string) ([]EnvVar, error) {
-	rows, err := s.DB.Query(ctx, `SELECT key, value_enc, secret FROM deployment_env WHERE deployment_id = $1 ORDER BY key`, deploymentID)
+	rows, err := s.SQL(ctx).Query(ctx, `SELECT key, value_enc, secret FROM deployment_env WHERE deployment_id = $1 ORDER BY key`, deploymentID)
 	if err != nil {
 		return nil, err
 	}
@@ -238,7 +238,7 @@ func scanTask(row pgx.Row) (*Task, error) {
 }
 
 func (s *Store) ListTasks(ctx context.Context, resourceID string) ([]Task, error) {
-	rows, err := s.DB.Query(ctx, taskSelect+` WHERE t.resource_id = $1 ORDER BY t.created_at`, resourceID)
+	rows, err := s.SQL(ctx).Query(ctx, taskSelect+` WHERE t.resource_id = $1 ORDER BY t.created_at`, resourceID)
 	if err != nil {
 		return nil, err
 	}
@@ -261,12 +261,12 @@ func (s *Store) ListTasks(ctx context.Context, resourceID string) ([]Task, error
 }
 
 func (s *Store) GetTask(ctx context.Context, id string) (*Task, error) {
-	return scanTask(s.DB.QueryRow(ctx, taskSelect+` WHERE t.id = $1`, id))
+	return scanTask(s.SQL(ctx).QueryRow(ctx, taskSelect+` WHERE t.id = $1`, id))
 }
 
 func (s *Store) CreateTask(ctx context.Context, t Task, userID string) (string, error) {
 	var id string
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		INSERT INTO scheduled_tasks (resource_id, name, schedule, timezone, command, timeout_seconds, enabled, next_run_at, created_by)
 		VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
 		t.ResourceID, t.Name, t.Schedule, t.Timezone, t.Command, t.TimeoutSeconds, t.Enabled, t.NextRunAt, nullable(userID)).Scan(&id)
@@ -274,14 +274,14 @@ func (s *Store) CreateTask(ctx context.Context, t Task, userID string) (string, 
 }
 
 func (s *Store) UpdateTask(ctx context.Context, t Task) error {
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE scheduled_tasks SET name = $2, schedule = $3, timezone = $4, command = $5, timeout_seconds = $6, enabled = $7, next_run_at = $8, updated_at = now()
 		WHERE id = $1`, t.ID, t.Name, t.Schedule, t.Timezone, t.Command, t.TimeoutSeconds, t.Enabled, t.NextRunAt)
 	return err
 }
 
 func (s *Store) DeleteTask(ctx context.Context, id string) error {
-	_, err := s.DB.Exec(ctx, `DELETE FROM scheduled_tasks WHERE id = $1`, id)
+	_, err := s.SQL(ctx).Exec(ctx, `DELETE FROM scheduled_tasks WHERE id = $1`, id)
 	return err
 }
 
@@ -290,7 +290,7 @@ func (s *Store) TaskRuns(ctx context.Context, taskID string, limit int, withOutp
 	if withOutput {
 		output = `r.output`
 	}
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT r.id, r.task_id, r.trigger, r.status, r.scheduled_for, r.exit_code, `+output+`, r.error, COALESCE(u.email, ''),
 		       r.created_at, r.started_at, r.finished_at
 		FROM task_runs r LEFT JOIN users u ON u.id = r.created_by
@@ -312,7 +312,7 @@ func (s *Store) TaskRuns(ctx context.Context, taskID string, limit int, withOutp
 
 func (s *Store) GetTaskRun(ctx context.Context, id string) (*TaskRun, error) {
 	var r TaskRun
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		SELECT r.id, r.task_id, r.trigger, r.status, r.scheduled_for, r.exit_code, r.output, r.error, COALESCE(u.email, ''), r.created_at, r.started_at, r.finished_at
 		FROM task_runs r LEFT JOIN users u ON u.id = r.created_by WHERE r.id = $1`, id).
 		Scan(&r.ID, &r.TaskID, &r.Trigger, &r.Status, &r.ScheduledFor, &r.ExitCode, &r.Output, &r.Error, &r.By, &r.CreatedAt, &r.StartedAt, &r.FinishedAt)
@@ -322,7 +322,7 @@ func (s *Store) GetTaskRun(ctx context.Context, id string) (*TaskRun, error) {
 // QueueTaskRun asks the worker to run a task now. It refuses while one is already queued or running.
 func (s *Store) QueueTaskRun(ctx context.Context, taskID, userID string) (string, bool, error) {
 	var id string
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		INSERT INTO task_runs (task_id, trigger, created_by)
 		SELECT $1, 'manual', $2 WHERE NOT EXISTS (SELECT 1 FROM task_runs WHERE task_id = $1 AND status IN ('queued', 'running'))
 		RETURNING id`, taskID, nullable(userID)).Scan(&id)
@@ -334,7 +334,7 @@ func (s *Store) QueueTaskRun(ctx context.Context, taskID, userID string) (string
 
 func (s *Store) CancelTaskRun(ctx context.Context, id string) (string, error) {
 	var status string
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		UPDATE task_runs SET cancel_requested = true,
 		       status = CASE WHEN status = 'queued' THEN 'cancelled' ELSE status END,
 		       finished_at = CASE WHEN status = 'queued' THEN now() ELSE finished_at END
@@ -374,7 +374,7 @@ func scanToken(row pgx.Row) (*ResourceToken, error) {
 }
 
 func (s *Store) ListTokens(ctx context.Context, resourceID string) ([]ResourceToken, error) {
-	rows, err := s.DB.Query(ctx, tokenSelect+` WHERE t.resource_id = $1 ORDER BY t.kind, t.created_at`, resourceID)
+	rows, err := s.SQL(ctx).Query(ctx, tokenSelect+` WHERE t.resource_id = $1 ORDER BY t.kind, t.created_at`, resourceID)
 	if err != nil {
 		return nil, err
 	}
@@ -392,16 +392,16 @@ func (s *Store) ListTokens(ctx context.Context, resourceID string) ([]ResourceTo
 
 // ResourceTokenByHash finds a hook or token by the SHA-256 of its secret.
 func (s *Store) ResourceTokenByHash(ctx context.Context, hash []byte) (*ResourceToken, error) {
-	return scanToken(s.DB.QueryRow(ctx, tokenSelect+` WHERE t.token_hash = $1`, hash))
+	return scanToken(s.SQL(ctx).QueryRow(ctx, tokenSelect+` WHERE t.token_hash = $1`, hash))
 }
 
 func (s *Store) GetToken(ctx context.Context, id string) (*ResourceToken, error) {
-	return scanToken(s.DB.QueryRow(ctx, tokenSelect+` WHERE t.id = $1`, id))
+	return scanToken(s.SQL(ctx).QueryRow(ctx, tokenSelect+` WHERE t.id = $1`, id))
 }
 
 // CreateToken stores a token; for hooks it replaces the resource's existing hook.
 func (s *Store) CreateToken(ctx context.Context, t ResourceToken, hash []byte, userID string) (string, error) {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -422,13 +422,13 @@ func (s *Store) CreateToken(ctx context.Context, t ResourceToken, hash []byte, u
 }
 
 func (s *Store) DeleteToken(ctx context.Context, id string) error {
-	_, err := s.DB.Exec(ctx, `DELETE FROM resource_tokens WHERE id = $1`, id)
+	_, err := s.SQL(ctx).Exec(ctx, `DELETE FROM resource_tokens WHERE id = $1`, id)
 	return err
 }
 
 // TouchToken records use, at most once a minute per token to spare the database.
 func (s *Store) TouchToken(ctx context.Context, id, ip string) {
-	s.DB.Exec(ctx, `UPDATE resource_tokens SET last_used_at = now(), last_used_ip = $2
+	s.SQL(ctx).Exec(ctx, `UPDATE resource_tokens SET last_used_at = now(), last_used_ip = $2
 		WHERE id = $1 AND (last_used_at IS NULL OR last_used_at < now() - interval '1 minute' OR last_used_ip <> $2)`, id, ip)
 }
 
@@ -447,7 +447,7 @@ type Advanced struct {
 func (s *Store) GetAdvanced(ctx context.Context, resourceID string) (Advanced, error) {
 	var a Advanced
 	var labels []byte
-	err := s.DB.QueryRow(ctx, `SELECT entrypoint, workdir, run_as_user, labels, read_only_root, init_process, privileged FROM resources WHERE id = $1`, resourceID).
+	err := s.SQL(ctx).QueryRow(ctx, `SELECT entrypoint, workdir, run_as_user, labels, read_only_root, init_process, privileged FROM resources WHERE id = $1`, resourceID).
 		Scan(&a.Entrypoint, &a.Workdir, &a.User, &labels, &a.ReadOnlyRoot, &a.Init, &a.Privileged)
 	if err != nil {
 		return a, noRows(err)
@@ -459,7 +459,7 @@ func (s *Store) GetAdvanced(ctx context.Context, resourceID string) (Advanced, e
 
 func (s *Store) PutAdvanced(ctx context.Context, resourceID, name string, a Advanced) error {
 	labels, _ := json.Marshal(a.Labels)
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE resources SET name = $2, entrypoint = $3, workdir = $4, run_as_user = $5, labels = $6, read_only_root = $7, init_process = $8, privileged = $9, updated_at = now()
 		WHERE id = $1`, resourceID, name, a.Entrypoint, a.Workdir, a.User, labels, a.ReadOnlyRoot, a.Init, a.Privileged)
 	return err
@@ -467,6 +467,6 @@ func (s *Store) PutAdvanced(ctx context.Context, resourceID, name string, a Adva
 
 // MoveResource puts a resource in another project's environment. Its domains, variables and volumes go with it.
 func (s *Store) MoveResource(ctx context.Context, resourceID, projectID, environmentID string) error {
-	_, err := s.DB.Exec(ctx, `UPDATE resources SET project_id = $2, environment_id = $3, updated_at = now() WHERE id = $1`, resourceID, projectID, environmentID)
+	_, err := s.SQL(ctx).Exec(ctx, `UPDATE resources SET project_id = $2, environment_id = $3, updated_at = now() WHERE id = $1`, resourceID, nullable(projectID), environmentID)
 	return err
 }

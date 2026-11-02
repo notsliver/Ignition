@@ -185,7 +185,7 @@ func (s *Server) deleteTask(w http.ResponseWriter, r *http.Request, u *store.Use
 		return notFound(err, "Task")
 	}
 	// A run in progress is asked to stop; deleting the task then removes its history.
-	s.Store.DB.Exec(r.Context(), `UPDATE task_runs SET cancel_requested = true WHERE task_id = $1 AND status = 'running'`, id)
+	s.Store.SQL(r.Context()).Exec(r.Context(), `UPDATE task_runs SET cancel_requested = true WHERE task_id = $1 AND status = 'running'`, id)
 	if err := s.Store.DeleteTask(r.Context(), id); err != nil {
 		return err
 	}

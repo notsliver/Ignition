@@ -548,6 +548,9 @@ func (s *Server) gameContentUpload(w http.ResponseWriter, r *http.Request, u *st
 	if !games.ValidName(name) || !strings.HasSuffix(strings.ToLower(name), ".jar") {
 		return httpx.Invalid(map[string]string{"file": "Upload a .jar file."})
 	}
+	if err := s.checkResourceStorage(r.Context(), res, u.ID, false); err != nil {
+		return domainError(err)
+	}
 	body, size, cleanup, err := spoolUpload(r, 256<<20)
 	if err != nil {
 		return err

@@ -40,7 +40,7 @@ type dashDeployment struct {
 	Environment  string `json:"environment"`
 }
 
-func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, _ *store.User) error {
+func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, u *store.User) error {
 	ctx := r.Context()
 	var st struct {
 		Projects    int `json:"projects"`
@@ -55,7 +55,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, _ *store.User
 		Automations int `json:"automations"`
 		Approvals   int `json:"approvals"`
 	}
-	if err := s.Store.DB.QueryRow(ctx, `
+	if err := s.Store.SQL(ctx).QueryRow(ctx, `
 		SELECT (SELECT count(*) FROM projects WHERE archived_at IS NULL),
 		       (SELECT count(*) FROM resources),
 		       (SELECT count(*) FROM resources WHERE status = 'running'),
@@ -74,10 +74,16 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, _ *store.User
 	if err != nil {
 		return err
 	}
+	if !can(u, "servers.view") {
+		srvs = nil
+	}
 	var local *store.Server
 	st.Servers = len(srvs)
 	for i := range srvs {
 		sv := &srvs[i]
+		if roleRank[u.InstanceRole] < roleRank["admin"] {
+			scrubHost(sv)
+		}
 		if sv.IsLocal {
 			local = sv
 		}
@@ -99,10 +105,10 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, _ *store.User
 	}
 
 	// Resources that are down or failing their health check.
-	rows, err := s.Store.DB.Query(ctx, `
-		SELECT r.id, r.name, r.project_id, p.name, r.status, COALESCE(h.state, ''), COALESCE(h.failures, 0),
+	rows, err := s.Store.SQL(ctx).Query(ctx, `
+		SELECT r.id, r.name, COALESCE(r.project_id::text,''), COALESCE(p.name,'No project'), r.status, COALESCE(h.state, ''), COALESCE(h.failures, 0),
 		       COALESCE((SELECT d.error FROM deployments d WHERE d.resource_id = r.id ORDER BY d.number DESC LIMIT 1), '')
-		FROM resources r JOIN projects p ON p.id = r.project_id LEFT JOIN resource_health h ON h.resource_id = r.id AND h.enabled
+		FROM resources r LEFT JOIN projects p ON p.id = r.project_id LEFT JOIN resource_health h ON h.resource_id = r.id AND h.enabled
 		WHERE r.status = 'failed' OR (r.status = 'running' AND h.state = 'unhealthy') OR r.status = 'paused'
 		ORDER BY r.updated_at DESC LIMIT 10`)
 	if err != nil {
@@ -129,7 +135,7 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, _ *store.User
 	rows.Close()
 
 	// Automation runs waiting for a decision.
-	rows, err = s.Store.DB.Query(ctx, `
+	rows, err = s.Store.SQL(ctx).Query(ctx, `
 		SELECT ar.reason, a.name, a.scope, COALESCE(a.resource_id::text, ''), COALESCE(r.project_id::text, ''), a.targets
 		FROM automation_runs ar JOIN automations a ON a.id = ar.automation_id LEFT JOIN resources r ON r.id = a.resource_id
 		WHERE ar.status = 'awaiting_approval' ORDER BY ar.created_at DESC LIMIT 3`)
@@ -154,9 +160,9 @@ func (s *Server) dashboard(w http.ResponseWriter, r *http.Request, _ *store.User
 
 	// Latest deployments everywhere.
 	deps := []dashDeployment{}
-	rows, err = s.Store.DB.Query(ctx, `
-		SELECT d.id, r.name, r.project_id, p.name, e.name FROM deployments d
-		JOIN resources r ON r.id = d.resource_id JOIN projects p ON p.id = r.project_id JOIN environments e ON e.id = r.environment_id
+	rows, err = s.Store.SQL(ctx).Query(ctx, `
+		SELECT d.id, r.name, COALESCE(r.project_id::text,''), COALESCE(p.name,'No project'), e.name FROM deployments d
+		JOIN resources r ON r.id = d.resource_id LEFT JOIN projects p ON p.id = r.project_id JOIN environments e ON e.id = r.environment_id
 		ORDER BY d.created_at DESC LIMIT 8`)
 	if err != nil {
 		return err

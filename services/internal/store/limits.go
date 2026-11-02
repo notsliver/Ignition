@@ -17,14 +17,14 @@ type Limits struct {
 
 func (s *Store) GetLimits(ctx context.Context, resourceID string) (Limits, error) {
 	var l Limits
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		SELECT memory_mb, memory_reservation_mb, cpus::float8, pids_limit, allow_swap, restart_policy, max_restarts
 		FROM resources WHERE id = $1`, resourceID).Scan(&l.MemoryMB, &l.MemoryReservationMB, &l.CPUs, &l.PidsLimit, &l.AllowSwap, &l.RestartPolicy, &l.MaxRestarts)
 	return l, noRows(err)
 }
 
 func (s *Store) SetLimits(ctx context.Context, resourceID string, l Limits) error {
-	_, err := s.DB.Exec(ctx, `
+	_, err := s.SQL(ctx).Exec(ctx, `
 		UPDATE resources SET memory_mb = $2, memory_reservation_mb = $3, cpus = $4, pids_limit = $5, allow_swap = $6,
 		       restart_policy = $7, max_restarts = $8, updated_at = now()
 		WHERE id = $1`, resourceID, l.MemoryMB, l.MemoryReservationMB, l.CPUs, l.PidsLimit, l.AllowSwap, l.RestartPolicy, l.MaxRestarts)
@@ -44,7 +44,7 @@ type UsageSummary struct {
 
 func (s *Store) UsageSummary(ctx context.Context, resourceID string) (UsageSummary, error) {
 	var u UsageSummary
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		SELECT count(*), min(at), COALESCE(avg(cpu_percent), 0), COALESCE(max(cpu_percent), 0),
 		       COALESCE(avg(memory_bytes), 0)::bigint, COALESCE(max(memory_bytes), 0),
 		       count(*) FILTER (WHERE memory_limit > 0 AND memory_bytes >= memory_limit * 0.9)
@@ -61,7 +61,7 @@ type Volume struct {
 }
 
 func (s *Store) Volumes(ctx context.Context, resourceID string) ([]Volume, error) {
-	rows, err := s.DB.Query(ctx, `SELECT id, name, mount_path, created_at FROM resource_volumes WHERE resource_id = $1 ORDER BY created_at, name`, resourceID)
+	rows, err := s.SQL(ctx).Query(ctx, `SELECT id, name, mount_path, created_at FROM resource_volumes WHERE resource_id = $1 ORDER BY created_at, name`, resourceID)
 	if err != nil {
 		return nil, err
 	}
@@ -79,7 +79,7 @@ func (s *Store) Volumes(ctx context.Context, resourceID string) ([]Volume, error
 
 // SetVolumes replaces the volume list. Keeps data_path in step with the first volume for older callers.
 func (s *Store) SetVolumes(ctx context.Context, resourceID string, vols []Volume) error {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}

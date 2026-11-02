@@ -1,6 +1,7 @@
 package api
 
 import (
+	"gopkg.in/yaml.v3"
 	"os"
 	"regexp"
 	"strings"
@@ -22,25 +23,30 @@ func TestRoutesMatchContract(t *testing.T) {
 	routes := map[string]bool{}
 	for _, m := range routeRE.FindAllStringSubmatch(string(src), -1) {
 		routes[strings.ToLower(m[1])+" "+m[2]] = true
+		if strings.HasPrefix(m[0], "authed(") && teamRoute(m[1]+" "+m[2]) {
+			routes[strings.ToLower(m[1])+" "+strings.Replace(m[2], "/api/", "/api/teams/{teamId}/", 1)] = true
+		}
 	}
 	if len(routes) < 20 {
 		t.Fatalf("found only %d routes; did the registration style change?", len(routes))
 	}
 
+	var contract struct {
+		Paths map[string]map[string]yaml.Node `yaml:"paths"`
+	}
+	if err := yaml.Unmarshal(spec, &contract); err != nil {
+		t.Fatal(err)
+	}
 	documented := map[string]bool{}
-	var path string
-	for _, line := range strings.Split(string(spec), "\n") {
-		if m := regexp.MustCompile(`^  (/api/\S+):\s*$`).FindStringSubmatch(line); m != nil {
-			path = m[1]
-			continue
-		}
-		if m := regexp.MustCompile(`^    (get|post|put|patch|delete):`).FindStringSubmatch(line); m != nil && path != "" {
-			documented[m[1]+" "+path] = true
-		}
-		if !strings.HasPrefix(line, "  ") && strings.TrimSpace(line) != "" {
-			path = ""
+	for path, operations := range contract.Paths {
+		for method := range operations {
+			switch method {
+			case "get", "post", "put", "patch", "delete":
+				documented[method+" "+path] = true
+			}
 		}
 	}
+
 	for r := range routes {
 		if !documented[r] {
 			t.Errorf("route %q is not documented in contracts/openapi.yaml", r)

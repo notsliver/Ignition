@@ -73,6 +73,6 @@ git push -q origin "v$version"
 notes="$(awk -v v="$version" '$0 ~ "^## "v" " {on=1; next} on && /^## / {exit} on' CHANGELOG.md)"
 prerelease=()
 [[ "$version" == *-* ]] && prerelease=(--prerelease)
-gh release create "v$version" "${prerelease[@]}" --title "IGNITION $version" --notes "$(printf '%s\n\n---\n\n**Docker image:** `%s:%s` (linux/amd64, linux/arm64)\n\n**Install on a server:**\n```sh\ncurl -fsSL https://raw.githubusercontent.com/notsliver/Ignition/main/install.sh | sudo bash\n```\n\n**Update an existing install:** Settings › Updates › Update now.\n' "$notes" "$IMAGE" "$version")"
+gh release create "v$version" "${prerelease[@]}" --title "IGNITION $version" --notes "$(printf '%s\n\n---\n\n**Docker image:** `%s:%s` (linux/amd64, linux/arm64)\n\n**Install on a server:**\n```sh\ncurl -fsSL https://raw.githubusercontent.com/notsliver/Ignition/main/install.sh | sudo bash\n```\n\n**Update an existing install:** Instance administration › Updates › Update now.\n' "$notes" "$IMAGE" "$version")"
 
 say "Released $version: https://hub.docker.com/r/$IMAGE/tags"

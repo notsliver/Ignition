@@ -43,7 +43,7 @@ func normalizeHostname(raw string) (string, string) {
 }
 
 func (s *Server) syncProxy(ctx context.Context) {
-	routes, err := s.Store.ProxyRoutes(ctx)
+	routes, err := s.Store.PlatformProxyRoutes(ctx)
 	if err == nil {
 		_, err = s.Proxy.Sync(ctx, routes, proxy.LoadSettings(ctx, s.Store))
 	}

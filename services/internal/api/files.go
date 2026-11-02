@@ -165,6 +165,9 @@ func (s *Server) uploadFile(w http.ResponseWriter, r *http.Request, u *store.Use
 	if !games.ValidName(name) {
 		return httpx.Invalid(map[string]string{"name": "Invalid file name."})
 	}
+	if err := s.checkResourceStorage(r.Context(), res, u.ID, false); err != nil {
+		return domainError(err)
+	}
 	body, size, cleanup, err := spoolUpload(r, 8<<30)
 	if err != nil {
 		return err
@@ -423,6 +426,8 @@ func (s *Server) fileOps(w http.ResponseWriter, r *http.Request, u *store.User) 
 /* -------------------------------- Share links ------------------------------- */
 
 type shareClaim struct {
+	Team     string `json:"t,omitempty"`
+	Creator  string `json:"c,omitempty"`
 	Resource string `json:"r"`
 	Volume   string `json:"v"`
 	Path     string `json:"p"`
@@ -460,7 +465,7 @@ func (s *Server) shareFile(w http.ResponseWriter, r *http.Request, u *store.User
 		}
 	}
 	exp := time.Now().Add(time.Duration(in.Hours) * time.Hour)
-	claim, _ := json.Marshal(shareClaim{Resource: res.ID, Volume: vol, Path: p, Expires: exp.Unix()})
+	claim, _ := json.Marshal(shareClaim{Team: res.TeamID, Creator: u.ID, Resource: res.ID, Volume: vol, Path: p, Expires: exp.Unix()})
 	sealed, err := s.Secrets.Seal(string(claim), shareContext)
 	if err != nil {
 		return err
@@ -489,6 +494,18 @@ func (s *Server) sharedFile(w http.ResponseWriter, r *http.Request) error {
 	res, err := s.Store.GetResource(r.Context(), c.Resource)
 	if err != nil {
 		return httpx.NotFound("Link")
+	}
+	if c.Team != "" && c.Team != res.TeamID {
+		return httpx.NotFound("Link")
+	}
+	if c.Creator != "" {
+		issuer, err := s.Store.GetUser(r.Context(), c.Creator)
+		if err != nil || issuer.Status != "active" {
+			return httpx.NotFound("Link")
+		}
+		if _, err = s.Store.Membership(r.Context(), res.TeamID, c.Creator); err != nil {
+			return httpx.NotFound("Link")
+		}
 	}
 	d, err := s.localDocker()
 	if err != nil {

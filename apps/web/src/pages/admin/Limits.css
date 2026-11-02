@@ -1,0 +1,34 @@
+/* Instance administration › Limits. Prefixed limits- and lq- (quotas). */
+.limits-input{display:flex;align-items:center;gap:8px}
+.limits-input .input{width:120px}
+.limits-input>span{font-size:12px;color:var(--muted);white-space:nowrap}
+.limits-over{color:var(--warning)}
+.lq-card{padding:0;overflow:hidden}
+.lq-scroll{overflow-x:auto}
+.lq-table{width:100%;border-collapse:collapse;font-size:12.5px}
+.lq-table th,.lq-table td{padding:8px 12px;border-bottom:1px solid var(--border);text-align:left;vertical-align:top}
+.lq-table thead th{padding-top:10px;padding-bottom:10px;font-size:11.5px;font-weight:500;color:var(--muted);white-space:nowrap}
+.lq-table tbody tr:last-child th,.lq-table tbody tr:last-child td{border-bottom:0}
+.lq-table tbody th{width:1%;min-width:170px;font-weight:500}
+.lq-label{display:flex;align-items:baseline;gap:6px;white-space:nowrap}
+.lq-label em,.lq-field em{font-style:normal;font-size:11.5px;color:var(--muted)}
+.lq-table tbody th small{display:block;margin-top:2px;font-size:11.5px;font-weight:400;color:var(--muted)}
+.lq-cell{display:flex;flex-direction:column;gap:3px;min-width:96px}
+.lq-cell .input{width:100%;max-width:140px}
+.lq-cell small{font-size:11px;color:var(--muted);font-variant-numeric:tabular-nums}
+.lq-cell small.over{color:var(--warning)}
+.lq-wide .lq-cell{min-width:84px}
+.lq-foot{margin:0;padding:10px 12px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
+.lq-overrides{display:flex;flex-direction:column;gap:10px}
+.lq-override{padding:0}
+.lq-override header{display:flex;align-items:center;gap:8px;min-height:42px;padding:6px 8px 6px 12px;border-bottom:1px solid var(--border)}
+.lq-override header strong{font-size:13px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.lq-muted{font-size:12px;color:var(--muted)}
+.lq-spacer{flex:1}
+.lq-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px 14px;padding:12px}
+.lq-field{display:flex;flex-direction:column;gap:5px;font-size:12px;color:var(--text-2,var(--text))}
+.lq-field>span{display:flex;align-items:baseline;gap:5px}
+.lq-field .lq-cell .input{max-width:none}
+.lq-add{display:flex;align-items:center;flex-wrap:wrap;gap:8px;padding:10px 12px}
+.lq-add .select,.lq-add .input{width:200px}
+.lq-add-button{align-self:flex-start}

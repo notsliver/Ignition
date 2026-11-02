@@ -29,7 +29,7 @@ func (s *Server) resourceSource(w http.ResponseWriter, r *http.Request, _ *store
 		Branch   string    `json:"branch"`
 		At       time.Time `json:"at"`
 	}
-	if s.Store.DB.QueryRow(r.Context(), `
+	if s.Store.SQL(r.Context()).QueryRow(r.Context(), `
 		SELECT d.commit_sha, d.image_ref, d.branch, COALESCE(d.finished_at, d.created_at) FROM resources r
 		JOIN deployments d ON d.id = r.current_deployment_id WHERE r.id = $1`, id).Scan(&deployed.Commit, &deployed.ImageRef, &deployed.Branch, &deployed.At) == nil {
 		out["deployed"] = deployed
@@ -53,7 +53,7 @@ func (s *Server) resourceSource(w http.ResponseWriter, r *http.Request, _ *store
 		} else {
 			// Reading the repository is a real check of the credentials, so the source shows it too.
 			if src, ok := out["source"].(map[string]any); ok && src["status"] != "connected" {
-				s.Store.DB.Exec(r.Context(), `UPDATE sources SET status = 'connected', status_message = $2, last_checked_at = now() WHERE id = $1`, *res.SourceID, "Connected (read "+res.RepoURL+")")
+				s.Store.SQL(r.Context()).Exec(r.Context(), `UPDATE sources SET status = 'connected', status_message = $2, last_checked_at = now() WHERE id = $1`, *res.SourceID, "Connected (read "+res.RepoURL+")")
 				src["status"], src["statusMessage"] = "connected", ""
 			}
 			out["branches"] = branches

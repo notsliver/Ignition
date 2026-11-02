@@ -39,7 +39,7 @@ export function operational(s) {
 
 export const methodLabel = { local: 'Local Docker socket', 'docker-tls': 'Docker Engine over mutual TLS' };
 
-// Server pages check the permissions their API routes need (see Users & Permissions).
+// Server pages check the permissions their API routes need (see Instance administration › Users).
 export const isAdmin = user => can(user, 'servers.update');
 export const isDeveloper = user => can(user, 'servers.operate');
 

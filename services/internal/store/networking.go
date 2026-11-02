@@ -28,7 +28,7 @@ type Networking struct {
 
 func (s *Store) GetNetworking(ctx context.Context, resourceID string) (Networking, error) {
 	n := Networking{Ports: []PortMapping{}, Networks: []string{}, Aliases: []string{}, Addresses: map[string]NetAddress{}}
-	rows, err := s.DB.Query(ctx, `SELECT id, host_port, container_port, protocol, bind_address FROM resource_ports WHERE resource_id = $1 ORDER BY container_port, created_at`, resourceID)
+	rows, err := s.SQL(ctx).Query(ctx, `SELECT id, host_port, container_port, protocol, bind_address FROM resource_ports WHERE resource_id = $1 ORDER BY container_port, created_at`, resourceID)
 	if err != nil {
 		return n, err
 	}
@@ -41,7 +41,7 @@ func (s *Store) GetNetworking(ctx context.Context, resourceID string) (Networkin
 		n.Ports = append(n.Ports, p)
 	}
 	rows.Close()
-	rows, err = s.DB.Query(ctx, `SELECT n.name, m.ipv4, m.ipv6 FROM resource_networks m JOIN shared_networks n ON n.id = m.network_id WHERE m.resource_id = $1 ORDER BY n.name`, resourceID)
+	rows, err = s.SQL(ctx).Query(ctx, `SELECT n.name, m.ipv4, m.ipv6 FROM resource_networks m JOIN shared_networks n ON n.id = m.network_id WHERE m.resource_id = $1 ORDER BY n.name`, resourceID)
 	if err != nil {
 		return n, err
 	}
@@ -58,14 +58,14 @@ func (s *Store) GetNetworking(ctx context.Context, resourceID string) (Networkin
 		}
 	}
 	rows.Close()
-	err = s.DB.QueryRow(ctx, `SELECT aliases FROM resources WHERE id = $1`, resourceID).Scan(&n.Aliases)
+	err = s.SQL(ctx).QueryRow(ctx, `SELECT aliases FROM resources WHERE id = $1`, resourceID).Scan(&n.Aliases)
 	return n, noRows(err)
 }
 
 // SetNetworking replaces the whole configuration in one transaction. Shared networks named in n.Networks
 // are created when new; shared networks nobody uses any more are deleted.
 func (s *Store) SetNetworking(ctx context.Context, resourceID, userID string, n Networking) error {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -104,7 +104,7 @@ func (s *Store) SetNetworking(ctx context.Context, resourceID, userID string, n 
 // TakenHostPort reports which other resource already maps hostPort/protocol, if any.
 func (s *Store) TakenHostPort(ctx context.Context, resourceID string, hostPort int, protocol string) (string, error) {
 	var name string
-	err := s.DB.QueryRow(ctx, `
+	err := s.SQL(ctx).QueryRow(ctx, `
 		SELECT r.name FROM resource_ports p JOIN resources r ON r.id = p.resource_id
 		WHERE p.host_port = $1 AND p.protocol = $2 AND p.resource_id <> $3 LIMIT 1`, hostPort, protocol, resourceID).Scan(&name)
 	if err != nil {
@@ -129,14 +129,14 @@ type Peer struct {
 
 // Peers lists resources this one can reach: everything in its environment, plus members of shared networks it joined.
 func (s *Store) Peers(ctx context.Context, resourceID string) ([]Peer, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		WITH me AS (SELECT environment_id FROM resources WHERE id = $1),
 		     mine AS (SELECT network_id FROM resource_networks WHERE resource_id = $1)
-		SELECT r.id, r.name, r.type, p.name, e.name, r.status, r.port, array_prepend(r.name, r.aliases),
+		SELECT r.id, r.name, r.type, COALESCE(p.name,'No project'), e.name, r.status, r.port, array_prepend(r.name, r.aliases),
 		       r.environment_id = (SELECT environment_id FROM me),
 		       COALESCE((SELECT array_agg(n.name ORDER BY n.name) FROM resource_networks m JOIN shared_networks n ON n.id = m.network_id
 		                 WHERE m.resource_id = r.id AND m.network_id IN (SELECT network_id FROM mine)), '{}')
-		FROM resources r JOIN projects p ON p.id = r.project_id JOIN environments e ON e.id = r.environment_id
+		FROM resources r LEFT JOIN projects p ON p.id = r.project_id JOIN environments e ON e.id = r.environment_id
 		WHERE r.id <> $1 AND p.archived_at IS NULL
 		  AND (r.environment_id = (SELECT environment_id FROM me)
 		       OR EXISTS (SELECT 1 FROM resource_networks m WHERE m.resource_id = r.id AND m.network_id IN (SELECT network_id FROM mine)))
@@ -163,8 +163,8 @@ type SharedNetworkInfo struct {
 }
 
 func (s *Store) SharedNetworks(ctx context.Context) ([]SharedNetworkInfo, error) {
-	rows, err := s.DB.Query(ctx, `
-		SELECT n.name, COALESCE(array_agg(r.name || ' (' || p.name || ')' ORDER BY p.name, r.name) FILTER (WHERE r.id IS NOT NULL), '{}')
+	rows, err := s.SQL(ctx).Query(ctx, `
+		SELECT n.name, COALESCE(array_agg(r.name || ' (' || COALESCE(p.name,'No project') || ')' ORDER BY p.name, r.name) FILTER (WHERE r.id IS NOT NULL), '{}')
 		FROM shared_networks n LEFT JOIN resource_networks m ON m.network_id = n.id
 		LEFT JOIN resources r ON r.id = m.resource_id LEFT JOIN projects p ON p.id = r.project_id
 		GROUP BY n.name ORDER BY n.name`)
@@ -191,7 +191,7 @@ type NetworkTarget struct {
 }
 
 func (s *Store) NetworkTargets(ctx context.Context) ([]NetworkTarget, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT r.id, r.container_id, r.environment_id, array_prepend(r.name, r.aliases),
 		       COALESCE((SELECT array_agg(n.name) FROM resource_networks m JOIN shared_networks n ON n.id = m.network_id WHERE m.resource_id = r.id), '{}')
 		FROM resources r WHERE COALESCE(r.container_id, '') <> ''`)
@@ -212,7 +212,7 @@ func (s *Store) NetworkTargets(ctx context.Context) ([]NetworkTarget, error) {
 
 // EnvironmentIDs lists the environments that have resources; each gets a private network.
 func (s *Store) EnvironmentIDs(ctx context.Context) ([]string, error) {
-	rows, err := s.DB.Query(ctx, `SELECT DISTINCT r.environment_id FROM resources r`)
+	rows, err := s.SQL(ctx).Query(ctx, `SELECT DISTINCT r.environment_id FROM resources r`)
 	if err != nil {
 		return nil, err
 	}
@@ -241,13 +241,13 @@ type NetworkTest struct {
 
 func (s *Store) AddNetworkTest(ctx context.Context, resourceID, userID string, t NetworkTest) (int64, error) {
 	var id int64
-	err := s.DB.QueryRow(ctx, `INSERT INTO network_tests (resource_id, kind, target, ok, summary, output, ran_by) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+	err := s.SQL(ctx).QueryRow(ctx, `INSERT INTO network_tests (resource_id, kind, target, ok, summary, output, ran_by) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
 		resourceID, t.Kind, t.Target, t.OK, t.Summary, t.Output, nullable(userID)).Scan(&id)
 	return id, err
 }
 
 func (s *Store) NetworkTests(ctx context.Context, resourceID string, limit int) ([]NetworkTest, error) {
-	rows, err := s.DB.Query(ctx, `
+	rows, err := s.SQL(ctx).Query(ctx, `
 		SELECT t.id, t.kind, t.target, t.ok, t.summary, t.output, COALESCE(u.name, ''), t.ran_at
 		FROM network_tests t LEFT JOIN users u ON u.id = t.ran_by
 		WHERE t.resource_id = $1 ORDER BY t.ran_at DESC LIMIT $2`, resourceID, limit)

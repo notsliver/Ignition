@@ -65,7 +65,7 @@ func (s *Server) loadServer(r *http.Request) (*store.Server, error) {
 
 func actorName(u *store.User) string { return u.Email }
 
-func (s *Server) listServers(w http.ResponseWriter, r *http.Request, _ *store.User) error {
+func (s *Server) listServers(w http.ResponseWriter, r *http.Request, u *store.User) error {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	offset, _ := strconv.Atoi(q.Get("offset"))
@@ -80,6 +80,9 @@ func (s *Server) listServers(w http.ResponseWriter, r *http.Request, _ *store.Us
 	}
 	views := make([]serverView, len(list))
 	for i := range list {
+		if roleRank[u.InstanceRole] < roleRank["admin"] {
+			scrubHost(&list[i])
+		}
 		views[i] = viewServer(&list[i])
 	}
 	httpx.JSON(w, 200, map[string]any{"servers": views, "total": total, "summary": sum, "staleAfterSeconds": int(store.StaleAfter.Seconds()),
@@ -87,10 +90,13 @@ func (s *Server) listServers(w http.ResponseWriter, r *http.Request, _ *store.Us
 	return nil
 }
 
-func (s *Server) getServer(w http.ResponseWriter, r *http.Request, _ *store.User) error {
+func (s *Server) getServer(w http.ResponseWriter, r *http.Request, u *store.User) error {
 	srv, err := s.loadServer(r)
 	if err != nil {
 		return err
+	}
+	if roleRank[u.InstanceRole] < roleRank["admin"] {
+		scrubHost(srv)
 	}
 	httpx.JSON(w, 200, map[string]any{"server": viewServer(srv)})
 	return nil
@@ -344,7 +350,7 @@ func (s *Server) refreshServer(w http.ResponseWriter, r *http.Request, u *store.
 }
 
 func (s *Server) enqueueServerOp(ctx context.Context, serverID, userID string, p servers.Payload) (string, error) {
-	tx, err := s.Store.DB.Begin(ctx)
+	tx, err := s.Store.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -379,7 +385,7 @@ func (s *Server) cancelServerJob(w http.ResponseWriter, r *http.Request, u *stor
 	if err != nil {
 		return notFound(err, "Job")
 	}
-	status, err := jobs.RequestCancel(r.Context(), s.Store.DB, id)
+	status, err := jobs.RequestCancel(r.Context(), s.Store.SQL(r.Context()), id)
 	if err != nil {
 		return err
 	}
@@ -439,7 +445,7 @@ func (s *Server) listServerResources(w http.ResponseWriter, r *http.Request, _ *
 	}
 	// Health state per resource, so "unhealthy" can be shown apart from "running".
 	health := map[string]string{}
-	rows, err := s.Store.DB.Query(r.Context(), `SELECT h.resource_id, h.state FROM resource_health h JOIN resources r ON r.id = h.resource_id WHERE r.server_id = $1 AND h.enabled`, srv.ID)
+	rows, err := s.Store.SQL(r.Context()).Query(r.Context(), `SELECT h.resource_id, h.state FROM resource_health h JOIN resources r ON r.id = h.resource_id WHERE r.server_id = $1 AND h.enabled`, srv.ID)
 	if err == nil {
 		for rows.Next() {
 			var id, st string
@@ -836,7 +842,7 @@ func (s *Server) verifyServer(w http.ResponseWriter, r *http.Request, u *store.U
 	}
 	if res.OK {
 		var dup int
-		s.Store.DB.QueryRow(r.Context(), `SELECT count(*) FROM servers WHERE lower(endpoint) = lower($1)`, res.Endpoint).Scan(&dup)
+		s.Store.SQL(r.Context()).QueryRow(r.Context(), `SELECT count(*) FROM servers WHERE lower(endpoint) = lower($1)`, res.Endpoint).Scan(&dup)
 		if dup > 0 {
 			res.Steps = append(res.Steps, verifyStep{ID: "duplicate", Title: "Not already registered", Status: "failed", Detail: "A server with this endpoint is already registered."})
 			res.OK = false
@@ -995,4 +1001,18 @@ func (s *Server) deleteServer(w http.ResponseWriter, r *http.Request, u *store.U
 	s.Store.Audit(r.Context(), u, "server.remove", "server", srv.ID, map[string]any{"name": srv.Name, "endpoint": srv.Endpoint, "reachable": p.Reachable}, clientIP(r))
 	w.WriteHeader(204)
 	return nil
+}
+
+func scrubHost(s *store.Server) {
+	s.Metrics = nil
+	s.HostFacts = json.RawMessage(`{}`)
+	s.Info = json.RawMessage(`{}`)
+	s.Capabilities = json.RawMessage(`{}`)
+	s.Settings = json.RawMessage(`{}`)
+	s.LastError = ""
+	s.ClientCert = ""
+	s.Endpoint = ""
+	s.Hostname = ""
+	s.MaintenanceNote = ""
+	s.MaintenanceBy = ""
 }

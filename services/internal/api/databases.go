@@ -153,7 +153,7 @@ func (s *Server) createImport(w http.ResponseWriter, r *http.Request, u *store.U
 		}
 		tmp.Seek(0, 0)
 		if err := s.Runtime.CopyFileTo(ctx, res.ContainerID, worker.ImportDir(importID), row.label, tmp, *row.size); err != nil {
-			s.Store.DB.Exec(ctx, `UPDATE data_imports SET status = 'failed', summary = $2, finished_at = now() WHERE id = $1`, importID, "Couldn't put the file into the database container: "+err.Error())
+			s.Store.SQL(ctx).Exec(ctx, `UPDATE data_imports SET status = 'failed', summary = $2, finished_at = now() WHERE id = $1`, importID, "Couldn't put the file into the database container: "+err.Error())
 			return httpx.Unavailable("Couldn't put the file into " + res.Name + ": " + err.Error())
 		}
 		return s.queueImport(w, r, u, res, importID, row.secret)
@@ -212,7 +212,7 @@ func (s *Server) createImport(w http.ResponseWriter, r *http.Request, u *store.U
 
 func (s *Server) insertImport(ctx context.Context, resourceID, source, label string, size *int64, replace bool, sealed []byte, userID string) (string, error) {
 	var id string
-	err := s.Store.DB.QueryRow(ctx, `INSERT INTO data_imports (resource_id, source, label, size_bytes, replace, secret_enc, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+	err := s.Store.SQL(ctx).QueryRow(ctx, `INSERT INTO data_imports (resource_id, source, label, size_bytes, replace, secret_enc, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
 		resourceID, source, label, size, replace, sealed, optionalID(userID)).Scan(&id)
 	return id, err
 }
@@ -224,11 +224,11 @@ func (s *Server) queueImport(w http.ResponseWriter, r *http.Request, u *store.Us
 	if err != nil {
 		return err
 	}
-	jobID, err := jobs.Enqueue(ctx, s.Store.DB, jobs.NewJob{Kind: jobs.KindImport, ResourceID: res.ID, CreatedBy: u.ID, Payload: map[string]string{"importId": importID}, MaxAttempts: 1})
+	jobID, err := jobs.Enqueue(ctx, s.Store.SQL(ctx), jobs.NewJob{Kind: jobs.KindImport, ResourceID: res.ID, CreatedBy: u.ID, Payload: map[string]string{"importId": importID}, MaxAttempts: 1})
 	if err != nil {
 		return err
 	}
-	if _, err := s.Store.DB.Exec(ctx, `UPDATE data_imports SET job_id = $2, secret_enc = $3 WHERE id = $1`, importID, jobID, sealed); err != nil {
+	if _, err := s.Store.SQL(ctx).Exec(ctx, `UPDATE data_imports SET job_id = $2, secret_enc = $3 WHERE id = $1`, importID, jobID, sealed); err != nil {
 		return err
 	}
 	s.Store.Audit(ctx, u, "resource.import", "resource", res.ID, map[string]any{"import": importID}, clientIP(r))
@@ -265,7 +265,7 @@ func scanImport(row interface{ Scan(...any) error }) (*dataImport, error) {
 }
 
 func (s *Server) getImportRow(ctx context.Context, id string) (*dataImport, error) {
-	return scanImport(s.Store.DB.QueryRow(ctx, importSelect+` WHERE i.id = $1`, id))
+	return scanImport(s.Store.SQL(ctx).QueryRow(ctx, importSelect+` WHERE i.id = $1`, id))
 }
 
 func (s *Server) listImports(w http.ResponseWriter, r *http.Request, _ *store.User) error {
@@ -273,7 +273,7 @@ func (s *Server) listImports(w http.ResponseWriter, r *http.Request, _ *store.Us
 	if err != nil {
 		return err
 	}
-	rows, err := s.Store.DB.Query(r.Context(), importSelect+` WHERE i.resource_id = $1 ORDER BY i.created_at DESC LIMIT 20`, id)
+	rows, err := s.Store.SQL(r.Context()).Query(r.Context(), importSelect+` WHERE i.resource_id = $1 ORDER BY i.created_at DESC LIMIT 20`, id)
 	if err != nil {
 		return err
 	}
@@ -322,12 +322,12 @@ func (s *Server) cancelImport(w http.ResponseWriter, r *http.Request, u *store.U
 	if imp.JobID == nil || (imp.Status != "queued" && imp.Status != "running") {
 		return httpx.Conflict("This import already finished.")
 	}
-	status, err := jobs.RequestCancel(r.Context(), s.Store.DB, *imp.JobID)
+	status, err := jobs.RequestCancel(r.Context(), s.Store.SQL(r.Context()), *imp.JobID)
 	if err != nil {
 		return err
 	}
 	if status == "cancelled" {
-		s.Store.DB.Exec(r.Context(), `UPDATE data_imports SET status = 'cancelled', summary = 'Cancelled before it started.', finished_at = now() WHERE id = $1`, id)
+		s.Store.SQL(r.Context()).Exec(r.Context(), `UPDATE data_imports SET status = 'cancelled', summary = 'Cancelled before it started.', finished_at = now() WHERE id = $1`, id)
 	}
 	httpx.JSON(w, 202, map[string]string{"status": status})
 	return nil
@@ -375,6 +375,7 @@ func (s *Server) checkSource(w http.ResponseWriter, r *http.Request, _ *store.Us
 /* ------------------------------ External databases ------------------------------ */
 
 type externalInput struct {
+	ProjectID     string `json:"projectId"`
 	EnvironmentID string `json:"environmentId"`
 	Name          string `json:"name"`
 	Engine        string `json:"engine"`
@@ -414,19 +415,20 @@ func connectionURL(eng *dbimport.Engine, host string, port int, user, password, 
 }
 
 func (s *Server) createExternal(w http.ResponseWriter, r *http.Request, u *store.User) error {
-	projectID, err := pathID(r, "Project")
-	if err != nil {
-		return err
-	}
+	projectID := r.PathValue("id")
 	ctx := r.Context()
-	project, err := s.Store.GetProject(ctx, u.ID, projectID)
-	if err != nil {
-		return notFound(err, "Project")
-	}
 	var in externalInput
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
+	if projectID == "" {
+		projectID = in.ProjectID
+	}
+	project, err := s.creationProject(r, u, projectID)
+	if err != nil {
+		return err
+	}
+
 	f := map[string]string{}
 	eng := dbimport.EngineByID(in.Engine)
 	if eng == nil {
@@ -468,7 +470,7 @@ func (s *Server) createExternal(w http.ResponseWriter, r *http.Request, u *store
 		{Key: "DB_HOST", Value: in.Host}, {Key: "DB_PORT", Value: strconv.Itoa(in.Port)}, {Key: "DB_NAME", Value: in.Database},
 		{Key: "DB_USER", Value: in.User}, {Key: "DB_PASSWORD", Value: in.Password, Secret: true}, {Key: "DATABASE_URL", Value: connURL, Secret: true},
 	}}
-	tx, err := s.Store.DB.Begin(ctx)
+	tx, err := s.Store.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -577,8 +579,8 @@ func (s *Server) shareConnection(w http.ResponseWriter, r *http.Request, u *stor
 		return notFound(err, "Resource")
 	}
 	target, err := s.Store.GetResource(ctx, in.TargetID)
-	if err != nil || target.ProjectID != src.ProjectID {
-		return httpx.Invalid(map[string]string{"targetId": "Pick a resource of this project."})
+	if err != nil || target.TeamID != src.TeamID {
+		return httpx.Invalid(map[string]string{"targetId": "Pick a resource in this team."})
 	}
 	// Reuse connection() to build the URL with the password.
 	rec := &captureWriter{header: http.Header{}}
@@ -600,7 +602,7 @@ func (s *Server) shareConnection(w http.ResponseWriter, r *http.Request, u *stor
 	if err != nil {
 		return err
 	}
-	if _, err := s.Store.DB.Exec(ctx, `INSERT INTO env_vars (resource_id, key, value_enc, secret, updated_by) VALUES ($1, $2, $3, true, $4)
+	if _, err := s.Store.SQL(ctx).Exec(ctx, `INSERT INTO env_vars (resource_id, key, value_enc, secret, updated_by) VALUES ($1, $2, $3, true, $4)
 		ON CONFLICT (resource_id, key) DO UPDATE SET value_enc = EXCLUDED.value_enc, secret = true, updated_by = EXCLUDED.updated_by, updated_at = now()`, target.ID, in.Key, sealed, u.ID); err != nil {
 		return err
 	}
@@ -706,7 +708,7 @@ func (s *Server) putFunction(w http.ResponseWriter, r *http.Request, u *store.Us
 	if err != nil {
 		return httpx.Invalid(map[string]string{"code": capitalize(err.Error()) + "."})
 	}
-	tx, err := s.Store.DB.Begin(ctx)
+	tx, err := s.Store.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -757,7 +759,7 @@ func (s *Server) invokeFunction(w http.ResponseWriter, r *http.Request, u *store
 	if !s.limiter.allow("invoke:" + id) {
 		return httpx.TooMany("That's a lot of calls in a minute. Try again shortly.")
 	}
-	jobID, err := jobs.Enqueue(r.Context(), s.Store.DB, jobs.NewJob{Kind: jobs.KindInvoke, ResourceID: id, CreatedBy: u.ID, Payload: in, MaxAttempts: 1})
+	jobID, err := jobs.Enqueue(r.Context(), s.Store.SQL(r.Context()), jobs.NewJob{Kind: jobs.KindInvoke, ResourceID: id, CreatedBy: u.ID, Payload: in, MaxAttempts: 1})
 	if err != nil {
 		return err
 	}
@@ -765,7 +767,7 @@ func (s *Server) invokeFunction(w http.ResponseWriter, r *http.Request, u *store
 	defer cancel()
 	for {
 		var status, progress, lastErr string
-		if err := s.Store.DB.QueryRow(ctx, `SELECT status, progress, last_error FROM jobs WHERE id = $1`, jobID).Scan(&status, &progress, &lastErr); err != nil {
+		if err := s.Store.SQL(ctx).QueryRow(ctx, `SELECT status, progress, last_error FROM jobs WHERE id = $1`, jobID).Scan(&status, &progress, &lastErr); err != nil {
 			return err
 		}
 		switch status {

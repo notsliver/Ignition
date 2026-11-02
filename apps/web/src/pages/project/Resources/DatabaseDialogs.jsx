@@ -4,7 +4,7 @@ import {
   EyeIcon, EyeSlashIcon, LinkIcon, SignalIcon, XCircleIcon,
 } from '@heroicons/react/16/solid';
 import { Button, Checkbox, Dialog, FormField, Notice, SegmentedControl, Select, Status, Switch, TextInput, cx } from '../../../ui';
-import { api } from '../../../api/client';
+import { api, getTeamSignal, teamApiUrl } from '../../../api/client';
 import { timeAgo, useQuery } from '../../../api/hooks';
 import { CopyButton } from '../resource/shared';
 import { dbFlow, engineIds, engineNames } from './flows';
@@ -37,8 +37,14 @@ function useEngines() {
 // Upload with progress (fetch can't report upload progress).
 function upload(resourceId, file, replace, onProgress) {
   return new Promise((resolve, reject) => {
+    const signal=getTeamSignal();
+    if(signal.aborted){reject(new DOMException('Team changed','AbortError'));return;}
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `/api/resources/${resourceId}/imports`);
+    const abort=()=>xhr.abort();
+    signal.addEventListener('abort',abort,{once:true});
+    xhr.addEventListener('loadend',()=>signal.removeEventListener('abort',abort));
+    xhr.onabort=()=>reject(new DOMException('Team changed','AbortError'));
+    xhr.open('POST', teamApiUrl(`/api/resources/${resourceId}/imports`));
     xhr.withCredentials = true;
     xhr.upload.onprogress = e => e.lengthComputable && onProgress(e.loaded / e.total);
     xhr.onload = () => {

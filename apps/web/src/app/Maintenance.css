@@ -1,0 +1,16 @@
+/* Maintenance mode: the closed screen and the administrators' reminder. */
+.maintenance-icon{display:grid;place-items:center;width:32px;height:32px;border-radius:8px;background:color-mix(in srgb,var(--warning,#d97706) 14%,transparent);color:var(--warning,#d97706)}
+.maintenance-icon svg{width:16px}
+.maintenance-message{margin:0;font-size:13px;line-height:1.5;color:var(--text);white-space:pre-wrap;overflow-wrap:anywhere}
+.maintenance-pill{position:fixed;left:50%;top:10px;z-index:60;transform:translateX(-50%);display:flex;align-items:center;gap:8px;max-width:calc(100vw - 32px);padding:7px 12px;border-radius:999px;background:var(--surface);box-shadow:0 0 0 1px color-mix(in srgb,var(--warning,#d97706) 45%,var(--border)),0 6px 20px #0000001a;font-size:12px;color:var(--text);text-decoration:none;animation:maintenance-in .2s ease-out}
+.maintenance-pill svg{flex:none;width:14px;color:var(--warning,#d97706)}
+.maintenance-pill span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.maintenance-pill:hover{background:var(--hover)}
+@keyframes maintenance-in{from{opacity:0;transform:translate(-50%,-6px)}}
+@media(prefers-reduced-motion:reduce){.maintenance-pill{animation:none}}
+.maintenance-step{display:flex;flex-direction:column;gap:16px}
+.maintenance-step h1{margin:0;font-size:24px;font-weight:600;letter-spacing:-.4px}
+.maintenance-message-card{display:flex;align-items:flex-start;gap:14px;padding:16px;border:1px solid color-mix(in srgb,var(--warning) 35%,var(--border));border-radius:12px;background:color-mix(in srgb,var(--warning) 4%,var(--surface))}
+.maintenance-message-card>span:last-child{display:flex;flex-direction:column;gap:4px;min-width:0}
+.maintenance-message-card strong{font-size:12px;font-weight:500;color:var(--muted)}
+.maintenance-icon{flex:none}

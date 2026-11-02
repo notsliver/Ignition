@@ -155,7 +155,7 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request, u *store.User)
 	}()
 	// Idle and age limits.
 	go func() {
-		tick := time.NewTicker(30 * time.Second)
+		tick := time.NewTicker(5 * time.Second)
 		defer tick.Stop()
 		for {
 			select {
@@ -163,6 +163,18 @@ func (s *Server) terminal(w http.ResponseWriter, r *http.Request, u *store.User)
 				done <- "session reached its 8 hour limit"
 				return
 			case <-tick.C:
+				if u.TeamID != "" {
+					m, err := s.Store.Membership(ctx, u.TeamID, u.ID)
+					if err != nil || m.AccessVersion != u.TeamVersion {
+						done <- "team permissions changed"
+						return
+					}
+					actor, err := s.Store.GetUser(ctx, u.ID)
+					if err != nil || actor.Status != "active" {
+						done <- "account access changed"
+						return
+					}
+				}
 				if time.Since(time.Unix(0, lastInput.Load())) > terminalIdle {
 					done <- "closed after 15 minutes without input"
 					return

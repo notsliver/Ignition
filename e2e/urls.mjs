@@ -7,7 +7,7 @@ const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 page.setDefaultTimeout(15_000);
 page.on('pageerror', e => console.log('[browser error]', e.message));
-const path = () => new URL(page.url()).pathname + new URL(page.url()).search;
+const path = () => new URL(page.url()).pathname.replace(/^\/teams\/[0-9a-f-]{36}/, '') + new URL(page.url()).search;
 const h1 = () => page.locator('.page-header h1').innerText();
 const check = (label, actual, expected) => {
   if (actual !== expected) throw new Error(`${label}: expected ${expected}, got ${actual}`);
@@ -32,7 +32,7 @@ try {
   await page.locator('.resource-row strong').first().click();
   await page.locator('.sidebar').getByRole('button', { name: 'Environment Variables', exact: true }).click();
   const deep = path();
-  check('resource page url shape', /^\/projects\/[0-9a-f-]{36}\/resources\/[0-9a-f-]{36}\/environment-variables$/.test(deep), true);
+  check('resource page url shape', /^\/resources\/[0-9a-f-]{36}\/environment-variables$/.test(deep), true);
 
   await page.reload();
   await page.locator('.page-header h1', { hasText: 'Environment Variables' }).waitFor();

@@ -16,7 +16,8 @@ export function useQuery(fetcher, deps, { pollMs = 0, enabled = true } = {}) {
       setState({ data, error: null, loading: false });
       return data;
     } catch (error) {
-      setState(s => ({ data: s.data, error, loading: false }));
+      if(error.name === 'AbortError')return;
+      setState(s => ({ data: [401,403,404].includes(error.status) ? null : s.data, error, loading: false }));
     }
   }, []);
 

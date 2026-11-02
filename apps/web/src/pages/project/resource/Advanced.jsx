@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react';
 import { ArrowDownTrayIcon, ArrowPathIcon, ArrowsRightLeftIcon, CheckCircleIcon, ExclamationTriangleIcon, PauseIcon, PlayIcon, TrashIcon } from '@heroicons/react/16/solid';
 import { Button, Checkbox, Dialog, Notice, Select, Switch, TextInput, cx } from '../../../ui';
-import { api } from '../../../api/client';
+import { api, teamApiUrl } from '../../../api/client';
 import { timeAgo, useQuery } from '../../../api/hooks';
 import { useSession, can } from '../../../app/AuthGate';
 import { SaveBar, SettingsField, SettingsGroup } from '../../settings/SettingsField';
 import { CopyButton } from './shared';
+import { ProjectGroupingDialog } from '../../../app/Teams';
 import './Operations.css';
 
 /*
@@ -137,7 +138,7 @@ export function AdvancedSettings({ resource, onResourceChange, onDeleted }) {
       {ids.image && <SettingsField label="Image" hint={ids.imageId ? `ID ${shortId(ids.imageId)}` : undefined}><code className="readonly-value mono ops-ellipsis" title={ids.image}>{ids.image}</code></SettingsField>}
       <SettingsField label="Private network"><code className="readonly-value mono">{ids.network}</code></SettingsField>
       <SettingsField label="Created · changed"><span className="readonly-value">{new Date(ids.createdAt).toLocaleDateString()} · {timeAgo(ids.updatedAt)}</span></SettingsField>
-      <SettingsField label="Configuration" hint="Everything except variable values, as JSON."><a className="button" href={`/api/resources/${resource.id}/export`} download><ArrowDownTrayIcon className="button-icon" />Export</a></SettingsField>
+      <SettingsField label="Configuration" hint="Everything except variable values, as JSON."><a className="button" href={teamApiUrl(`/api/resources/${resource.id}/export`)} download><ArrowDownTrayIcon className="button-icon" />Export</a></SettingsField>
     </SettingsGroup>
 
     {canEdit && <section className="settings-group danger-zone">
@@ -148,6 +149,7 @@ export function AdvancedSettings({ resource, onResourceChange, onDeleted }) {
         {data.sourceType === 'git' && data.images && <div className="settings-field"><div className="settings-field-label"><strong>Remove old images</strong>
           <span>{data.images.count > 1 ? `${data.images.count} built images, about ${bytes(data.images.bytes)} of their own (layers they share aren't counted). Releases whose image is removed can't be rolled back to without a rebuild.` : 'Only the running image is kept. Nothing to remove.'}</span></div>
           <div className="settings-field-control"><Button type="button" disabled={!isAdmin || data.images.count <= 1} title={isAdmin ? undefined : 'Admins only'} onClick={() => setDanger('purge')}>Remove…</Button></div></div>}
+        <div className="settings-field"><div className="settings-field-label"><strong>Project grouping</strong><span>Optional grouping within this team. Changing it changes project-based access without redeploying.</span></div><div className="settings-field-control"><Button type="button" disabled={!isAdmin} onClick={()=>setDanger('group')}>Change project?</Button></div></div>
         <div className="settings-field"><div className="settings-field-label"><strong>Move to another environment</strong><span>Domains, variables, volumes and history go along. It's redeployed there and joins that environment's network.</span></div>
           <div className="settings-field-control"><Button type="button" icon={ArrowsRightLeftIcon} disabled={!isAdmin || !(data.moveTargets?.length)} title={isAdmin ? undefined : 'Admins only'} onClick={() => setDanger('move')}>Move…</Button></div></div>
         <div className="settings-field"><div className="settings-field-label"><strong>Delete {resource.name}</strong><span>Removes its container, domains, tasks and history. Can't be undone.</span></div>
@@ -155,6 +157,7 @@ export function AdvancedSettings({ resource, onResourceChange, onDeleted }) {
       </div>
     </section>}
 
+    {danger === 'group' && <ProjectGroupingDialog resource={resource} onClose={()=>setDanger(null)} onChanged={()=>{setDanger(null);refetch();}}/>}
     {danger === 'purge' && <PurgeDialog resource={resource} images={data.images} onClose={() => setDanger(null)} onDone={text => { setDanger(null); setFeedback({ tone: 'success', title: text }); refetch(); }} />}
     {danger === 'move' && <MoveDialog resource={resource} targets={data.moveTargets} onClose={() => setDanger(null)} onDone={out => { setDanger(null); onResourceChange?.(out.resource); setFeedback({ tone: 'success', title: `Moved to ${out.projectName} / ${out.environmentName}`, text: out.deploymentId ? 'It\'s being redeployed there.' : undefined }); refetch(); }} />}
     {danger === 'delete' && <DeleteDialog resource={resource} onClose={() => setDanger(null)} onDone={() => { setDanger(null); onDeleted?.(); }} />}

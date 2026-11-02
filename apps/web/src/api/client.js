@@ -17,22 +17,53 @@ const listeners = new Set();
 /** Called with no arguments whenever the API says the session has ended. */
 export const onUnauthenticated = fn => { listeners.add(fn); return () => listeners.delete(fn); };
 
+let activeTeamId = '';
+let activeTeamCode = ''; // the short public ID, for browser URLs
+let authorizationVersion = '';
+const teamAccessListeners = new Set();
+export const onTeamAccessChanged = fn => {teamAccessListeners.add(fn);return ()=>teamAccessListeners.delete(fn);};
+let teamRequests = new AbortController();
+export const getTeamSignal = () => teamRequests.signal;
+export const getActiveTeamId = () => activeTeamId;
+export function setActiveTeamId(id, version, code) {
+  activeTeamCode = code || id;
+  authorizationVersion = version === undefined ? '' : String(version);
+  if (id === activeTeamId) return;
+  teamRequests.abort(); teamRequests = new AbortController(); activeTeamId = id;
+}
+export function teamApiUrl(path) {
+  const relative = path.replace(/^\/api/, '');
+  const global = /^\/(platform|auth|account|setup|settings|users|invites|teams|team-invitations)(\/|$|\?)/.test(relative) || /^\/(system|permissions)(\?|$)/.test(relative);
+  if (global) return `/api${relative}`;
+  if (!activeTeamId) throw new Error('Select a team first.');
+  return `/api/teams/${activeTeamId}${relative}`;
+}
+export const teamPath = path => `/teams/${activeTeamCode || activeTeamId}${path}`;
+
 async function request(method, path, body) {
   let res;
+  const url = teamApiUrl(path), signal = teamRequests.signal;
   try {
-    res = await fetch(`/api${path}`, {
+    res = await fetch(url, {
+      signal,
       method,
       credentials: 'same-origin',
       headers: body !== undefined ? { 'Content-Type': 'application/json' } : undefined,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
-  } catch {
+  } catch (error) {
+    if (signal.aborted) throw new DOMException('Team changed', 'AbortError');
     throw new ApiError(0, { error: { code: 'offline', message: 'Can\'t reach the Ignition API. Is it running?' } });
   }
+  if (signal.aborted) throw new DOMException('Team changed', 'AbortError');
+  const version=res.headers.get('X-Ignition-Authorization-Version');
+  if(authorizationVersion && version && res.headers.get('X-Ignition-Team')===activeTeamId && version!==authorizationVersion){teamAccessListeners.forEach(fn=>fn());throw new DOMException('Team permissions changed','AbortError');}
   if (res.status === 204) return null;
   const data = await res.json().catch(() => null);
   if (!res.ok) {
     const err = new ApiError(res.status, data);
+    if(err.code==='team_access_lost')teamAccessListeners.forEach(fn=>fn());
+    if (err.code === 'maintenance') window.dispatchEvent(new CustomEvent('ignition:maintenance', { detail: { maintenance: true, maintenanceMessage: err.message } }));
     if (res.status === 401 && !path.startsWith('/auth/') && !path.startsWith('/setup')) listeners.forEach(fn => fn(err));
     throw err;
   }
@@ -42,8 +73,9 @@ async function request(method, path, body) {
 /** Sends a file as the raw request body (uploads up to several GB without multipart). */
 async function upload(path, file) {
   let res;
+  const url=teamApiUrl(path),signal=teamRequests.signal;
   try {
-    res = await fetch(`/api${path}`, { method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
+    res = await fetch(url, { signal, method: 'POST', credentials: 'same-origin', headers: { 'Content-Type': 'application/octet-stream' }, body: file });
   } catch {
     throw new ApiError(0, { error: { code: 'offline', message: 'The upload was interrupted. Check your connection and try again.' } });
   }
@@ -58,6 +90,38 @@ const q = params => {
 };
 
 export const api = {
+  teamResource: (team,id) => request('GET',`/teams/${team}/resources/${id}`),
+  teamProject: (team,id) => request('GET',`/teams/${team}/projects/${id}`),
+  teamInvitation: token => request('GET',`/team-invitations/${token}`),
+  registerTeamInvitation: (token,input) => request('POST',`/team-invitations/${token}/register`,input),
+  groupResource: (id,projectId) => request('PUT',`/resources/${id}/project`,{projectId:projectId || null}),
+  platformCapacity: team => request('GET',`/platform/capacity${team ? `?team=${team}` : ''}`),
+  platformTeams: () => request('GET', '/platform/teams'),
+  serverAllocations: id => request('GET', `/servers/${id}/allocations`),
+  addServerAllocations: (id, body) => request('POST', `/servers/${id}/allocations`, body),
+  deleteServerAllocations: (id, ids) => request('POST', `/servers/${id}/allocations/delete`, { ids }),
+  updateServerAllocation: (id, allocation, body) => request('PATCH', `/servers/${id}/allocations/${allocation}`, body),
+  setServerVisibility: (id, visible) => request('PUT', `/servers/${id}/visibility`, { visible }),
+  instanceLimits: () => request('GET', '/settings/limits'),
+  saveInstanceLimits: limits => request('PUT', '/settings/limits', limits),
+  quotas: () => request('GET', '/settings/quotas'),
+  saveQuotas: quotas => request('PUT', '/settings/quotas', quotas),
+  teamUsage: range => request('GET', `/usage${q({ range })}`),
+  assignTeamCapacity: input => request('POST','/platform/capacity',input),
+  teams: () => request('GET', '/teams'),
+  createTeam: name => request('POST', '/teams', {name}),
+  team: id => request('GET', `/teams/${id}`),
+  updateTeam: (id, input) => request('PATCH', `/teams/${id}`, input),
+  teamMembers: id => request('GET', `/teams/${id}/members`),
+  setTeamMember: (team,id,input) => request('PUT', `/teams/${team}/members/${id}`,input),
+  removeTeamMember: (team,id) => request('DELETE', `/teams/${team}/members/${id}`),
+  teamInvitations: id => request('GET', `/teams/${id}/invitations`),
+  inviteTeamMember: (id,input) => request('POST', `/teams/${id}/invitations`,input),
+  revokeTeamInvitation: (team,id) => request('DELETE', `/teams/${team}/invitations/${id}`),
+  acceptTeamInvitation: token => request('POST', `/team-invitations/${token}/accept`),
+  teamEnvironments: () => request('GET', `/teams/${activeTeamId}/environments`),
+  projectAssignments: id => request('GET', `/projects/${id}/assignments`),
+  setProjectAssignment: (id,input) => request('PUT', `/projects/${id}/assignments`,input),
   setupStatus: () => request('GET', '/setup'),
   setup: input => request('POST', '/setup', input),
   completeSetup: () => request('POST', '/setup/complete'),
@@ -69,6 +133,10 @@ export const api = {
   mfaSetupTicket: ticket => request('POST', '/auth/mfa/setup', { ticket }),
   mfaConfirmTicket: (ticket, code) => request('POST', '/auth/mfa/setup/confirm', { ticket, code }),
   ssoStartUrl: '/api/auth/oidc/start',
+  uploadAvatar: file => upload("/account/avatar", file),
+  removeAvatar: () => request("DELETE", "/account/avatar"),
+  uploadTeamIcon: (id, file) => upload(`/teams/${id}/icon`, file),
+  removeTeamIcon: id => request("DELETE", `/teams/${id}/icon`),
   accountSecurity: () => request('GET', '/account/security'),
   savePreferences: prefs => request('PUT', '/account/preferences', prefs),
   accountMfaSetup: () => request('POST', '/account/mfa/setup'),
@@ -103,9 +171,9 @@ export const api = {
   setFavorite: (id, on) => request(on ? 'PUT' : 'DELETE', `/projects/${id}/favorite`),
 
   allResources: (params = {}) => request('GET', `/resources${q(params)}`),
-  resources: (projectId, params = {}) => request('GET', `/projects/${projectId}/resources${q(params)}`),
+  resources: (projectId, params = {}) => request('GET', `${projectId ? `/projects/${projectId}` : ''}/resources${q(params)}`),
   resource: id => request('GET', `/resources/${id}`),
-  createResource: (projectId, input) => request('POST', `/projects/${projectId}/resources`, input),
+  createResource: (projectId, input) => request('POST', `${projectId ? `/projects/${projectId}` : ''}/resources`, input),
   updateResource: (id, patch) => request('PATCH', `/resources/${id}`, patch),
   deleteResource: (id, confirm, removeVolumes = false) => request('DELETE', `/resources/${id}${q({ confirm, volumes: removeVolumes ? 'true' : '' })}`),
   resourceAction: (id, action) => request('POST', `/resources/${id}/actions`, { action }),
@@ -123,7 +191,7 @@ export const api = {
   deploymentLogs: (id, after = 0) => request('GET', `/deployments/${id}/logs${q({ after })}`),
   cancelDeployment: id => request('POST', `/deployments/${id}/cancel`),
   audit: (params = {}) => request('GET', `/audit${q(params)}`),
-  auditExportUrl: (params = {}) => `/api/audit/export${q(params)}`,
+  auditExportUrl: (params = {}) => teamApiUrl(`/api/audit/export${q(params)}`),
   general: () => request('GET', '/settings/general'),
   putGeneral: body => request('PUT', '/settings/general', body),
   updates: () => request('GET', '/settings/updates'),
@@ -215,7 +283,7 @@ export const api = {
   imports: resourceId => request('GET', `/resources/${resourceId}/imports`),
   dataImport: (id, after = 0) => request('GET', `/data-imports/${id}${q({ after: after || undefined })}`),
   cancelImport: id => request('POST', `/data-imports/${id}/cancel`),
-  createExternalDatabase: (projectId, body) => request('POST', `/projects/${projectId}/external-databases`, body),
+  createExternalDatabase: (projectId, body) => request('POST', `${projectId ? `/projects/${projectId}` : ''}/external-databases`, body),
   connection: id => request('GET', `/resources/${id}/connection`),
   shareConnection: (id, targetId, key) => request('POST', `/resources/${id}/connection/share`, { targetId, key }),
   testConnection: id => request('POST', `/resources/${id}/connection/test`),
@@ -271,8 +339,8 @@ export const api = {
   serverDiagnostics: id => request('GET', `/servers/${id}/diagnostics`),
   runServerDiagnostics: (id, checks) => request('POST', `/servers/${id}/diagnostics`, checks ? { checks } : {}),
   diagnosticRun: runId => request('GET', `/diagnostic-runs/${runId}`),
-  serverBundleUrl: id => `/api/servers/${id}/diagnostics/bundle`,
-  serversBundleUrl: ids => `/api/servers/bundle${q({ ids: ids.join(',') })}`,
+  serverBundleUrl: id => teamApiUrl(`/api/servers/${id}/diagnostics/bundle`),
+  serversBundleUrl: ids => teamApiUrl(`/api/servers/bundle${q({ ids: ids.join(',') })}`),
   serverDocker: id => request('GET', `/servers/${id}/docker`),
   serverContainers: id => request('GET', `/servers/${id}/docker/containers`),
   serverImages: id => request('GET', `/servers/${id}/docker/images`),
@@ -300,7 +368,7 @@ export const api = {
   createBackup: (id, volume, body = {}) => request('POST', `/resources/${id}/backups${q({ volume })}`, body),
   restoreBackup: (id, volume, name, backupFirst) => request('POST', `/resources/${id}/backups/${encodeURIComponent(name)}/restore${q({ volume })}`, { backupFirst }),
   deleteBackup: (id, volume, name) => request('DELETE', `/resources/${id}/backups/${encodeURIComponent(name)}${q({ volume })}`),
-  backupDownloadUrl: (id, volume, name) => `/api/resources/${id}/backups/${encodeURIComponent(name)}/download${q({ volume })}`,
+  backupDownloadUrl: (id, volume, name) => teamApiUrl(`/api/resources/${id}/backups/${encodeURIComponent(name)}/download${q({ volume })}`),
   // Files in any resource's volumes
   fileVolumes: id => request('GET', `/resources/${id}/files/volumes`),
   files: (id, volume, path) => request('GET', `/resources/${id}/files${q({ volume, path })}`),
@@ -311,13 +379,13 @@ export const api = {
   fileTrash: (id, volume) => request('GET', `/resources/${id}/files/trash${q({ volume })}`),
   fileOp: (id, volume, body) => request('POST', `/resources/${id}/files/ops${q({ volume })}`, body),
   shareFile: (id, volume, path, hours) => request('POST', `/resources/${id}/files/share${q({ volume })}`, { path, hours }),
-  fileDownloadUrl: (id, volume, path, inline) => `/api/resources/${id}/files/download${q({ volume, path, inline: inline ? 1 : undefined })}`,
+  fileDownloadUrl: (id, volume, path, inline) => teamApiUrl(`/api/resources/${id}/files/download${q({ volume, path, inline: inline ? 1 : undefined })}`),
   // Game servers
   games: () => request('GET', '/games'),
   gameVersions: (game, edition) => request('GET', `/games/${game}/versions${q({ edition })}`),
   gameModpacks: (game, params = {}) => request('GET', `/games/${game}/modpacks${q(params)}`),
   gameModpackVersions: (game, project) => request('GET', `/games/${game}/modpacks/${encodeURIComponent(project)}/versions`),
-  createGame: (projectId, body) => request('POST', `/projects/${projectId}/games`, body),
+  createGame: (projectId, body) => request('POST', `${projectId ? `/projects/${projectId}` : ''}/games`, body),
   game: id => request('GET', `/resources/${id}/game`),
   updateGame: (id, body) => request('PATCH', `/resources/${id}/game`, body),
   gameConsole: (id, command) => request('POST', `/resources/${id}/game/console`, { command }),
@@ -334,5 +402,5 @@ export const api = {
   gameWorlds: id => request('GET', `/resources/${id}/game/worlds`),
   gameWorldAction: (id, action, body) => request('POST', `/resources/${id}/game/worlds/${action}`, body),
   gameWorldUpload: (id, name, file) => upload(`/resources/${id}/game/worlds/upload${q({ name })}`, file),
-  gameWorldDownloadUrl: (id, world) => `/api/resources/${id}/game/worlds/download${q({ world })}`,
+  gameWorldDownloadUrl: (id, world) => teamApiUrl(`/api/resources/${id}/game/worlds/download${q({ world })}`),
 };

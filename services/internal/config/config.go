@@ -18,6 +18,7 @@ type Config struct {
 	DockerSocket  string
 	PublicURL     string // e.g. http://localhost:8080, used for origin checks
 	SecureCookies bool
+	UploadsDir    string // persistent Docker volume for profile and team icons
 	WebDir        string // built frontend, served by the API when present
 	PublishHost   string // host shown in URLs for published container ports
 	WorkerID      string
@@ -37,6 +38,7 @@ func Load() (Config, error) {
 		DockerSocket:   env("IGNITION_DOCKER_SOCKET", "/var/run/docker.sock"),
 		PublicURL:      env("IGNITION_PUBLIC_URL", "http://localhost:8080"),
 		SecureCookies:  env("IGNITION_SECURE_COOKIES", "false") == "true",
+		UploadsDir:     env("IGNITION_UPLOADS_DIR", "./data/uploads"),
 		WebDir:         env("IGNITION_WEB_DIR", ""),
 		PublishHost:    env("IGNITION_PUBLISH_HOST", "localhost"),
 		WorkerID:       env("IGNITION_WORKER_ID", hostname()),

@@ -1,3 +1,4 @@
+import './team-api.mjs';
 // Checks Settings › Updates: version hero, real check, channel switch, update source dialog and the apply guard.
 import { chromium } from 'playwright';
 

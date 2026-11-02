@@ -274,12 +274,15 @@ func (s *Server) importProject(w http.ResponseWriter, r *http.Request, u *store.
 		}
 	}
 
-	tx, err := s.Store.DB.Begin(ctx)
+	tx, err := s.Store.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 	var projectID string
+	if err := s.Store.CheckTeamLimit(ctx, u.TeamID, "projects"); err != nil {
+		return err
+	}
 	if err := tx.QueryRow(ctx, `INSERT INTO projects (name, description, created_by) VALUES ($1, $2, $3) RETURNING id`, in.Name, strings.TrimSpace(in.Description), u.ID).Scan(&projectID); err != nil {
 		if store.IsUnique(err) {
 			return httpx.Invalid(map[string]string{"name": "A project with this name already exists."})
@@ -377,7 +380,7 @@ func planCompose(p *compose.Plan, only []string, git *gitInput) ([]resourcePlan,
 /* ------------------------------- Duplication -------------------------------- */
 
 // Columns copied as they are when a resource is duplicated; runtime state starts fresh.
-var notCopied = map[string]bool{"id": true, "project_id": true, "environment_id": true, "status": true, "container_id": true, "host_port": true,
+var notCopied = map[string]bool{"team_id": true, "id": true, "project_id": true, "environment_id": true, "status": true, "container_id": true, "host_port": true,
 	"current_deployment_id": true, "running_since": true, "created_by": true, "created_at": true, "updated_at": true, "desired_state": true}
 
 var columnRE = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
@@ -410,7 +413,7 @@ func (s *Server) duplicateProject(w http.ResponseWriter, r *http.Request, u *sto
 		return httpx.Invalid(f)
 	}
 	var cols []string
-	rows, err := s.Store.DB.Query(ctx, `SELECT column_name FROM information_schema.columns WHERE table_name = 'resources' AND table_schema = current_schema() ORDER BY ordinal_position`)
+	rows, err := s.Store.SQL(ctx).Query(ctx, `SELECT column_name FROM information_schema.columns WHERE table_name = 'resources' AND table_schema = current_schema() ORDER BY ordinal_position`)
 	if err != nil {
 		return err
 	}
@@ -423,12 +426,15 @@ func (s *Server) duplicateProject(w http.ResponseWriter, r *http.Request, u *sto
 	rows.Close()
 	list := strings.Join(cols, ", ")
 
-	tx, err := s.Store.DB.Begin(ctx)
+	tx, err := s.Store.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
 	defer tx.Rollback(ctx)
 	var newID string
+	if err := s.Store.CheckTeamLimit(ctx, u.TeamID, "projects"); err != nil {
+		return err
+	}
 	if err := tx.QueryRow(ctx, `INSERT INTO projects (name, description, created_by) VALUES ($1, $2, $3) RETURNING id`, in.Name, src.Description, u.ID).Scan(&newID); err != nil {
 		if store.IsUnique(err) {
 			return httpx.Invalid(map[string]string{"name": "A project with this name already exists."})

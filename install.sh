@@ -361,4 +361,4 @@ if [ "$MODE" = server ] && command -v ufw >/dev/null && ufw status 2>/dev/null |
   done
 fi
 echo "Installed in $(pwd). Back up .env: IGNITION_SECRET_KEY can't be recovered."
-echo "Update from Settings › Updates, or re-run this installer."
+echo "Update from Instance administration › Updates, or re-run this installer."

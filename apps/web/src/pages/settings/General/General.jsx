@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Notice, Select, TextInput } from '../../../ui';
+import { Notice, Select, Switch, TextInput } from '../../../ui';
 import { api } from '../../../api/client';
 import { useQuery } from '../../../api/hooks';
 import { SaveBar, SettingsField, SettingsGroup } from '../SettingsField';
@@ -24,7 +24,7 @@ const BUILDERS = [
 const fmtDate = iso => iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
 const gb = b => b ? `${(b / (1 << 30)).toFixed(1)} GB` : '—';
 
-const toForm = d => ({ name: d.instance.name, dashboardUrl: d.about.dashboardUrl === d.about.envDashboardUrl ? '' : d.about.dashboardUrl, memoryMb: String(d.defaults.memoryMb), cpus: String(d.defaults.cpus), healthSeconds: String(d.defaults.healthSeconds), stopGraceSeconds: String(d.defaults.stopGraceSeconds), restartPolicy: d.defaults.restartPolicy, buildMode: d.defaults.buildMode });
+const toForm = d => ({ name: d.instance.name, maintenance: !!d.instance.maintenance, maintenanceMessage: d.instance.maintenanceMessage ?? '', hosting: d.instance.hosting ? 'on' : 'off', infrastructure: d.instance.infrastructureAdminOnly ? 'admin' : 'teams', dashboardUrl: d.about.dashboardUrl === d.about.envDashboardUrl ? '' : d.about.dashboardUrl, memoryMb: String(d.defaults.memoryMb), cpus: String(d.defaults.cpus), healthSeconds: String(d.defaults.healthSeconds), stopGraceSeconds: String(d.defaults.stopGraceSeconds), restartPolicy: d.defaults.restartPolicy, buildMode: d.defaults.buildMode });
 
 export function General() {
   const { data, error, refetch } = useQuery(() => api.general(), []);
@@ -46,7 +46,7 @@ export function General() {
   async function save(e) {
     e.preventDefault();
     try {
-      const out = await api.putGeneral({ name: values.name, dashboardUrl: values.dashboardUrl, defaults: { memoryMb: Number(values.memoryMb), cpus: Number(values.cpus), healthSeconds: Number(values.healthSeconds), stopGraceSeconds: Number(values.stopGraceSeconds), restartPolicy: values.restartPolicy, buildMode: values.buildMode } });
+      const out = await api.putGeneral({ name: values.name, dashboardUrl: values.dashboardUrl, infrastructureAdminOnly: values.infrastructure === 'admin', maintenance: values.maintenance, maintenanceMessage: values.maintenanceMessage, hosting: values.hosting === 'on', defaults: { memoryMb: Number(values.memoryMb), cpus: Number(values.cpus), healthSeconds: Number(values.healthSeconds), stopGraceSeconds: Number(values.stopGraceSeconds), restartPolicy: values.restartPolicy, buildMode: values.buildMode } });
       const f = toForm({ ...data, ...out, about: { ...a, dashboardUrl: out.dashboardUrl } });
       setSaved(f); setValues(f);
       setFeedback({ tone: 'success', title: 'Saved' });
@@ -65,6 +65,36 @@ export function General() {
       </SettingsField>
       <SettingsField label="Dashboard URL" hint={hint('dashboardUrl', `The address people open Ignition at. Used in invite and reset links and to accept requests from that address. Empty uses ${a.envDashboardUrl} from .env.`)} htmlFor="dashboardUrl">
         <TextInput {...bind('dashboardUrl')} className="mono" type="url" placeholder={a.envDashboardUrl} spellCheck={false} />
+      </SettingsField>
+    </SettingsGroup>
+
+    <SettingsGroup title="Maintenance" description="Close the dashboard while you work on the instance. Sites, databases and game servers keep running.">
+      <SettingsField label="Maintenance mode" hint={values.maintenance
+        ? "On: everyone except platform administrators sees the message below instead of the dashboard, and the API refuses their requests and tokens. You keep working."
+        : 'Off: everyone can use the dashboard.'}>
+        <Switch checked={values.maintenance} label="Maintenance mode" onChange={set('maintenance')} />
+      </SettingsField>
+      <SettingsField label="Maintenance message" htmlFor="maintenanceMessage" hint={hint('maintenanceMessage', `Shown to people while maintenance mode is on. Empty shows "This instance is down for maintenance. Please try again later." ${500 - values.maintenanceMessage.length} characters left.`)}>
+        <textarea id="maintenanceMessage" className="settings-textarea" rows={3} maxLength={500} value={values.maintenanceMessage} aria-invalid={!!errors.maintenanceMessage}
+          placeholder="Upgrading to the new version. Back by 14:00 UTC." onChange={e => set('maintenanceMessage')(e.target.value)} />
+      </SettingsField>
+    </SettingsGroup>
+
+    <SettingsGroup title="Experiences" description="What this installation is for. Every team shares them; turning one on never copies anything.">
+      <SettingsField label="Infrastructure" hint="Servers, applications, databases, deployments, networking, storage and game servers.">
+        <span className="readonly-value">Always on</span>
+      </SettingsField>
+      <SettingsField label="Hosting" htmlFor="hosting" hint="Customers, services and provisioning for running a hosting business. Not in this version yet: turning it on records the choice for when it arrives.">
+        <Select id="hosting" label="Hosting" value={values.hosting} onChange={set('hosting')} options={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]} />
+      </SettingsField>
+    </SettingsGroup>
+
+    <SettingsGroup title="Infrastructure" description="Servers, Sources, Domains, Networking and Logs & monitoring.">
+      <SettingsField label="Who manages it" htmlFor="infrastructure" hint={values.infrastructure === 'admin'
+        ? "Only in Instance administration. Teams no longer see these pages, and the server and network APIs refuse anyone who isn't a platform admin. Sources stay with each team: they manage theirs under Settings › Team Sources."
+        : "Every team sees the Infrastructure pages in its sidebar, limited by each person's permissions."}>
+        <Select id="infrastructure" label="Who manages infrastructure" value={values.infrastructure} onChange={set('infrastructure')}
+          options={[{ value: 'teams', label: 'Every team (in their sidebar)' }, { value: 'admin', label: 'Instance administration only' }]} />
       </SettingsField>
     </SettingsGroup>
 

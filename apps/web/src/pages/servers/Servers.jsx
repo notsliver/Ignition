@@ -81,7 +81,7 @@ function GroupSummary({ g, by }) {
   return <span className="sv-group-head">
     <strong>{name}</strong>
     <span>{g.list.length} server{g.list.length === 1 ? '' : 's'} · {g.online} available · {g.workloads} workload{g.workloads === 1 ? '' : 's'}</span>
-    {g.measured > 0 && <span title={`Average over ${g.measured} server(s) with a current sample`}>{g.cpu != null ? `CPU ${g.cpu}%` : ''}{g.cpu != null && g.memory != null ? ' · ' : ''}{g.memory != null ? `memory ${g.memory}%` : ''}</span>}
+    {g.measured > 0 && <span title={`Average over ${g.measured} ${g.measured === 1 ? 'server' : 'servers'} with a current sample`}>{g.cpu != null ? `CPU ${g.cpu}%` : ''}{g.cpu != null && g.memory != null ? ' · ' : ''}{g.memory != null ? `memory ${g.memory}%` : ''}</span>}
   </span>;
 }
 
@@ -215,7 +215,7 @@ export function Servers({ onOpen }) {
             onClick={e => onRowClick(e, s)} onKeyDown={e => { if (e.key === 'Enter' && e.target === e.currentTarget) onOpen(s); }} tabIndex={0}
             onContextMenu={e => { e.preventDefault(); setContextMenu({ anchor: { x: e.clientX, y: e.clientY }, server: s, row: s.id }); }}>
             {selecting && <td className="select" onClick={e => e.stopPropagation()}><Checkbox label={`Select ${s.name}`} checked={selected.has(s.id)} onChange={() => toggle(s.id)} /></td>}
-            <td><span className="resource-name sv-name"><ServerStackIcon />{s.name}<span>{s.isLocal ? 'This machine' : s.endpoint}</span></span></td>
+            <td><span className="resource-name sv-name"><ServerStackIcon />{s.name}{s.visible === false && <span className="rp-chip sv-hidden" title="Teams can't see or deploy to it">Hidden from teams</span>}<span>{s.isLocal ? 'This machine' : s.endpoint}</span></span></td>
             <td><Chips server={s} /></td>
             <td><ConnectionStatus server={s} /></td>
             <td><RuntimeStatus server={s} /></td>
@@ -236,7 +236,7 @@ export function Servers({ onOpen }) {
         {selecting && <Checkbox label={`Select ${s.name}`} checked={selected.has(s.id)} onChange={() => toggle(s.id)} />}
         <button type="button" className="sv-list-main" onClick={e => onRowClick(e, s)}>
           <strong>{s.name}</strong>
-          <span>{s.isLocal ? 'This machine' : s.endpoint} · {s.workloads} workload(s) · <LastContact server={s} /></span>
+          <span>{s.visible === false ? 'Hidden from teams · ' : ''}{s.isLocal ? 'This machine' : s.endpoint} · {s.workloads} {s.workloads === 1 ? 'workload' : 'workloads'} · <LastContact server={s} /></span>
         </button>
         <span className="sv-list-status"><ConnectionStatus server={s} /><RuntimeStatus server={s} /></span>
         <RowMenu server={s} onOpen={onOpen} onChanged={refetch} setFeedback={setFeedback} />

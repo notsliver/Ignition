@@ -40,3 +40,32 @@ The e2e test deploys real containers. It leaves the test project and its databas
 ## Adding a migration
 
 Create `services/internal/database/migrations/NNNN_description.sql`. Migrations run in order on API and worker start, each in a transaction, guarded by an advisory lock. Never edit an applied migration; add a new one.
+
+## Team-aware tests
+
+Set `IGNITION_TEAM_ID` when an E2E account has multiple memberships. API E2E helpers authenticate globally and scope workload requests to that fixture team. The targeted `e2e/teams.mjs` browser test takes disposable fixtures through `IGNITION_TEST_TEAMS_FIXTURE`; it must run without a worker because creation queues jobs.
+
+`IGNITION_TEST_MIGRATION_DATABASE_URL` points at a separate, empty disposable database for the 0024-to-0025 upgrade fixture. Never use an installation database for integration or migration tests. The fixture preserves resource/environment IDs and ciphertext and checks migration replay.
+
+
+### Profile pictures and team icons
+
+The API stores normalized 256×256 PNG files in the `ignition_uploads` Docker named
+volume, mounted at `/var/lib/ignition/uploads`. Only generated filenames are stored
+in PostgreSQL (`users.avatar_file` and `teams.icon_file`). Uploads accept PNG, JPEG,
+and WebP up to 2 MiB; the server checks decoded dimensions, crops the centre square,
+and strips metadata by re-encoding. Replacing or removing an image deletes its old file.
+
+Compose provisions and mounts the volume on the API service. Container replacement
+and ordinary `docker compose down` preserve it. Back up and restore this volume
+alongside PostgreSQL to retain images; PostgreSQL backups alone contain only filenames.
+For a locally run API, `IGNITION_UPLOADS_DIR` overrides the default `./data/uploads`
+(relative to the API working directory). Every API replica must share the same uploads
+storage. Account and team image URLs require an active signed-in session. Avatar reads allow
+the owner, shared teammates and instance administrators; team icon reads allow team
+members and instance administrators. Team owners/admins can update their own team
+icon, and users can update only their own avatar. Resource tokens cannot use image
+endpoints. Responses use `Cache-Control: private, no-store` and
+`Cross-Origin-Resource-Policy: same-origin`; authorization is checked before GET, HEAD,
+conditional and range responses. Removing membership immediately denies subsequent
+image requests, including previously issued URLs.

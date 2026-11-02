@@ -34,10 +34,12 @@ test-db-up:
 	-docker rm -f ignition-test-db >/dev/null 2>&1
 	docker run -d --name ignition-test-db --network ignition-test -e POSTGRES_PASSWORD=test -e POSTGRES_DB=ignition_test postgres:16-alpine >/dev/null
 	sleep 3
+	docker exec ignition-test-db createdb -U postgres ignition_migration_test
 
 test-go:
 	docker run --rm --network ignition-test -v "$(CURDIR):/repo" -v ignition-gomod:/go/pkg/mod -v ignition-gocache:/root/.cache/go-build -w /repo/services \
 	  -e IGNITION_TEST_DATABASE_URL="postgres://postgres:test@ignition-test-db:5432/ignition_test?sslmode=disable" \
+	  -e IGNITION_TEST_MIGRATION_DATABASE_URL="postgres://postgres:test@ignition-test-db:5432/ignition_migration_test?sslmode=disable" \
 	  golang:1.23-alpine sh -c 'test -z "$$(gofmt -l .)" || (gofmt -l . && echo "run make fmt" && exit 1); go vet ./... && go test -count=1 ./...'
 
 test-db-down:
@@ -45,7 +47,7 @@ test-db-down:
 
 e2e: ## Browser end-to-end test against the running stack. Needs IGNITION_EMAIL and IGNITION_PASSWORD.
 	docker run --rm --network ignition_default -v "$(CURDIR)/e2e:/e2e" -v "$(CURDIR)/e2e/screenshots:/shots" -v ignition-e2e-npm:/root/.npm -w /work \
-	  -e IGNITION_URL=http://api:8080 -e IGNITION_EMAIL -e IGNITION_PASSWORD \
+	  -e IGNITION_URL=http://api:8080 -e IGNITION_EMAIL -e IGNITION_PASSWORD -e IGNITION_TEAM_ID \
 	  mcr.microsoft.com/playwright:v1.48.2-jammy sh -c "npm init -y >/dev/null && npm i playwright@1.48.2 --silent && cp /e2e/full-flow.mjs . && node full-flow.mjs"
 
 web-dev: ## Run the dashboard with hot reload on :5173 (API must be running on :8080)
