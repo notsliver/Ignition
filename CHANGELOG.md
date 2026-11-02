@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.1.2-beta — 2026-11-02
+
+- Onboarding: a first-run setup that walks the first owner through what the instance is for, their account and securing it with two-factor authentication.
+- Teams: team-scoped workspaces with members, roles, invitations and project access. Platform administrators can enter any team as its owner, and that's recorded in the audit log.
+- Instance administration: its own area for instance-wide settings, users, teams, limits and quotas (per instance, team, person, location, resource and type), and maintenance mode with a message.
+- Authentication & security: two-factor authentication, granular permissions, account profile and security settings, and instance-managed integrations with branded single sign-on presets.
+- Servers: host probe metrics, locations, grouping and capacity planning, plus visibility and IP:port allocations.
+- Networking: a domains hub, traffic routing, DNS, IP address management, ports and firewall.
+- Projects: working project pages for deployments, domains, monitoring, logs and settings.
+- Game servers, with a file manager (VS Code's editor) and backups for every resource.
+- Functions: a Bun runtime (TypeScript handlers without a build step), and the same code editor as Files. Git builds detect Bun projects.
+- Preferences: account-wide interface preferences with full-page theme presets.
+
 ## 0.1.1-beta — 2026-10-27
 
 - Automations: an automations engine with its own dashboard, also available per server.
