@@ -3,6 +3,7 @@ import { Notice, Select, Switch, TextInput } from '../../../ui';
 import { api } from '../../../api/client';
 import { useQuery } from '../../../api/hooks';
 import { SaveBar, SettingsField, SettingsGroup } from '../SettingsField';
+import { DashboardDomain } from './DashboardDomain';
 
 /*
  * Instance settings stored by the API. Deployment defaults apply to resources created afterwards;
@@ -63,9 +64,10 @@ export function General() {
       <SettingsField label="Instance name" hint={hint('name', 'Shown in the sidebar and browser tab.')} htmlFor="name">
         <TextInput {...bind('name')} maxLength={40} />
       </SettingsField>
-      <SettingsField label="Dashboard URL" hint={hint('dashboardUrl', `The address people open Ignition at. Used in invite and reset links and to accept requests from that address. Empty uses ${a.envDashboardUrl} from .env.`)} htmlFor="dashboardUrl">
-        <TextInput {...bind('dashboardUrl')} className="mono" type="url" placeholder={a.envDashboardUrl} spellCheck={false} />
+      <SettingsField label="Dashboard URL" hint={hint('dashboardUrl', <>The address people open Ignition at, used in invite and reset links. A domain like <span className="mono">https://ignition.example.com</span> is served by Ignition's proxy with automatic HTTPS, like an app's domain. Empty uses {a.envDashboardUrl} from .env.</>)} htmlFor="dashboardUrl">
+        <TextInput {...bind('dashboardUrl')} className="mono" type="url" placeholder="https://ignition.example.com" spellCheck={false} />
       </SettingsField>
+      <DashboardDomain url={saved?.dashboardUrl} />
     </SettingsGroup>
 
     <SettingsGroup title="Maintenance" description="Close the dashboard while you work on the instance. Sites, databases and game servers keep running.">

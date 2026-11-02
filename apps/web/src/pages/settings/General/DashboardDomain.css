@@ -1,0 +1,16 @@
+/* Instance administration › General › Dashboard URL status. Prefixed dd-. */
+.dd{display:flex;flex-direction:column;gap:8px;margin:-4px 16px 14px;padding:12px;border:1px solid var(--border);border-radius:10px;background:color-mix(in srgb,var(--hover) 35%,var(--surface))}
+.dd-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.dd-host{display:inline-flex;align-items:center;gap:6px;min-width:0;font-size:13px}
+.dd-host svg{flex:none;width:13px;color:var(--muted)}
+.dd-host strong{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.dd-spacer{flex:1}
+.dd-head .button{display:inline-flex;align-items:center;gap:6px;text-decoration:none}
+.dd-head .button svg{width:13px}
+.dd-dns{width:100%;border-collapse:collapse;font-size:12px;background:var(--surface);border:1px solid var(--border);border-radius:8px;overflow:hidden}
+.dd-dns th{padding:6px 10px;text-align:left;font-size:11.5px;font-weight:500;color:var(--muted);border-bottom:1px solid var(--border)}
+.dd-dns td{padding:6px 10px}
+.dd-copy{width:1%;text-align:right}
+.dd-note{margin:0;font-size:12px;line-height:1.5;color:var(--muted)}
+.dd-note.warn{color:var(--warning)}
+.dd-note.solo{margin:-4px 16px 14px}

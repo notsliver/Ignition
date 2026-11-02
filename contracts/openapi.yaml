@@ -4270,6 +4270,10 @@ paths:
     put:
       summary: Save the instance limits. Existing teams over a new limit keep what they have; they just can't add more.
       responses: { '200': { description: '{ limits, highest }' }, '422': { description: invalid limit } }
+  /api/settings/dashboard-url/check:
+    post:
+      summary: Check the dashboard address like a domain - DNS, whether it reaches Ignition's proxy, and its certificate. check is null when the address isn't a hostname the proxy serves.
+      responses: { '200': { description: '{ hostname, https, serverAddress, proxy, check }' } }
   /api/settings/quotas:
     get:
       summary: Quotas at every level (instance, default and per team, default and per person, per location) and per-resource and per-type caps, with current use for the instance, each team, person and location.

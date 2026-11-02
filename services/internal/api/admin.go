@@ -2,8 +2,11 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
 	"encoding/csv"
+	"encoding/hex"
 	"fmt"
+	"net"
 	"net/http"
 	"net/mail"
 	"net/url"
@@ -108,6 +111,12 @@ func (s *Server) putGeneral(w http.ResponseWriter, r *http.Request, u *store.Use
 		u, err := url.Parse(in.DashboardURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || (u.Path != "" && u.Path != "/") || u.RawQuery != "" || u.User != nil {
 			f["dashboardUrl"] = "Enter the address people open, like https://ignition.example.com or http://192.168.1.20:8080."
+		} else if host := strings.ToLower(u.Hostname()); net.ParseIP(host) == nil {
+			// A name is routed by Ignition's proxy, so it can't also be one of an app's domains.
+			var app string
+			if s.Store.DB.QueryRow(r.Context(), `SELECT r.name FROM domains d JOIN resources r ON r.id = d.resource_id WHERE d.hostname = $1 LIMIT 1`, host).Scan(&app) == nil {
+				f["dashboardUrl"] = host + " is already a domain of " + app + ". Remove it there first, or use another name."
+			}
 		}
 	}
 	d := in.Defaults
@@ -165,6 +174,12 @@ func (s *Server) putGeneral(w http.ResponseWriter, r *http.Request, u *store.Use
 		return err
 	}
 	s.setPublicURL(in.DashboardURL)
+	if host, _, token := s.Store.DashboardDomain(r.Context()); host != "" && token == "" {
+		raw := make([]byte, 16)
+		rand.Read(raw)
+		s.Store.SetSetting(r.Context(), "dashboard_domain_token", hex.EncodeToString(raw))
+	}
+	s.syncProxy(r.Context())
 	s.Store.Audit(r.Context(), u, "settings.general", "settings", "general", map[string]any{"name": in.Name, "dashboardUrl": in.DashboardURL}, clientIP(r))
 	httpx.JSON(w, 200, map[string]any{"instance": inst, "defaults": d, "dashboardUrl": s.publicURL()})
 	return nil
@@ -659,4 +674,22 @@ func (s *Server) putInstanceLimits(w http.ResponseWriter, r *http.Request, u *st
 	}
 	s.Store.Audit(r.Context(), u, "instance.limits", "instance", "", map[string]any{"limits": in}, clientIP(r))
 	return s.getInstanceLimits(w, r, u)
+}
+
+// checkDashboardDomain checks the dashboard address the way a domain is checked: DNS, whether it
+// reaches Ignition's proxy, and its certificate.
+func (s *Server) checkDashboardDomain(w http.ResponseWriter, r *http.Request, _ *store.User) error {
+	host, https, token := s.Store.DashboardDomain(r.Context())
+	out := map[string]any{"hostname": host, "https": https, "serverAddress": s.PublishHost,
+		"proxy": map[string]any{"httpPort": s.Proxy.HTTPPort, "httpsPort": s.Proxy.HTTPSPort}}
+	if host == "" || token == "" {
+		out["check"] = nil
+		httpx.JSON(w, 200, out)
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 25*time.Second)
+	defer cancel()
+	out["check"] = s.Proxy.Check(ctx, store.Domain{Hostname: host, HTTPS: https, Token: token})
+	httpx.JSON(w, 200, out)
+	return nil
 }

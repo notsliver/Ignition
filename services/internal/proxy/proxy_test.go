@@ -69,3 +69,17 @@ func TestBuildRouting(t *testing.T) {
 		t.Error("the path route must come before the whole-site route")
 	}
 }
+
+func TestBuildDashboardUpstream(t *testing.T) {
+	c := New("/run/x/admin.sock", "proxy", 80, 443)
+	raw, _ := c.Build([]store.ProxyRoute{{Hostname: "admin.example.com", HTTPS: true, Token: "tok", Port: 8080, Resource: "Ignition dashboard", Upstream: store.DashboardUpstream}}, Settings{})
+	s := string(raw)
+	for _, want := range []string{`"dial":"api:8080"`, `"body":"tok"`, `"subjects":["admin.example.com"]`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("missing %s", want)
+		}
+	}
+	if strings.Contains(s, "isn’t running right now") {
+		t.Error("the dashboard route must proxy, not show the stopped page")
+	}
+}

@@ -3,6 +3,10 @@ package store
 import (
 	"context"
 	"encoding/json"
+	"net"
+	"net/url"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -242,6 +246,23 @@ type ProxyRoute struct {
 	RedirectTo   string
 	RedirectCode int
 	AllowIPs     []string
+	Upstream     string // a fixed address to proxy to instead of a resource (the dashboard)
+}
+
+// DashboardUpstream is where the proxy reaches the dashboard (the api service in the compose stack).
+const DashboardUpstream = "api:8080"
+
+// DashboardDomain is the hostname of the dashboard address set under Instance administration ›
+// General, when it's a name the proxy can serve (not an IP address), with its check token.
+func (s *Store) DashboardDomain(ctx context.Context) (host string, https bool, token string) {
+	var raw string
+	s.DB.QueryRow(ctx, `SELECT value #>> '{}' FROM settings WHERE key = 'dashboard_url'`).Scan(&raw)
+	u, err := url.Parse(raw)
+	if err != nil || u.Hostname() == "" || net.ParseIP(u.Hostname()) != nil || !strings.Contains(u.Hostname(), ".") && !strings.HasSuffix(u.Hostname(), "localhost") {
+		return "", false, ""
+	}
+	s.DB.QueryRow(ctx, `SELECT value #>> '{}' FROM settings WHERE key = 'dashboard_domain_token'`).Scan(&token)
+	return strings.ToLower(u.Hostname()), u.Scheme == "https", token
 }
 
 func (s *Store) ProxyRoutes(ctx context.Context) ([]ProxyRoute, error) {
@@ -263,7 +284,16 @@ func (s *Store) ProxyRoutes(ctx context.Context) ([]ProxyRoute, error) {
 		}
 		out = append(out, p)
 	}
-	return out, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// The dashboard's own address, routed like a domain so it gets HTTPS too.
+	if host, https, token := s.DashboardDomain(ctx); host != "" && token != "" {
+		dash := ProxyRoute{Hostname: host, HTTPS: https, Token: token, Port: 8080, Resource: "Ignition dashboard", Upstream: DashboardUpstream}
+		i := sort.Search(len(out), func(i int) bool { return out[i].Hostname >= host })
+		out = append(out[:i], append([]ProxyRoute{dash}, out[i:]...)...)
+	}
+	return out, nil
 }
 
 // PlatformProxyRoutes rebuilds shared proxy configuration after an authorized team change.

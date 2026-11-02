@@ -462,6 +462,7 @@ var routePerms = map[string]string{
 	"PUT /api/settings/limits":                    "settings.update",
 	"GET /api/settings/quotas":                    "settings.view",
 	"PUT /api/settings/quotas":                    "settings.update",
+	"POST /api/settings/dashboard-url/check":      "settings.view",
 	"GET /api/settings/updates":                   "settings.view",
 	"PUT /api/settings/general":                   "settings.update",
 	"PUT /api/settings/updates":                   "settings.update",

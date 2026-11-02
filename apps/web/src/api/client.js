@@ -221,6 +221,7 @@ export const api = {
   auditExportUrl: (params = {}) => teamApiUrl(`/api/audit/export${q(params)}`),
   general: () => request('GET', '/settings/general'),
   putGeneral: body => request('PUT', '/settings/general', body),
+  checkDashboardUrl: () => request('POST', '/settings/dashboard-url/check'),
   updates: () => request('GET', '/settings/updates'),
   putUpdates: body => request('PUT', '/settings/updates', body),
   checkUpdates: () => request('POST', '/settings/updates/check'),

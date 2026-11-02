@@ -221,6 +221,7 @@ func (s *Server) Handler() http.Handler {
 	authed("GET /api/settings/limits", "admin", s.getInstanceLimits)
 	authed("PUT /api/settings/limits", "admin", s.putInstanceLimits)
 	authed("GET /api/settings/quotas", "admin", s.getQuotas)
+	authed("POST /api/settings/dashboard-url/check", "admin", s.checkDashboardDomain)
 	authed("PUT /api/settings/quotas", "admin", s.putQuotas)
 	authed("PUT /api/settings/general", "admin", s.putGeneral)
 	authed("GET /api/settings/updates", "admin", s.getUpdates)

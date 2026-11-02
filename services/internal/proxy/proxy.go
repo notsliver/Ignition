@@ -145,6 +145,11 @@ func (c *Client) Build(routes []store.ProxyRoute, set Settings) ([]byte, string)
 			}
 			loc := strings.ReplaceAll(r.RedirectTo, "{path}", "{http.request.uri}")
 			chain = append(chain, obj{"handler": "static_response", "status_code": code, "headers": obj{"Location": []string{loc}}})
+		case r.Upstream != "":
+			if set.Compression {
+				chain = append(chain, obj{"handler": "encode", "encodings": obj{"zstd": obj{}, "gzip": obj{}}, "prefer": []string{"zstd", "gzip"}})
+			}
+			chain = append(chain, obj{"handler": "reverse_proxy", "upstreams": []any{obj{"dial": r.Upstream}}})
 		case r.Port == 0:
 			chain = append(chain, unavailable(503, page{Status: "No port", Tone: "warn", Title: r.Resource + " has no port to route to",
 				Message: "Ignition doesn't know which port this app listens on, so " + r.Hostname + " can't reach it yet.",
