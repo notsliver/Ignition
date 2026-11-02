@@ -47,7 +47,7 @@ export function resetModel(key, value) { const m = models.get(key); if (m && !m.
 
 const themeName = () => (document.documentElement.dataset.theme === 'dark' ? 'vs-dark' : 'vs');
 
-export default function CodeEditor({ modelKey, path, value, readOnly, onChange, onSave, onFocus }) {
+export default function CodeEditor({ modelKey, path, value, readOnly, onChange, onSave, onFocus, minimap = true }) {
   const host = useRef(null);
   const editor = useRef(null);
   const handlers = useRef({ onChange, onSave, onFocus });
@@ -55,7 +55,7 @@ export default function CodeEditor({ modelKey, path, value, readOnly, onChange, 
 
   useEffect(() => {
     const ed = monaco.editor.create(host.current, {
-      automaticLayout: true, fontSize: 12.5, lineHeight: 19, minimap: { enabled: true, scale: 1, renderCharacters: false }, scrollBeyondLastLine: false,
+      automaticLayout: true, fontSize: 12.5, lineHeight: 19, minimap: { enabled: minimap, scale: 1, renderCharacters: false }, scrollBeyondLastLine: false,
       fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace', renderWhitespace: 'selection', smoothScrolling: !matchMedia('(prefers-reduced-motion: reduce)').matches,
       cursorSmoothCaretAnimation: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'off' : 'on', tabSize: 2, theme: themeName(), padding: { top: 8 },
     });

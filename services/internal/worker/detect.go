@@ -67,7 +67,7 @@ RUN rm -f /usr/share/nginx/html/%s && printf 'server {\n  listen %d;\n  root /us
 EXPOSE %d
 `, GeneratedDockerfile, port, port)}, nil
 	}
-	return nil, fmt.Errorf("there's no Dockerfile, and Ignition couldn't tell what this is (it looks for package.json, requirements.txt, pyproject.toml, go.mod or index.html). Add a Dockerfile, or point Build context at the app's folder")
+	return nil, fmt.Errorf("there's no Dockerfile, and Ignition couldn't tell what this is (it looks for package.json (npm, pnpm, yarn or Bun), requirements.txt, pyproject.toml, go.mod or index.html). Add a Dockerfile, or point Build context at the app's folder")
 }
 
 func detectNode(dir string, port int, hasCommand bool) (*BuildPlan, error) {
@@ -81,6 +81,9 @@ func detectNode(dir string, port int, hasCommand bool) (*BuildPlan, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
 	if err != nil || json.Unmarshal(raw, &pkg) != nil {
 		return nil, fmt.Errorf("package.json can't be read as JSON")
+	}
+	if exists(dir, "bun.lock") || exists(dir, "bun.lockb") {
+		return detectBun(dir, port, hasCommand, pkg.Main, pkg.Scripts)
 	}
 	node := "22"
 	if m := nodeMajorRE.FindString(pkg.Engines.Node); m != "" {
@@ -171,5 +174,49 @@ RUN %s
 EXPOSE %d
 CMD %s
 `, port, install, port, cmd),
+	}, nil
+}
+
+// detectBun builds a project that uses Bun (it has a bun.lock): Bun installs, builds and runs it.
+func detectBun(dir string, port int, hasCommand bool, main string, scripts map[string]string) (*BuildPlan, error) {
+	lock := "bun.lock"
+	if !exists(dir, lock) {
+		lock = "bun.lockb"
+	}
+	var start []string
+	switch {
+	case scripts["start"] != "":
+		start = []string{"bun", "run", "start"}
+	case main != "":
+		start = []string{"bun", main}
+	case exists(dir, "index.ts"):
+		start = []string{"bun", "index.ts"}
+	case exists(dir, "server.ts"):
+		start = []string{"bun", "server.ts"}
+	case exists(dir, "index.js"):
+		start = []string{"bun", "index.js"}
+	case hasCommand:
+		start = []string{"sh", "-c", "echo 'Set a start command' >&2; exit 1"}
+	default:
+		return nil, fmt.Errorf("package.json has no \"start\" script and there's no index.ts, so Ignition doesn't know how to run it. Add a start script, set a Start command below, or add a Dockerfile")
+	}
+	build, steps := "", []string{"bun install --frozen-lockfile"}
+	if scripts["build"] != "" {
+		build = "RUN bun run build\n"
+		steps = append(steps, "bun run build")
+	}
+	steps = append(steps, strings.Join(start, " "))
+	return &BuildPlan{
+		Stack:   "Bun 1.2",
+		Summary: strings.Join(steps, " → "),
+		Dockerfile: fmt.Sprintf(`FROM oven/bun:1.2-alpine
+WORKDIR /app
+COPY package.json %s ./
+RUN bun install --frozen-lockfile
+COPY . .
+%sENV NODE_ENV=production PORT=%d
+EXPOSE %d
+CMD %s
+`, lock, build, port, port, jsonCmd(start...)),
 	}, nil
 }

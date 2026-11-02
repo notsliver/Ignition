@@ -31,7 +31,7 @@ export const resourceStatus = {
   removing: { tone: 'warning', label: 'Removing' },
   paused: { tone: 'warning', label: 'Paused' },
 };
-export const sourceLabel = r => r.type === 'game' ? `${r.engine === 'minecraft' ? 'Minecraft' : r.engine} server` : r.sourceType === 'git' ? r.repoUrl.replace(/^https:\/\//, '') : r.sourceType === 'external' ? `${r.engine || 'database'} · external` : r.type === 'function' ? `${r.engine === 'python' ? 'Python' : 'Node.js'} function` : r.image;
+export const sourceLabel = r => r.type === 'game' ? `${r.engine === 'minecraft' ? 'Minecraft' : r.engine} server` : r.sourceType === 'git' ? r.repoUrl.replace(/^https:\/\//, '') : r.sourceType === 'external' ? `${r.engine || 'database'} · external` : r.type === 'function' ? `${{ python: 'Python', bun: 'Bun' }[r.engine] ?? 'Node.js'} function` : r.image;
 // A working domain wins over the published host port.
 export const publicUrl = (r, host = 'localhost') => r.domain || (r.hostPort ? `http://${host}:${r.hostPort}` : null);
 

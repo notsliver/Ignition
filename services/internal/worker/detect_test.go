@@ -72,3 +72,20 @@ func TestDetectOthers(t *testing.T) {
 		t.Error("an empty folder can't be detected")
 	}
 }
+
+func TestDetectBun(t *testing.T) {
+	dir := t.TempDir()
+	write(t, dir, map[string]string{"package.json": `{"scripts":{"build":"bun build ./src --outdir dist"}}`, "bun.lock": "", "index.ts": ""})
+	plan, err := DetectStack(dir, 3000, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"FROM oven/bun:1.2-alpine", "COPY package.json bun.lock ./", "bun install --frozen-lockfile", "RUN bun run build", `CMD ["bun","index.ts"]`} {
+		if !strings.Contains(plan.Dockerfile, want) {
+			t.Errorf("missing %q in\n%s", want, plan.Dockerfile)
+		}
+	}
+	if plan.Stack != "Bun 1.2" {
+		t.Errorf("stack %q", plan.Stack)
+	}
+}

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { ArrowPathIcon, CheckCircleIcon, ExclamationTriangleIcon, PaperAirplaneIcon, RocketLaunchIcon } from '@heroicons/react/16/solid';
 import { Button, Dialog, Notice, SegmentedControl, Select, Status, TextInput, cx } from '../../../ui';
 import { api } from '../../../api/client';
@@ -13,36 +13,29 @@ import './Function.css';
  * The Code page edits the handler, deploys it, and sends test requests from inside the private network.
  */
 
-const RUNTIMES = [{ value: 'node', label: 'Node.js 22' }, { value: 'python', label: 'Python 3.12' }];
+const RUNTIMES = [{ value: 'node', label: 'Node.js 22' }, { value: 'bun', label: 'Bun 1.2' }, { value: 'python', label: 'Python 3.12' }];
 const METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'].map(m => ({ value: m, label: m }));
 
-/** A textarea that behaves like a small code editor: Tab indents, Enter keeps the indent, line numbers. */
-export function CodeEditor({ value, onChange, label, minRows = 18, invalid }) {
-  const ref = useRef();
-  const lines = value.split('\n').length;
-  function keyDown(e) {
-    const el = e.target;
-    const { selectionStart: a, selectionEnd: b } = el;
-    if (e.key === 'Tab') {
-      e.preventDefault();
-      const next = value.slice(0, a) + '  ' + value.slice(b);
-      onChange(next);
-      requestAnimationFrame(() => { el.selectionStart = el.selectionEnd = a + 2; });
-    } else if (e.key === 'Enter' && !e.shiftKey) {
-      const lineStart = value.lastIndexOf('\n', a - 1) + 1;
-      const indent = value.slice(lineStart).match(/^[ \t]*/)[0] + (/[{([:]\s*$/.test(value.slice(lineStart, a)) ? '  ' : '');
-      if (indent) {
-        e.preventDefault();
-        onChange(value.slice(0, a) + '\n' + indent + value.slice(b));
-        requestAnimationFrame(() => { el.selectionStart = el.selectionEnd = a + 1 + indent.length; });
-      }
-    }
-  }
-  return <div className={cx('fn-editor', invalid && 'invalid')}>
-    <div className="fn-gutter" aria-hidden onClick={() => ref.current.focus()}>{Array.from({ length: Math.max(lines, minRows) }, (_, i) => <span key={i}>{i + 1}</span>)}</div>
-    <textarea ref={ref} aria-label={label} spellCheck={false} autoCapitalize="off" autoComplete="off" value={value} rows={Math.max(lines, minRows)}
-      onChange={e => onChange(e.target.value)} onKeyDown={keyDown}
-      onScroll={e => { e.target.previousSibling.scrollTop = e.target.scrollTop; }} />
+const Monaco = lazy(() => import('./files/CodeEditor'));
+let editorCount = 0;
+
+/**
+ * The same editor as Files (VS Code's Monaco), sized for a page or dialog. path picks the language;
+ * a value changed from outside (a new starter template) replaces the text.
+ */
+export function CodeEditor({ value, onChange, path = 'handler.js', label, height = 360, invalid, readOnly, onSave }) {
+  const [base] = useState(() => `inline-${++editorCount}`);
+  const key = `${base}:${path}`;
+  const emitted = useRef(value);
+  useEffect(() => () => { import('./files/CodeEditor').then(m => m.disposeModel(key)); }, [key]);
+  useEffect(() => {
+    if (value !== emitted.current) { emitted.current = value; import('./files/CodeEditor').then(m => m.resetModel(key, value)); }
+  }, [value, key]);
+  return <div className={cx('fn-editor', invalid && 'invalid')} style={{ height }} role="group" aria-label={label}>
+    <Suspense fallback={<p className="fn-editor-loading">Loading editor…</p>}>
+      <Monaco modelKey={key} path={path} value={value} readOnly={readOnly} minimap={false} onSave={onSave}
+        onChange={v => { emitted.current = v; onChange?.(v); }} />
+    </Suspense>
   </div>;
 }
 
@@ -85,7 +78,7 @@ export function FunctionDialog({ projectName, environment, takenNames, onClose, 
         <label className="fn-label">Runtime<SegmentedControl label="Runtime" value={runtime} onChange={setRuntime} options={RUNTIMES} /></label>
       </div>
       {touched && rt && !code.includes(rt.id === 'python' ? 'def handler' : 'export') && <p className="fn-muted">This code doesn't look like a {rt.label} handler. <button type="button" className="inline-link" onClick={() => { setCode(rt.template); setTouched(false); }}>Use the {rt.label} starter</button></p>}
-      <label className="fn-label">{rt?.file ?? 'Handler'}<CodeEditor label="Handler code" value={code} onChange={v => { setCode(v); setTouched(true); }} minRows={14} /></label>
+      <div className="fn-label">{rt?.file ?? 'Handler'}<CodeEditor label="Handler code" path={rt?.file ?? { python: 'handler.py', bun: 'handler.ts' }[runtime] ?? 'handler.js'} value={code} onChange={v => { setCode(v); setTouched(true); }} height={320} /></div>
       <p className="fn-muted">Listens on port 8080 on the project's private network as <code>{name || 'name'}:8080</code>. Add a domain afterwards to make it public. Logs show every request.</p>
     </div>
   </Dialog>;
@@ -135,7 +128,7 @@ export function FunctionCode({ resource, onNavigate, onResourceChange }) {
       {canEdit && <Button variant="primary" icon={RocketLaunchIcon} disabled={!dirty || saving || size > data.maxBytes} onClick={deploy} title="Ctrl/⌘+S">{saving ? 'Deploying…' : dirty ? 'Save and deploy' : 'Saved'}</Button>}
     </div>
     {feedback && <Notice tone={feedback.tone} title={feedback.title} action={feedback.tone === 'success' ? 'Deployments' : undefined} onAction={() => onNavigate?.('Deployments')} onDismiss={() => setFeedback(null)}>{feedback.text}</Notice>}
-    <CodeEditor label="Handler code" value={code} onChange={canEdit ? setCode : () => {}} minRows={22} invalid={size > data.maxBytes} />
+    <CodeEditor label="Handler code" path={data.file} value={code} onChange={setCode} readOnly={!canEdit} height="min(62vh, 560px)" invalid={size > data.maxBytes} onSave={() => { if (dirty && canEdit && size <= data.maxBytes) deploy(); }} />
     <div className="fn-addr">
       <span>Private: <code>{resource.name}:8080</code><CopyButton value={`http://${resource.name}:8080`} label="Copy private URL" /></span>
       {url ? <span>Public: <a href={url} target="_blank" rel="noreferrer">{url.replace(/^https?:\/\//, '')}</a><CopyButton value={url} label="Copy URL" /></span>
@@ -172,7 +165,7 @@ function TestPanel({ resource, disabled }) {
       <TextInput className="mono" value={path} onChange={e => setPath(e.target.value)} aria-label="Path" onKeyDown={e => e.key === 'Enter' && send()} spellCheck={false} />
       <Button icon={busy ? ArrowPathIcon : PaperAirplaneIcon} disabled={busy || disabled || resource.status !== 'running'} onClick={send} title={resource.status !== 'running' ? 'Deploy it first' : undefined}>{busy ? 'Sending…' : 'Send'}</Button>
     </div>
-    {method !== 'GET' && method !== 'DELETE' && <textarea className="fn-body mono" value={body} onChange={e => setBody(e.target.value)} rows={4} aria-label="Request body" spellCheck={false} />}
+    {method !== 'GET' && method !== 'DELETE' && <CodeEditor label="Request body" path="body.json" value={body} onChange={setBody} height={120} />}
     {result && (result.error
       ? <p className="fn-result bad"><ExclamationTriangleIcon />{result.error}</p>
       : <div className="fn-response">

@@ -37,6 +37,17 @@ export default async function handler(request, { env }) {
   return { hello: url.searchParams.get('name') ?? 'world', at: new Date().toISOString() };
 }
 `},
+	{ID: "bun", Label: "Bun 1.2", Image: "oven/bun:1.2-alpine", File: "handler.ts", run: "bun run server.ts", server: bunServer,
+		Template: `// Called for every request. TypeScript runs as is. Return a Response, an object (sent as JSON), a string, or nothing (204).
+export default async function handler(request: Request, { env }: { env: Record<string, string | undefined> }) {
+  const url = new URL(request.url);
+  if (request.method === 'POST') {
+    const body = await request.json().catch(() => ({}));
+    return { received: body };
+  }
+  return { hello: url.searchParams.get('name') ?? 'world', runtime: 'bun ' + Bun.version, at: new Date().toISOString() };
+}
+`},
 	{ID: "python", Label: "Python 3.12", Image: "python:3.12-alpine", File: "handler.py", run: "python -u server.py", server: pythonServer,
 		Template: `# Called for every request with a dict: method, path, query, headers, body (text) and json (if sent).
 # Return a dict or list (sent as JSON), a string, None (204), or (body, status[, headers]).
@@ -66,8 +77,11 @@ func (r *Runtime) Command() string {
 }
 
 func serverFile(r *Runtime) string {
-	if r.ID == "python" {
+	switch r.ID {
+	case "python":
 		return "server.py"
+	case "bun":
+		return "server.ts"
 	}
 	return "server.mjs"
 }
@@ -86,7 +100,7 @@ type Setup struct {
 func Prepare(runtime, code string) (Setup, error) {
 	rt := RuntimeByID(runtime)
 	if rt == nil {
-		return Setup{}, errors.New("choose Node.js or Python")
+		return Setup{}, errors.New("choose Node.js, Bun or Python")
 	}
 	if strings.TrimSpace(code) == "" {
 		code = rt.Template
@@ -96,6 +110,35 @@ func Prepare(runtime, code string) (Setup, error) {
 	}
 	return Setup{Image: rt.Image, Command: rt.Command(), Port: Port, Vars: [][2]string{{ServerVar, rt.server}, {CodeVar, code}, {"PORT", "8080"}}}, nil
 }
+
+// Bun answers requests with its own server; the handler gets the standard Request.
+const bunServer = `const mod = await import('./handler.ts').catch(e => { console.error('Your handler failed to load:', e); process.exit(1); });
+const handler = mod.default ?? mod.handler;
+if (typeof handler !== 'function') { console.error('handler.ts must export default async function handler(request)'); process.exit(1); }
+const port = Number(process.env.PORT || 8080);
+Bun.serve({
+  port,
+  hostname: '0.0.0.0',
+  async fetch(request) {
+    const started = Date.now();
+    const url = new URL(request.url);
+    let res;
+    try {
+      let out = await handler(request, { env: process.env });
+      res = out instanceof Response ? out
+        : out == null ? new Response(null, { status: 204 })
+        : typeof out === 'string' ? new Response(out, { headers: { 'content-type': 'text/plain; charset=utf-8' } })
+        : Response.json(out);
+    } catch (e) {
+      console.error(request.method + ' ' + url.pathname + url.search + ' threw:', e);
+      res = Response.json({ error: 'Function error', message: String(e && e.message || e) }, { status: 500 });
+    }
+    console.log(request.method + ' ' + url.pathname + url.search + ' ' + res.status + ' ' + (Date.now() - started) + 'ms');
+    return res;
+  },
+});
+console.log('Function listening on :' + port);
+`
 
 const nodeServer = `import http from 'node:http';
 const mod = await import('./handler.mjs').catch(e => { console.error('Your handler failed to load:', e); process.exit(1); });
