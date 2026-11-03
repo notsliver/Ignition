@@ -44,3 +44,21 @@ export function useSourceMode(){
  const changed=e=>{sourceModeCached=e.detail.mode;setMode(sourceModeCached);};window.addEventListener('ignition:source-policy',changed);return ()=>{alive=false;window.removeEventListener('ignition:source-policy',changed);};},[]);
  return mode;
 }
+
+// Whether teams can use projects (Instance administration › General › Experiences). Off: only
+// standalone resources. Loaded once; updated live when General is saved.
+let projectsCached = null;
+let projectsPending = null;
+export function useProjectsEnabled() {
+  const [value, setValue] = useState(projectsCached ?? true);
+  useEffect(() => {
+    if (projectsCached === null) {
+      projectsPending ??= api.system().then(s => (projectsCached = s.projects !== false)).catch(() => true);
+      projectsPending.then(setValue);
+    }
+    const onChange = e => { if (e.detail && 'projects' in e.detail) { projectsCached = e.detail.projects !== false; setValue(projectsCached); } };
+    window.addEventListener('ignition:instance', onChange);
+    return () => window.removeEventListener('ignition:instance', onChange);
+  }, []);
+  return value;
+}

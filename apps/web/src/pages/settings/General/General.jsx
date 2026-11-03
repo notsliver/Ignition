@@ -25,7 +25,7 @@ const BUILDERS = [
 const fmtDate = iso => iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
 const gb = b => b ? `${(b / (1 << 30)).toFixed(1)} GB` : '—';
 
-const toForm = d => ({ name: d.instance.name, maintenance: !!d.instance.maintenance, maintenanceMessage: d.instance.maintenanceMessage ?? '', hosting: d.instance.hosting ? 'on' : 'off', infrastructure: d.instance.infrastructureAdminOnly ? 'admin' : 'teams', dashboardUrl: d.about.dashboardUrl === d.about.envDashboardUrl ? '' : d.about.dashboardUrl, memoryMb: String(d.defaults.memoryMb), cpus: String(d.defaults.cpus), healthSeconds: String(d.defaults.healthSeconds), stopGraceSeconds: String(d.defaults.stopGraceSeconds), restartPolicy: d.defaults.restartPolicy, buildMode: d.defaults.buildMode });
+const toForm = d => ({ name: d.instance.name, maintenance: !!d.instance.maintenance, maintenanceMessage: d.instance.maintenanceMessage ?? '', hosting: d.instance.hosting ? 'on' : 'off', projects: d.instance.projects === false ? 'off' : 'on', infrastructure: d.instance.infrastructureAdminOnly ? 'admin' : 'teams', dashboardUrl: d.about.dashboardUrl === d.about.envDashboardUrl ? '' : d.about.dashboardUrl, memoryMb: String(d.defaults.memoryMb), cpus: String(d.defaults.cpus), healthSeconds: String(d.defaults.healthSeconds), stopGraceSeconds: String(d.defaults.stopGraceSeconds), restartPolicy: d.defaults.restartPolicy, buildMode: d.defaults.buildMode });
 
 export function General() {
   const { data, error, refetch } = useQuery(() => api.general(), []);
@@ -47,7 +47,7 @@ export function General() {
   async function save(e) {
     e.preventDefault();
     try {
-      const out = await api.putGeneral({ name: values.name, dashboardUrl: values.dashboardUrl, infrastructureAdminOnly: values.infrastructure === 'admin', maintenance: values.maintenance, maintenanceMessage: values.maintenanceMessage, hosting: values.hosting === 'on', defaults: { memoryMb: Number(values.memoryMb), cpus: Number(values.cpus), healthSeconds: Number(values.healthSeconds), stopGraceSeconds: Number(values.stopGraceSeconds), restartPolicy: values.restartPolicy, buildMode: values.buildMode } });
+      const out = await api.putGeneral({ name: values.name, dashboardUrl: values.dashboardUrl, infrastructureAdminOnly: values.infrastructure === 'admin', maintenance: values.maintenance, maintenanceMessage: values.maintenanceMessage, hosting: values.hosting === 'on', projects: values.projects === 'on', defaults: { memoryMb: Number(values.memoryMb), cpus: Number(values.cpus), healthSeconds: Number(values.healthSeconds), stopGraceSeconds: Number(values.stopGraceSeconds), restartPolicy: values.restartPolicy, buildMode: values.buildMode } });
       const f = toForm({ ...data, ...out, about: { ...a, dashboardUrl: out.dashboardUrl } });
       setSaved(f); setValues(f);
       setFeedback({ tone: 'success', title: 'Saved' });
@@ -85,6 +85,11 @@ export function General() {
     <SettingsGroup title="Experiences" description="What this installation is for. Every team shares them; turning one on never copies anything.">
       <SettingsField label="Infrastructure" hint="Servers, applications, databases, deployments, networking, storage and game servers.">
         <span className="readonly-value">Always on</span>
+      </SettingsField>
+      <SettingsField label="Projects" htmlFor="projects" hint={values.projects === 'on'
+        ? 'Teams can group resources into projects with their own environments.'
+        : "Teams create standalone resources only. Existing projects keep working, but no new ones can be made and nothing new can be added to them."}>
+        <Select id="projects" label="Projects" value={values.projects} onChange={set('projects')} options={[{ value: 'on', label: 'On' }, { value: 'off', label: 'Off' }]} />
       </SettingsField>
       <SettingsField label="Hosting" htmlFor="hosting" hint="Customers, services and provisioning for running a hosting business. Not in this version yet: turning it on records the choice for when it arrives.">
         <Select id="hosting" label="Hosting" value={values.hosting} onChange={set('hosting')} options={[{ value: 'off', label: 'Off' }, { value: 'on', label: 'On' }]} />

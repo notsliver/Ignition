@@ -213,6 +213,9 @@ type projectImport struct {
 
 // importProject creates a project from a Git repository or a compose file.
 func (s *Server) importProject(w http.ResponseWriter, r *http.Request, u *store.User) error {
+	if err := s.projectsOff(r.Context()); err != nil {
+		return err
+	}
 	var in projectImport
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
@@ -394,6 +397,9 @@ type duplicateInput struct {
 // duplicateProject copies a project's environments and resources with their settings. Data in
 // volumes, domains, deploy history, tokens and automations are not copied (they belong to the original).
 func (s *Server) duplicateProject(w http.ResponseWriter, r *http.Request, u *store.User) error {
+	if err := s.projectsOff(r.Context()); err != nil {
+		return err
+	}
 	id, err := pathID(r, "Project")
 	if err != nil {
 		return err

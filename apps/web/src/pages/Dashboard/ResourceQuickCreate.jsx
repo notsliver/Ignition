@@ -4,7 +4,7 @@ import { api } from '../../api/client';
 import { useQuery } from '../../api/hooks';
 import { useResourceCreation } from '../project/Resources/Resources';
 
-export function ResourceQuickCreate({ action, projectsQuery, onClose, onCreateProject, onCreated, onOpen }) {
+export function ResourceQuickCreate({ action, projectsQuery, projectsOn = true, onClose, onCreateProject, onCreated, onOpen }) {
   const [projectId, setProjectId] = useState('');
   const [environmentId, setEnvironmentId] = useState('');
   const [target, setTarget] = useState(null);
@@ -16,15 +16,15 @@ export function ResourceQuickCreate({ action, projectsQuery, onClose, onCreatePr
 
   if (target) return <CreateResource action={action} target={target} onClose={onClose} onCreated={onCreated} onOpen={onOpen} />;
 
-  return <Dialog open onClose={onClose} title={action.label} description="Choose an environment. A project is optional."
+  return <Dialog open onClose={onClose} title={action.label} description={projectsOn ? 'Choose an environment. A project is optional.' : 'Choose an environment.'}
     footer={<><Button onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!environment} onClick={() => setTarget({ project, environment })}>Continue</Button></>}>
     {projectsQuery.error && <Notice tone="danger" title="Couldn't load projects">{projectsQuery.error.message} <button type="button" className="inline-link" onClick={projectsQuery.refetch}>Retry</button></Notice>}
     {!projectsQuery.data && !projectsQuery.error && <p>Loading projects…</p>}
     {projectsQuery.data && <>
-      <FormField label="Project" htmlFor="quick-create-project">
+      {projectsOn && <FormField label="Project" htmlFor="quick-create-project">
         <Select id="quick-create-project" label="Project" value={projectId} options={[{ value: '', label: 'No project' }, ...projects.map(p => ({ value: p.id, label: p.name }))]}
           onChange={id => { setProjectId(id); setEnvironmentId((projects.find(p => p.id === id)?.environments ?? environments.data?.environments)?.[0]?.id ?? ''); }} />
-      </FormField>
+      </FormField>}
       {project && <FormField label="Environment" htmlFor="quick-create-environment">
         <Select id="quick-create-environment" label="Environment" value={environmentId} options={project.environments.map(e => ({ value: e.id, label: e.name }))} onChange={setEnvironmentId} />
       </FormField>}

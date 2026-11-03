@@ -558,6 +558,9 @@ func (s *Server) groupResource(w http.ResponseWriter, r *http.Request, u *store.
 		return err
 	}
 	if in.ProjectID != nil && *in.ProjectID != "" {
+		if err := s.projectsOff(r.Context()); err != nil {
+			return err
+		}
 		if !uuidRE.MatchString(*in.ProjectID) {
 			return httpx.NotFound("Project")
 		}

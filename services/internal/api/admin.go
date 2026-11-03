@@ -31,6 +31,9 @@ type instanceSettings struct {
 	// Experiences this installation offers. Infrastructure is always on; Hosting isn't built yet, so
 	// turning it on records the choice. Unset until changed: then it follows onboarding's answer.
 	Hosting *bool `json:"hosting,omitempty"`
+	// Projects lets teams group resources into projects. Off: teams work with standalone resources
+	// only; existing projects keep working, but no new ones can be made. Unset means on.
+	Projects *bool `json:"projects,omitempty"`
 	// Maintenance closes the dashboard and API to everyone but platform administrators, who see
 	// MaintenanceMessage's banner instead. Running workloads aren't touched.
 	Maintenance        bool   `json:"maintenance"`
@@ -54,6 +57,10 @@ func (s *Server) instance(ctx context.Context) instanceSettings {
 	s.Store.GetSetting(ctx, "instance", &inst)
 	if inst.Name == "" {
 		inst.Name = "Ignition"
+	}
+	if inst.Projects == nil {
+		on := true
+		inst.Projects = &on
 	}
 	if inst.Hosting == nil {
 		hosting := s.onboarding(ctx).UseCase == "hosting"
@@ -95,6 +102,7 @@ func (s *Server) putGeneral(w http.ResponseWriter, r *http.Request, u *store.Use
 		// nil keeps the current choice, so older clients don't reset it.
 		InfrastructureAdminOnly *bool   `json:"infrastructureAdminOnly"`
 		Hosting                 *bool   `json:"hosting"`
+		Projects                *bool   `json:"projects"`
 		Maintenance             *bool   `json:"maintenance"`
 		MaintenanceMessage      *string `json:"maintenanceMessage"`
 	}
@@ -152,6 +160,10 @@ func (s *Server) putGeneral(w http.ResponseWriter, r *http.Request, u *store.Use
 	if in.InfrastructureAdminOnly != nil && *in.InfrastructureAdminOnly != inst.InfrastructureAdminOnly {
 		inst.InfrastructureAdminOnly = *in.InfrastructureAdminOnly
 		s.Store.Audit(r.Context(), u, "instance.infrastructure_visibility", "instance", "", map[string]any{"adminOnly": inst.InfrastructureAdminOnly}, clientIP(r))
+	}
+	if in.Projects != nil && *in.Projects != *inst.Projects {
+		inst.Projects = in.Projects
+		s.Store.Audit(r.Context(), u, "instance.experiences", "instance", "", map[string]any{"projects": *in.Projects}, clientIP(r))
 	}
 	if in.Hosting != nil && *in.Hosting != *inst.Hosting {
 		inst.Hosting = in.Hosting
@@ -692,4 +704,22 @@ func (s *Server) checkDashboardDomain(w http.ResponseWriter, r *http.Request, _ 
 	out["check"] = s.Proxy.Check(ctx, store.Domain{Hostname: host, HTTPS: https, Token: token})
 	httpx.JSON(w, 200, out)
 	return nil
+}
+
+// projectsOff refuses creating or filling projects when Experiences › Projects is off.
+func (s *Server) projectsOff(ctx context.Context) error {
+	if p := s.instance(ctx).Projects; p != nil && !*p {
+		return &httpx.Error{Status: 403, Code: "projects_disabled", Message: "Projects are turned off on this instance: create standalone resources instead. An instance administrator can turn them on under Instance administration › General."}
+	}
+	return nil
+}
+
+// inProjects wraps handlers that add something to a project: refused while projects are off.
+func (s *Server) inProjects(fn func(http.ResponseWriter, *http.Request, *store.User) error) func(http.ResponseWriter, *http.Request, *store.User) error {
+	return func(w http.ResponseWriter, r *http.Request, u *store.User) error {
+		if err := s.projectsOff(r.Context()); err != nil {
+			return err
+		}
+		return fn(w, r, u)
+	}
 }

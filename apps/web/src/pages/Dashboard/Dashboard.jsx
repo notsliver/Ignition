@@ -6,6 +6,7 @@ import { api } from '../../api/client';
 import { duration, timeAgo, useQuery } from '../../api/hooks';
 import { databaseOptions, deployOptions, serverOptions } from '../../app/createMenus';
 import { useProjectCreation } from '../Projects/Projects';
+import { useProjectsEnabled } from '../../app/instance';
 import { ResourceQuickCreate } from './ResourceQuickCreate';
 import '../project/Deployments/Deployments.css';
 import './Dashboard.css';
@@ -33,6 +34,7 @@ export function Dashboard({ onOpenResource, onOpenProject, onOpenServer, onNavig
   const serversHere = !infraAdmin;
   const [resourceAction, setResourceAction] = useState(null);
   const { data, error, refetch } = useQuery(() => api.dashboard(), [], { pollMs: 5000 });
+  const projectsOn = useProjectsEnabled();
   const projectsQuery = useQuery(() => api.projects(), []);
   const projectCreation = useProjectCreation({ projects: projectsQuery.data?.projects ?? [],
     onCreated: p => { projectsQuery.refetch(); refetch(); onOpenProject?.(p); } });
@@ -50,7 +52,9 @@ export function Dashboard({ onOpenResource, onOpenProject, onOpenServer, onNavig
 
   const st = data?.stats;
   const stats = st ? [
-    { label: 'Projects', value: st.projects, detail: st.resources ? `${st.resources} resource${st.resources === 1 ? '' : 's'}` : 'No resources yet', go: () => onNavigate?.('Projects') },
+    projectsOn
+      ? { label: 'Projects', value: st.projects, detail: st.resources ? `${st.resources} resource${st.resources === 1 ? '' : 's'}` : 'No resources yet', go: () => onNavigate?.('Projects') }
+      : { label: 'Resources', value: st.resources, detail: st.resources ? 'Across your team' : 'No resources yet', go: () => onNavigate?.('Resources') },
     { label: 'Running resources', value: st.running, detail: [st.failed && `${st.failed} failed`, st.resources - st.running - st.failed > 0 && `${st.resources - st.running - st.failed} not running`].filter(Boolean).join(' · ') || (st.resources ? 'All running' : '—') },
     { label: 'Servers', value: `${st.serversOnline} / ${st.servers}`, detail: st.serversOnline === st.servers ? 'All connected' : `${st.servers - st.serversOnline} not connected`, go: serversHere ? () => onNavigate?.('Servers') : undefined },
     { label: 'Deployments, 24 h', value: st.deployments24h, detail: st.activeDeployments ? `${st.activeDeployments} in progress` : st.deployments24h ? `${st.deployments24h - st.failedDeployments24h} successful · ${st.failedDeployments24h} failed` : 'None today' },
@@ -59,7 +63,7 @@ export function Dashboard({ onOpenResource, onOpenProject, onOpenServer, onNavig
   return <div className="dashboard">
     <div className="quick-actions">
       <Menu className="button primary" label="Deploy application" items={resourceMenu(deployOptions, 'Application/')} align="start"><CloudArrowUpIcon />Deploy application</Menu>
-      <Menu className="button" label="New project" items={projectCreation.items} align="start"><FolderPlusIcon />New project</Menu>
+      {projectsOn && <Menu className="button" label="New project" items={projectCreation.items} align="start"><FolderPlusIcon />New project</Menu>}
       <Menu className="button" label="New database" items={resourceMenu(databaseOptions, 'Database/')} align="start"><CircleStackIcon />New database</Menu>
       {serversHere && <Menu className="button" label="Add server" items={serverOptions} align="start"><ServerIcon />Add server</Menu>}
     </div>
@@ -83,7 +87,7 @@ export function Dashboard({ onOpenResource, onOpenProject, onOpenServer, onNavig
         </div>)}
     </div>
 
-    <Section title="Recent deployments" count={data?.deployments.length} action="All projects" onAction={() => onNavigate?.('Projects')}>
+    <Section title="Recent deployments" count={data?.deployments.length} action={projectsOn ? 'All projects' : 'All resources'} onAction={() => onNavigate?.(projectsOn ? 'Projects' : 'Resources')}>
       {data && !data.deployments.length
         ? <div className="deployments-empty"><RocketLaunchIcon /><strong>No deployments yet</strong><p>They appear here when you deploy a resource, push to a connected branch or call a deploy hook.</p></div>
         : <ol className="deployment-list dashboard-deployments">
@@ -122,7 +126,7 @@ export function Dashboard({ onOpenResource, onOpenProject, onOpenServer, onNavig
       <TeamUsage u={usage.data} error={usage.error} />
     </Section>}
     {projectCreation.dialogs}
-    {resourceAction && <ResourceQuickCreate action={resourceAction} projectsQuery={projectsQuery} onClose={() => setResourceAction(null)}
+    {resourceAction && <ResourceQuickCreate action={resourceAction} projectsQuery={projectsQuery} projectsOn={projectsOn} onClose={() => setResourceAction(null)}
       onCreateProject={() => { setResourceAction(null); projectCreation.createEmpty(); }}
       onCreated={r => { setResourceAction(null); refetch(); onOpenResource?.(r); }}
       onOpen={r => { setResourceAction(null); onOpenResource?.(r); }} />}

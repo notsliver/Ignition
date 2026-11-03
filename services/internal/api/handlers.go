@@ -60,6 +60,7 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request, _ *store.User) e
 		"instanceName": s.instance(r.Context()).Name,
 		// Where the Infrastructure pages live: every team's sidebar, or Instance administration only.
 		"infrastructureAdminOnly": s.instance(r.Context()).InfrastructureAdminOnly,
+		"projects":                *s.instance(r.Context()).Projects,
 		"sourceMode":              s.Store.SourceMode(r.Context()),
 		"version":                 version.Version,
 		"maintenance":             s.instance(r.Context()).Maintenance,
@@ -122,6 +123,9 @@ func validateProject(in projectInput, creating bool) map[string]string {
 }
 
 func (s *Server) createProject(w http.ResponseWriter, r *http.Request, u *store.User) error {
+	if err := s.projectsOff(r.Context()); err != nil {
+		return err
+	}
 	var in projectInput
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
