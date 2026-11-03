@@ -61,6 +61,11 @@ func TestRoleDefaultsMatchRoutes(t *testing.T) {
 
 func TestCatalogKeysAndGroups(t *testing.T) {
 	used := map[string]bool{}
+	for _, r := range publicAdminRoutes {
+		if r.Permission != "" {
+			used[r.Permission] = true
+		}
+	}
 	for _, p := range routePerms {
 		used[p] = true
 	}

@@ -81,6 +81,12 @@ func (s *Server) Handler() http.Handler {
 		}
 	}
 
+	s.registerPublicAdmin(mux)
+	authed("GET /api/settings/admin-tokens", "admin", s.adminTokens)
+	authed("POST /api/settings/admin-tokens", "admin", s.adminTokens)
+	authed("POST /api/settings/admin-tokens/{id}/rotate", "admin", s.adminTokens)
+	authed("DELETE /api/settings/admin-tokens/{id}", "admin", s.adminTokens)
+	h("GET /api/admin-onboarding/{token}", s.adminOnboardingStart)
 	authed("GET /api/platform/capacity", "admin", s.teamCapacity)
 	authed("GET /api/platform/products", "admin", s.listProducts)
 	authed("POST /api/platform/products", "admin", s.saveProduct)

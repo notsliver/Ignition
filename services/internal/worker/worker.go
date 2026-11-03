@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/notsliver/Ignition/services/internal/adminapi"
 	"github.com/notsliver/Ignition/services/internal/integrations"
 	"github.com/notsliver/Ignition/services/internal/jobs"
 	"github.com/notsliver/Ignition/services/internal/proxy"
@@ -51,6 +52,8 @@ var errCancelled = errors.New("cancelled")
 // Run claims and executes jobs until ctx is cancelled, then waits for in-flight jobs.
 func (w *Worker) Run(ctx context.Context) {
 	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() { defer wg.Done(); adminapi.Run(ctx, w.Store, w.Secrets) }()
 	for i := 0; i < w.Concurrency; i++ {
 		wg.Add(1)
 		go func(slot int) {

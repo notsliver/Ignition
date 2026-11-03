@@ -69,7 +69,7 @@ func scanPlan(row interface{ Scan(...any) error }, extra ...any) (Plan, error) {
 }
 
 func (s *Store) plans(ctx context.Context, product string) ([]Plan, error) {
-	rows, err := s.DB.Query(ctx, `SELECT `+planCols+`, (SELECT count(*) FROM services sv WHERE sv.plan_id = pl.id AND sv.status <> 'terminated')
+	rows, err := s.TrustedSQL(ctx).Query(ctx, `SELECT `+planCols+`, (SELECT count(*) FROM services sv WHERE sv.plan_id = pl.id AND sv.status <> 'terminated')
 		FROM product_plans pl WHERE pl.product_id = $1 ORDER BY pl.position, pl.name`, product)
 	if err != nil {
 		return nil, err
@@ -92,7 +92,7 @@ const productCols = `p.id, p.name, p.description, p.category, p.kind, p.template
 	(SELECT count(*) FROM services sv WHERE sv.product_id = p.id AND sv.status <> 'terminated')`
 
 func (s *Store) Products(ctx context.Context) ([]Product, error) {
-	rows, err := s.DB.Query(ctx, `SELECT `+productCols+` FROM products p ORDER BY lower(p.category), lower(p.name)`)
+	rows, err := s.TrustedSQL(ctx).Query(ctx, `SELECT `+productCols+` FROM products p ORDER BY lower(p.category), lower(p.name)`)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ func (s *Store) Products(ctx context.Context) ([]Product, error) {
 
 func (s *Store) Product(ctx context.Context, id string) (*Product, error) {
 	var p Product
-	err := s.DB.QueryRow(ctx, `SELECT `+productCols+` FROM products p WHERE p.id = $1`, id).
+	err := s.TrustedSQL(ctx).QueryRow(ctx, `SELECT `+productCols+` FROM products p WHERE p.id = $1`, id).
 		Scan(&p.ID, &p.Name, &p.Description, &p.Category, &p.Kind, &p.Template, &p.Icon, &p.Placement, &p.Status, &p.CreatedAt, &p.UpdatedAt, &p.Services)
 	if err != nil {
 		return nil, noRows(err)
@@ -128,7 +128,7 @@ func (s *Store) Product(ctx context.Context, id string) (*Product, error) {
 // SaveProduct creates (id "") or replaces a product and its plans. Plans are matched by ID; one
 // that's missing is removed, which fails while services use it.
 func (s *Store) SaveProduct(ctx context.Context, id string, p Product, userID string) (string, error) {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.TrustedSQL(ctx).Begin(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -174,7 +174,7 @@ func (s *Store) SaveProduct(ctx context.Context, id string, p Product, userID st
 }
 
 func (s *Store) DeleteProduct(ctx context.Context, id string) error {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.TrustedSQL(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -211,7 +211,7 @@ func scanService(row interface{ Scan(...any) error }) (*Service, error) {
 type ServiceFilter struct{ Product, Team, Status, Query string }
 
 func (s *Store) Services(ctx context.Context, f ServiceFilter) ([]Service, error) {
-	rows, err := s.DB.Query(ctx, `SELECT `+serviceCols+serviceFrom+`
+	rows, err := s.TrustedSQL(ctx).Query(ctx, `SELECT `+serviceCols+serviceFrom+`
 		WHERE ($1 = '' OR p.id::text = $1) AND ($2 = '' OR t.id::text = $2) AND ($3 = '' OR sv.status = $3) AND ($4 = '' OR sv.name ILIKE '%' || $4 || '%' OR t.name ILIKE '%' || $4 || '%')
 		ORDER BY sv.created_at DESC LIMIT 1000`, f.Product, f.Team, f.Status, f.Query)
 	if err != nil {
@@ -230,24 +230,24 @@ func (s *Store) Services(ctx context.Context, f ServiceFilter) ([]Service, error
 }
 
 func (s *Store) Service(ctx context.Context, id string) (*Service, error) {
-	return scanService(s.DB.QueryRow(ctx, `SELECT `+serviceCols+serviceFrom+` WHERE sv.id = $1`, id))
+	return scanService(s.TrustedSQL(ctx).QueryRow(ctx, `SELECT `+serviceCols+serviceFrom+` WHERE sv.id = $1`, id))
 }
 
 // ServiceForResource is the active or suspended service a resource belongs to, if any.
 func (s *Store) ServiceForResource(ctx context.Context, resourceID string) (*Service, error) {
-	return scanService(s.DB.QueryRow(ctx, `SELECT `+serviceCols+serviceFrom+` WHERE sv.resource_id = $1 AND sv.status <> 'terminated'`, resourceID))
+	return scanService(s.TrustedSQL(ctx).QueryRow(ctx, `SELECT `+serviceCols+serviceFrom+` WHERE sv.resource_id = $1 AND sv.status <> 'terminated'`, resourceID))
 }
 
 func (s *Store) CreateService(ctx context.Context, product, plan, team, resource, name, userID, server string) (string, error) {
 	var id string
-	err := s.DB.QueryRow(ctx, `INSERT INTO services (product_id, plan_id, team_id, resource_id, name, created_by, server_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+	err := s.TrustedSQL(ctx).QueryRow(ctx, `INSERT INTO services (product_id, plan_id, team_id, resource_id, name, created_by, server_id) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
 		product, plan, team, resource, name, nullable(userID), nullable(server)).Scan(&id)
 	return id, err
 }
 
 // UpdateService changes a service's fields; nil leaves one as it is.
 func (s *Store) UpdateService(ctx context.Context, id string, status, reason, note, name, plan *string) error {
-	tag, err := s.DB.Exec(ctx, `UPDATE services SET status = coalesce($2, status), suspended_reason = coalesce($3, suspended_reason), note = coalesce($4, note),
+	tag, err := s.TrustedSQL(ctx).Exec(ctx, `UPDATE services SET status = coalesce($2, status), suspended_reason = coalesce($3, suspended_reason), note = coalesce($4, note),
 		name = coalesce($5, name), plan_id = coalesce($6::uuid, plan_id), updated_at = now() WHERE id = $1`, id, status, reason, note, name, plan)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
@@ -281,7 +281,7 @@ func (s *Store) AttachServices(ctx context.Context, list []Resource) {
 	for i, r := range list {
 		ids[i], at[r.ID] = r.ID, i
 	}
-	rows, err := s.DB.Query(ctx, `SELECT r.id, coalesce(srv.location, ''), coalesce(g.spec->>'edition', ''), sv.status, sv.suspended_reason, p.name, pl.name, p.icon
+	rows, err := s.TrustedSQL(ctx).Query(ctx, `SELECT r.id, coalesce(srv.location, ''), coalesce(g.spec->>'edition', ''), sv.status, sv.suspended_reason, p.name, pl.name, p.icon
 		FROM resources r LEFT JOIN servers srv ON srv.id = r.server_id LEFT JOIN game_servers g ON g.resource_id = r.id
 		LEFT JOIN services sv ON sv.resource_id = r.id AND sv.status <> 'terminated'
 		LEFT JOIN products p ON p.id = sv.product_id LEFT JOIN product_plans pl ON pl.id = sv.plan_id

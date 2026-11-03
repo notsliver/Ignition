@@ -15,6 +15,7 @@ import (
 	"log/slog"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -64,7 +65,14 @@ func WithRequestID(next http.Handler) http.Handler {
 		start := time.Now()
 		rec := &statusRecorder{ResponseWriter: w, status: 200}
 		next.ServeHTTP(rec, r.WithContext(context.WithValue(r.Context(), requestIDKey, id)))
-		slog.Info("request", "method", r.Method, "path", r.URL.Path, "status", rec.status, "duration_ms", time.Since(start).Milliseconds(), "request_id", id)
+		loggedPath := r.URL.Path
+		for _, prefix := range []string{"/api/admin-onboarding/", "/api/links/", "/api/team-invitations/", "/api/hooks/", "/api/automation-hooks/", "/api/shared-files/", "/join/", "/join-team/"} {
+			if strings.HasPrefix(loggedPath, prefix) {
+				loggedPath = prefix + "[redacted]"
+				break
+			}
+		}
+		slog.Info("request", "method", r.Method, "path", loggedPath, "status", rec.status, "duration_ms", time.Since(start).Milliseconds(), "request_id", id)
 	})
 }
 

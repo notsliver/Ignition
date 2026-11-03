@@ -198,6 +198,10 @@ func (s *Store) ResetPassword(ctx context.Context, tokenID, userID, hash string)
 		return err
 	}
 	defer tx.Rollback(ctx)
+	var locked string
+	if err = tx.QueryRow(ctx, `SELECT id FROM users WHERE id=$1 FOR UPDATE`, userID).Scan(&locked); err != nil {
+		return noRows(err)
+	}
 	tag, err := tx.Exec(ctx, `UPDATE user_tokens SET used_at = now() WHERE id = $1 AND used_at IS NULL AND expires_at > now()`, tokenID)
 	if err != nil {
 		return err
@@ -210,6 +214,18 @@ func (s *Store) ResetPassword(ctx context.Context, tokenID, userID, hash string)
 	}
 	if _, err := tx.Exec(ctx, `DELETE FROM sessions WHERE user_id = $1`, userID); err != nil {
 		return err
+	}
+	tag, err = tx.Exec(ctx, `UPDATE admin_onboarding SET completed_at=now(),method='password' WHERE user_id=$1 AND completed_at IS NULL`, userID)
+	if err != nil {
+		return err
+	}
+	if tag.RowsAffected() > 0 {
+		if _, err = tx.Exec(ctx, `UPDATE user_tokens SET used_at=coalesce(used_at,now()) WHERE user_id=$1 AND kind='reset'`, userID); err != nil {
+			return err
+		}
+		if _, err = tx.Exec(ctx, `UPDATE admin_setup_links SET used_at=coalesce(used_at,now()) WHERE user_id=$1`, userID); err != nil {
+			return err
+		}
 	}
 	return tx.Commit(ctx)
 }

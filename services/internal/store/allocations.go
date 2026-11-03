@@ -22,7 +22,7 @@ type Allocation struct {
 // Allocations are platform objects: read and written with the privileged pool by platform
 // administrators only.
 func (s *Store) Allocations(ctx context.Context, server string) ([]Allocation, error) {
-	rows, err := s.DB.Query(ctx, `SELECT a.id, a.ip, a.port, a.alias, a.resource_id, coalesce(r.name,''), coalesce(t.name,''), a.created_at
+	rows, err := s.TrustedSQL(ctx).Query(ctx, `SELECT a.id, a.ip, a.port, a.alias, a.resource_id, coalesce(r.name,''), coalesce(t.name,''), a.created_at
 		FROM server_allocations a LEFT JOIN resources r ON r.id = a.resource_id LEFT JOIN teams t ON t.id = r.team_id
 		WHERE a.server_id = $1 ORDER BY a.ip, a.port`, server)
 	if err != nil {
@@ -42,7 +42,7 @@ func (s *Store) Allocations(ctx context.Context, server string) ([]Allocation, e
 
 // AddAllocations adds ports on one IP; ones that already exist are skipped. Returns how many were new.
 func (s *Store) AddAllocations(ctx context.Context, server, ip, alias string, ports []int) (int, error) {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.TrustedSQL(ctx).Begin(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -60,16 +60,16 @@ func (s *Store) AddAllocations(ctx context.Context, server, ip, alias string, po
 
 // DeleteAllocations removes free allocations; ones a resource holds are left alone (and counted).
 func (s *Store) DeleteAllocations(ctx context.Context, server string, ids []string) (deleted, inUse int, err error) {
-	tag, err := s.DB.Exec(ctx, `DELETE FROM server_allocations WHERE server_id = $1 AND id = ANY($2::uuid[]) AND resource_id IS NULL`, server, ids)
+	tag, err := s.TrustedSQL(ctx).Exec(ctx, `DELETE FROM server_allocations WHERE server_id = $1 AND id = ANY($2::uuid[]) AND resource_id IS NULL`, server, ids)
 	if err != nil {
 		return 0, 0, err
 	}
-	err = s.DB.QueryRow(ctx, `SELECT count(*) FROM server_allocations WHERE server_id = $1 AND id = ANY($2::uuid[])`, server, ids).Scan(&inUse)
+	err = s.TrustedSQL(ctx).QueryRow(ctx, `SELECT count(*) FROM server_allocations WHERE server_id = $1 AND id = ANY($2::uuid[])`, server, ids).Scan(&inUse)
 	return int(tag.RowsAffected()), inUse, err
 }
 
 func (s *Store) SetAllocationAlias(ctx context.Context, server, id, alias string) error {
-	tag, err := s.DB.Exec(ctx, `UPDATE server_allocations SET alias = $3 WHERE server_id = $1 AND id = $2`, server, id, alias)
+	tag, err := s.TrustedSQL(ctx).Exec(ctx, `UPDATE server_allocations SET alias = $3 WHERE server_id = $1 AND id = $2`, server, id, alias)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}
@@ -79,7 +79,7 @@ func (s *Store) SetAllocationAlias(ctx context.Context, server, id, alias string
 // ServerHasAllocations says whether a server hands out ports from a pool (else the next free port is used).
 func (s *Store) ServerHasAllocations(ctx context.Context, server string) bool {
 	var ok bool
-	s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM server_allocations WHERE server_id = $1)`, server).Scan(&ok)
+	s.TrustedSQL(ctx).QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM server_allocations WHERE server_id = $1)`, server).Scan(&ok)
 	return ok
 }
 
@@ -103,7 +103,7 @@ func (s *Store) ClaimAllocation(ctx context.Context, tx pgx.Tx, server, resource
 // ResourceAllocation is the allocation a resource holds, if any.
 func (s *Store) ResourceAllocation(ctx context.Context, resource string) (*Allocation, error) {
 	var a Allocation
-	err := s.DB.QueryRow(ctx, `SELECT id, ip, port, alias FROM server_allocations WHERE resource_id = $1 ORDER BY port LIMIT 1`, resource).Scan(&a.ID, &a.IP, &a.Port, &a.Alias)
+	err := s.TrustedSQL(ctx).QueryRow(ctx, `SELECT id, ip, port, alias FROM server_allocations WHERE resource_id = $1 ORDER BY port LIMIT 1`, resource).Scan(&a.ID, &a.IP, &a.Port, &a.Alias)
 	if err != nil {
 		return nil, noRows(err)
 	}
@@ -111,7 +111,7 @@ func (s *Store) ResourceAllocation(ctx context.Context, resource string) (*Alloc
 }
 
 func (s *Store) SetServerVisible(ctx context.Context, server string, visible bool) error {
-	tag, err := s.DB.Exec(ctx, `UPDATE servers SET visible = $2, updated_at = now() WHERE id = $1`, server, visible)
+	tag, err := s.TrustedSQL(ctx).Exec(ctx, `UPDATE servers SET visible = $2, updated_at = now() WHERE id = $1`, server, visible)
 	if err == nil && tag.RowsAffected() == 0 {
 		return ErrNotFound
 	}

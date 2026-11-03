@@ -90,6 +90,10 @@ const q = params => {
 };
 
 export const api = {
+ adminTokens:()=>request('GET','/settings/admin-tokens'),
+ createAdminToken:body=>request('POST','/settings/admin-tokens',body),
+ rotateAdminToken:(id,body)=>request('POST',`/settings/admin-tokens/${id}/rotate`,body),
+ revokeAdminToken:id=>request('DELETE',`/settings/admin-tokens/${id}`),
   teamResource: (team,id) => request('GET',`/teams/${team}/resources/${id}`),
   teamProject: (team,id) => request('GET',`/teams/${team}/projects/${id}`),
   teamInvitation: token => request('GET',`/team-invitations/${token}`),

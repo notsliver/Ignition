@@ -19,6 +19,16 @@ type Scope struct {
 	InstanceAdmin bool
 }
 type scopeKey struct{}
+type transactionKey struct{}
+
+// WithTransaction joins public administrative work to one atomic database transaction.
+func WithTransaction(ctx context.Context, tx pgx.Tx) context.Context {
+	return context.WithValue(ctx, transactionKey{}, tx)
+}
+func TransactionFrom(ctx context.Context) (pgx.Tx, bool) {
+	tx, ok := ctx.Value(transactionKey{}).(pgx.Tx)
+	return tx, ok
+}
 
 func WithScope(ctx context.Context, scope Scope) context.Context {
 	return context.WithValue(ctx, scopeKey{}, scope)
@@ -39,6 +49,9 @@ func (s *Store) SQL(ctx context.Context) Querier {
 	if scope, ok := ScopeFrom(ctx); ok {
 		return scopedDB{s: s, scope: scope}
 	}
+	if tx, ok := TransactionFrom(ctx); ok {
+		return tx
+	}
 	return s.DB
 }
 
@@ -48,7 +61,14 @@ type scopedDB struct {
 }
 
 func (d scopedDB) Begin(ctx context.Context) (pgx.Tx, error) {
-	tx, err := d.s.DB.Begin(ctx)
+	var tx pgx.Tx
+	var err error
+	parent, bound := TransactionFrom(ctx)
+	if bound {
+		tx, err = parent.Begin(ctx)
+	} else {
+		tx, err = d.s.DB.Begin(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -58,6 +78,9 @@ func (d scopedDB) Begin(ctx context.Context) (pgx.Tx, error) {
 	if err != nil {
 		tx.Rollback(ctx)
 		return nil, err
+	}
+	if bound {
+		return adminScopedTx{Tx: tx}, nil
 	}
 	return tx, nil
 }
@@ -153,4 +176,23 @@ type auditTeamKey struct{}
 
 func WithAuditTeam(ctx context.Context, team string) context.Context {
 	return context.WithValue(ctx, auditTeamKey{}, team)
+}
+
+// Nested scoped transactions reset the temporary role before returning to administrative work.
+type adminScopedTx struct{ pgx.Tx }
+
+func (t adminScopedTx) Commit(ctx context.Context) error {
+	if _, err := t.Tx.Exec(ctx, "RESET ROLE"); err != nil {
+		return err
+	}
+	return t.Tx.Commit(ctx)
+}
+
+// TrustedSQL is for methods that already enforce explicit ownership with privileged queries.
+// It joins atomic administrative work without silently changing those methods to RLS reads.
+func (s *Store) TrustedSQL(ctx context.Context) Querier {
+	if tx, ok := TransactionFrom(ctx); ok {
+		return tx
+	}
+	return s.DB
 }

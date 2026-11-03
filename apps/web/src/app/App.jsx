@@ -34,6 +34,7 @@ import { AccountSecurity } from '../pages/settings/Profile/AccountSecurity';
 import { Preferences } from '../pages/settings/Preferences/Preferences';
 import { TeamMembers, TeamSettings } from '../pages/settings/Team/Team';
 import { AdminTeams } from '../pages/admin/AdminTeams';
+import { AdminTokens } from '../pages/admin/AdminTokens';
 import { Integrations } from '../pages/admin/Integrations';
 import { useSourceMode } from './instance';
 import { Limits } from '../pages/admin/Limits';
@@ -65,8 +66,8 @@ const preview = node => <><PreviewBanner />{node}</>;
 const LIVE_RESOURCE_VIEWS = ['Overview', 'Deployments', 'Logs', 'Metrics', 'Environment Variables', 'Source', 'Domains', 'Networking', 'Build & Deploy', 'Resource Limits', 'Storage', 'Terminal',
   'Health Checks', 'Rollback History', 'Scheduled Tasks', 'Access & Secrets', 'Advanced Settings', 'Automations', 'Code', 'Files', 'Backups'];
 // Settings pages backed by the API (the rest are still previews).
-const LIVE_PAGES = ['Team', 'Team Members', 'Team Sources', 'General', 'Authentication & Security', 'Updates', 'Users', 'Teams', 'Limits', 'Preferences', 'Profile', 'Security', 'Integrations', 'Products', 'Assigned services'];
-const pages = { Integrations: <Integrations />, Profile: <Profile />, Security: <AccountSecurity />, Team: <TeamSettings />, 'Team Members': <TeamMembers />, Dashboard: <Dashboard />, General: <General />, 'Authentication & Security': <Security />, Updates: <Updates />, Users: <Users />, Teams: <AdminTeams />, Limits: <Limits />, Products: <Products />, 'Assigned services': <AssignedServices />, Preferences: <Preferences /> };
+const LIVE_PAGES = ['Team', 'Team Members', 'Team Sources', 'General', 'Authentication & Security', 'Updates', 'Users', 'Teams', 'Limits', 'Preferences', 'Profile', 'Security', 'Integrations', 'Admin tokens', 'Products', 'Assigned services'];
+const pages = { 'Admin tokens': <AdminTokens />, Integrations: <Integrations />, Profile: <Profile />, Security: <AccountSecurity />, Team: <TeamSettings />, 'Team Members': <TeamMembers />, Dashboard: <Dashboard />, General: <General />, 'Authentication & Security': <Security />, Updates: <Updates />, Users: <Users />, Teams: <AdminTeams />, Limits: <Limits />, Products: <Products />, 'Assigned services': <AssignedServices />, Preferences: <Preferences /> };
 
 export function App() {
   const { team } = useTeam();

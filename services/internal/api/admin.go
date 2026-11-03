@@ -493,6 +493,16 @@ func (s *Server) acceptLink(w http.ResponseWriter, r *http.Request) error {
 		return httpx.NotFound("This link has expired or was already used. Ask for a new one")
 	}
 	p := s.policy()
+	if t.Kind == "reset" && t.UserID != nil {
+		var pending bool
+		if err := s.Store.DB.QueryRow(r.Context(), `SELECT EXISTS(SELECT 1 FROM admin_onboarding WHERE user_id=$1 AND completed_at IS NULL)`, *t.UserID).Scan(&pending); err != nil {
+			return err
+		}
+		if pending && (!p.LocalAuth || p.DisableRegistration || p.RequiredMethod == "sso") {
+			return httpx.Forbidden("Account setup must follow the current SSO policy. Request a new setup link.")
+		}
+	}
+
 	if t.Kind == "invite" && p.Invitations == "disabled" {
 		return httpx.Forbidden("Invitations are turned off on this Ignition.")
 	}

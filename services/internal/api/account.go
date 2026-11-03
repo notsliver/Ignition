@@ -11,7 +11,7 @@ import (
 	"github.com/notsliver/Ignition/services/internal/store"
 )
 
-var accountReturnRE = regexp.MustCompile(`^(/teams/[a-zA-Z0-9-]+/settings/(profile|security)|/admin/integrations)$`)
+var accountReturnRE = regexp.MustCompile(`^(/teams/[a-zA-Z0-9-]+/settings/(profile|security)|/admin/(integrations|admin-tokens))$`)
 
 func (s *Server) accountSSOStart(w http.ResponseWriter, r *http.Request, u *store.User) error {
 	hash, err := accountSession(r, u)
@@ -43,7 +43,7 @@ func (s *Server) accountSSOStart(w http.ResponseWriter, r *http.Request, u *stor
 }
 
 func accountSession(r *http.Request, u *store.User) ([]byte, error) {
-	if u.CredentialTokenID != "" || u.ServiceResourceID != "" {
+	if u.AdminTokenID != "" || u.CredentialTokenID != "" || u.ServiceResourceID != "" {
 		return nil, httpx.Forbidden("Use your signed-in account.")
 	}
 	c, err := r.Cookie(sessionCookie)

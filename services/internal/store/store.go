@@ -44,6 +44,7 @@ func noRows(err error) error {
 /* ---------------------------------- Users ---------------------------------- */
 
 type User struct {
+	AdminTokenID      string        `json:"-"`
 	AvatarURL         string        `json:"avatarUrl"`
 	ServiceResourceID string        `json:"-"`
 	CredentialTokenID string        `json:"-"`
@@ -817,6 +818,13 @@ func (s *Store) Audit(ctx context.Context, actor *User, action, targetType, targ
 		}
 		detail = merged
 	}
+	if actor != nil && actor.AdminTokenID != "" {
+		merged := map[string]any{"adminTokenId": actor.AdminTokenID}
+		for k, v := range detail {
+			merged[k] = v
+		}
+		detail = merged
+	}
 	b, _ := json.Marshal(detail)
 	var id, email *string
 	if actor != nil {
@@ -832,7 +840,11 @@ func (s *Store) Audit(ctx context.Context, actor *User, action, targetType, targ
 		team = &auditTeam
 	}
 	// Audit writes have explicit trusted ownership and must also record actions which relinquish access.
-	s.DB.Exec(ctx, `INSERT INTO audit_events(team_id,actor_id,actor_email,action,target_type,target_id,detail,ip) VALUES($1,$2,COALESCE($3,'system'),$4,$5,$6,$7,$8)`, team, id, email, action, targetType, targetID, b, ip)
+	q := Querier(s.DB)
+	if tx, ok := TransactionFrom(ctx); ok {
+		q = tx
+	}
+	q.Exec(ctx, `INSERT INTO audit_events(team_id,actor_id,actor_email,action,target_type,target_id,detail,ip) VALUES($1,$2,COALESCE($3,'system'),$4,$5,$6,$7,$8)`, team, id, email, action, targetType, targetID, b, ip)
 
 }
 

@@ -107,7 +107,7 @@ func (s *Server) availabilityFor(ctx context.Context, p *store.Product, plan *st
 	pl := parsePlacement(p.Placement)
 	out := availability{Strategy: pl.Strategy, Servers: []placementCandidate{}}
 	var active, teamActive int
-	s.Store.DB.QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE team_id::text = $2) FROM services WHERE product_id = $1 AND status <> 'terminated'`, p.ID, team).Scan(&active, &teamActive)
+	s.Store.SQL(ctx).QueryRow(ctx, `SELECT count(*), count(*) FILTER (WHERE team_id::text = $2) FROM services WHERE product_id = $1 AND status <> 'terminated'`, p.ID, team).Scan(&active, &teamActive)
 	if pl.Stock > 0 {
 		left := max(pl.Stock-active, 0)
 		out.StockLeft = &left
@@ -117,7 +117,7 @@ func (s *Server) availabilityFor(ctx context.Context, p *store.Product, plan *st
 		out.TeamLeft = &left
 	}
 
-	rows, err := s.Store.DB.Query(ctx, `SELECT sv.id, sv.name, sv.location, sv.is_local, sv.maintenance, sv.deployments_enabled,
+	rows, err := s.Store.SQL(ctx).Query(ctx, `SELECT sv.id, sv.name, sv.location, sv.is_local, sv.maintenance, sv.deployments_enabled,
 		$2 = '' OR EXISTS (SELECT 1 FROM team_server_assignments a WHERE a.server_id = sv.id AND a.team_id::text = $2),
 		(SELECT count(*) FROM services x WHERE x.server_id = sv.id AND x.product_id = $1 AND x.status <> 'terminated')
 		FROM servers sv WHERE NOT sv.removing ORDER BY sv.is_local DESC, sv.name`, p.ID, team)

@@ -92,3 +92,25 @@ func (s *Store) createPersonalTeam(ctx context.Context, tx pgx.Tx, u *User) erro
 	}
 	return s.initializeTeam(ctx, tx, id, u.ID)
 }
+
+// CreateCustomer initializes the account and optional personal team in the caller's transaction.
+func (s *Store) CreateCustomer(ctx context.Context, email, name, role string) (*User, *string, error) {
+	tx, err := s.SQL(ctx).Begin(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	defer tx.Rollback(ctx)
+	u, err := scanUser(tx.QueryRow(ctx, `INSERT INTO users(email,name,password_hash,role) VALUES($1,$2,'',$3) RETURNING `+userCols, email, name, role))
+	if err != nil {
+		return nil, nil, err
+	}
+	if err = s.createPersonalTeam(ctx, tx, u); err != nil {
+		return nil, nil, err
+	}
+	var team *string
+	err = tx.QueryRow(ctx, `SELECT id FROM teams WHERE created_by=$1 ORDER BY created_at,id LIMIT 1`, u.ID).Scan(&team)
+	if err != nil && err != pgx.ErrNoRows {
+		return nil, nil, err
+	}
+	return u, team, tx.Commit(ctx)
+}

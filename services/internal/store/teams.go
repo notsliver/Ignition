@@ -28,7 +28,7 @@ type Team struct {
 }
 
 func (s *Store) Teams(ctx context.Context, userID string) ([]Team, error) {
-	rows, err := s.DB.Query(ctx, `SELECT t.id,t.name,t.slug,t.icon_file,m.role,m.permissions,t.access_version,ARRAY(SELECT experience FROM team_experiences x WHERE x.team_id=t.id ORDER BY experience) FROM teams t JOIN team_memberships m ON m.team_id=t.id WHERE m.user_id=$1 ORDER BY t.created_at,t.id`, userID)
+	rows, err := s.TrustedSQL(ctx).Query(ctx, `SELECT t.id,t.name,t.slug,t.icon_file,m.role,m.permissions,t.access_version,ARRAY(SELECT experience FROM team_experiences x WHERE x.team_id=t.id ORDER BY experience) FROM teams t JOIN team_memberships m ON m.team_id=t.id WHERE m.user_id=$1 ORDER BY t.created_at,t.id`, userID)
 	if err != nil {
 		return nil, err
 	}
@@ -65,7 +65,7 @@ func (s *Store) Membership(ctx context.Context, team, user string) (*Team, error
 // AdminTeam is a team as a platform administrator who isn't a member sees it: as its owner.
 func (s *Store) AdminTeam(ctx context.Context, team string) (*Team, error) {
 	t := Team{Role: "owner", AdminAccess: true, Overrides: PermOverrides{}}
-	err := s.DB.QueryRow(ctx, `SELECT id,name,slug,icon_file,access_version,ARRAY(SELECT experience FROM team_experiences x WHERE x.team_id=t.id ORDER BY experience) FROM teams t WHERE id=$1`, team).
+	err := s.TrustedSQL(ctx).QueryRow(ctx, `SELECT id,name,slug,icon_file,access_version,ARRAY(SELECT experience FROM team_experiences x WHERE x.team_id=t.id ORDER BY experience) FROM teams t WHERE id=$1`, team).
 		Scan(&t.ID, &t.Name, &t.Slug, &t.IconURL, &t.AccessVersion, &t.Experiences)
 	if err != nil {
 		return nil, noRows(err)
@@ -74,7 +74,7 @@ func (s *Store) AdminTeam(ctx context.Context, team string) (*Team, error) {
 	return &t, nil
 }
 func (s *Store) CreateTeam(ctx context.Context, user, name string) (*Team, error) {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.TrustedSQL(ctx).Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -116,7 +116,7 @@ type TeamMember struct {
 }
 
 func (s *Store) TeamMembers(ctx context.Context, team string) ([]TeamMember, error) {
-	rows, err := s.DB.Query(ctx, `SELECT u.id,u.name,u.email,m.role,m.permissions,u.status,u.totp_enabled_at IS NOT NULL,m.created_at,u.avatar_file FROM team_memberships m JOIN users u ON u.id=m.user_id WHERE m.team_id=$1 ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 WHEN 'developer' THEN 2 WHEN 'viewer' THEN 3 ELSE 4 END, lower(coalesce(nullif(u.name,''),u.email))`, team)
+	rows, err := s.TrustedSQL(ctx).Query(ctx, `SELECT u.id,u.name,u.email,m.role,m.permissions,u.status,u.totp_enabled_at IS NOT NULL,m.created_at,u.avatar_file FROM team_memberships m JOIN users u ON u.id=m.user_id WHERE m.team_id=$1 ORDER BY CASE m.role WHEN 'owner' THEN 0 WHEN 'admin' THEN 1 WHEN 'developer' THEN 2 WHEN 'viewer' THEN 3 ELSE 4 END, lower(coalesce(nullif(u.name,''),u.email))`, team)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +139,7 @@ func (s *Store) TeamMembers(ctx context.Context, team string) ([]TeamMember, err
 
 // Lock the team, not just one membership, to serialize concurrent owner removals.
 func (s *Store) SetTeamMember(ctx context.Context, team, user, role string, perms PermOverrides) error {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.TrustedSQL(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -179,7 +179,7 @@ func (s *Store) SetTeamMember(ctx context.Context, team, user, role string, perm
 	return tx.Commit(ctx)
 }
 func (s *Store) UpdateTeam(ctx context.Context, team, name string, experiences []string) error {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.TrustedSQL(ctx).Begin(ctx)
 	if err != nil {
 		return err
 	}
@@ -219,7 +219,7 @@ func (s *Store) DefaultEnvironment(ctx context.Context) (string, error) {
 	return id, noRows(err)
 }
 func (s *Store) ProjectAssignments(ctx context.Context, team, project string) ([]TeamMember, error) {
-	rows, err := s.DB.Query(ctx, `SELECT u.id,u.name,u.email,a.role,a.permissions,u.avatar_file FROM project_assignments a JOIN users u ON u.id=a.user_id WHERE a.team_id=$1 AND a.project_id=$2 ORDER BY lower(u.email)`, team, project)
+	rows, err := s.TrustedSQL(ctx).Query(ctx, `SELECT u.id,u.name,u.email,a.role,a.permissions,u.avatar_file FROM project_assignments a JOIN users u ON u.id=a.user_id WHERE a.team_id=$1 AND a.project_id=$2 ORDER BY lower(u.email)`, team, project)
 	if err != nil {
 		return nil, err
 	}
@@ -239,20 +239,20 @@ func (s *Store) ProjectAssignments(ctx context.Context, team, project string) ([
 }
 func (s *Store) SetProjectAssignment(ctx context.Context, team, project, user, role string, perms PermOverrides) error {
 	if role == "" {
-		_, err := s.DB.Exec(ctx, `DELETE FROM project_assignments WHERE team_id=$1 AND project_id=$2 AND user_id=$3`, team, project, user)
+		_, err := s.TrustedSQL(ctx).Exec(ctx, `DELETE FROM project_assignments WHERE team_id=$1 AND project_id=$2 AND user_id=$3`, team, project, user)
 		return err
 	}
 	raw, _ := json.Marshal(perms)
-	_, err := s.DB.Exec(ctx, `INSERT INTO project_assignments(team_id,project_id,user_id,role,permissions) VALUES($1,$2,$3,$4,$5) ON CONFLICT(project_id,user_id) DO UPDATE SET role=excluded.role,permissions=excluded.permissions`, team, project, user, role, raw)
+	_, err := s.TrustedSQL(ctx).Exec(ctx, `INSERT INTO project_assignments(team_id,project_id,user_id,role,permissions) VALUES($1,$2,$3,$4,$5) ON CONFLICT(project_id,user_id) DO UPDATE SET role=excluded.role,permissions=excluded.permissions`, team, project, user, role, raw)
 	return err
 }
 func (s *Store) InviteTeamMember(ctx context.Context, team, email, role, actor string, hash []byte) (string, error) {
 	var id string
-	err := s.DB.QueryRow(ctx, `INSERT INTO team_invitations(team_id,email,role,created_by,token_hash,expires_at) VALUES($1,lower($2),$3,$4,$5,now()+interval '7 days') RETURNING id`, team, email, role, actor, hash).Scan(&id)
+	err := s.TrustedSQL(ctx).QueryRow(ctx, `INSERT INTO team_invitations(team_id,email,role,created_by,token_hash,expires_at) VALUES($1,lower($2),$3,$4,$5,now()+interval '7 days') RETURNING id`, team, email, role, actor, hash).Scan(&id)
 	return id, err
 }
 func (s *Store) AcceptTeamInvitation(ctx context.Context, user, email string, hash []byte) (string, error) {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.TrustedSQL(ctx).Begin(ctx)
 	if err != nil {
 		return "", err
 	}
@@ -275,7 +275,7 @@ type TeamInvitation struct {
 }
 
 func (s *Store) TeamInvitations(ctx context.Context, team string) ([]TeamInvitation, error) {
-	rows, err := s.DB.Query(ctx, `SELECT id,email,role,expires_at FROM team_invitations WHERE team_id=$1 AND accepted_at IS NULL AND expires_at>now() ORDER BY created_at`, team)
+	rows, err := s.TrustedSQL(ctx).Query(ctx, `SELECT id,email,role,expires_at FROM team_invitations WHERE team_id=$1 AND accepted_at IS NULL AND expires_at>now() ORDER BY created_at`, team)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +293,7 @@ func (s *Store) TeamInvitations(ctx context.Context, team string) ([]TeamInvitat
 
 func (s *Store) ServerAssigned(ctx context.Context, team, server string) bool {
 	var ok bool
-	s.DB.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM team_server_assignments WHERE team_id=$1 AND server_id=$2)`, team, server).Scan(&ok)
+	s.TrustedSQL(ctx).QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM team_server_assignments WHERE team_id=$1 AND server_id=$2)`, team, server).Scan(&ok)
 	return ok
 }
 
@@ -303,7 +303,7 @@ func (s *Store) JobOwnershipValid(ctx context.Context, team string, resource, de
 	}
 	if resource != nil {
 		var actual, host string
-		if err := s.DB.QueryRow(ctx, `SELECT team_id,server_id FROM resources WHERE id=$1`, *resource).Scan(&actual, &host); err != nil || actual != team {
+		if err := s.TrustedSQL(ctx).QueryRow(ctx, `SELECT team_id,server_id FROM resources WHERE id=$1`, *resource).Scan(&actual, &host); err != nil || actual != team {
 			return false
 		}
 		if !s.ServerAssigned(ctx, team, host) {
@@ -313,7 +313,7 @@ func (s *Store) JobOwnershipValid(ctx context.Context, team string, resource, de
 	if deployment != nil {
 		var actual string
 		var target string
-		if err := s.DB.QueryRow(ctx, `SELECT team_id,resource_id FROM deployments WHERE id=$1`, *deployment).Scan(&actual, &target); err != nil || actual != team || resource == nil || target != *resource {
+		if err := s.TrustedSQL(ctx).QueryRow(ctx, `SELECT team_id,resource_id FROM deployments WHERE id=$1`, *deployment).Scan(&actual, &target); err != nil || actual != team || resource == nil || target != *resource {
 			return false
 		}
 	}
@@ -321,7 +321,7 @@ func (s *Store) JobOwnershipValid(ctx context.Context, team string, resource, de
 }
 
 func (s *Store) RegisterTeamInvitation(ctx context.Context, token []byte, name, hash string) (*User, error) {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.TrustedSQL(ctx).Begin(ctx)
 	if err != nil {
 		return nil, err
 	}

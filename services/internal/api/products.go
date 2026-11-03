@@ -398,6 +398,30 @@ func (s *Server) getService(w http.ResponseWriter, r *http.Request, u *store.Use
 
 // provisionService assigns a plan to a team: it creates the resource and records the service.
 func (s *Server) provisionService(w http.ResponseWriter, r *http.Request, u *store.User) error {
+	if _, bound := store.TransactionFrom(r.Context()); !bound {
+		tx, err := s.Store.DB.Begin(r.Context())
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback(r.Context())
+		if _, err = tx.Exec(r.Context(), `SELECT pg_advisory_xact_lock(738219410)`); err != nil {
+			return err
+		}
+		rec := httptest.NewRecorder()
+		if err = s.provisionService(rec, r.WithContext(store.WithTransaction(r.Context(), tx)), u); err != nil {
+			return err
+		}
+		if err = tx.Commit(r.Context()); err != nil {
+			return err
+		}
+		for k, v := range rec.Header() {
+			w.Header()[k] = v
+		}
+		w.WriteHeader(rec.Code)
+		_, err = w.Write(rec.Body.Bytes())
+		return err
+	}
+
 	if err := requireInstanceAdmin(u); err != nil {
 		return err
 	}
@@ -434,7 +458,7 @@ func (s *Server) provisionService(w http.ResponseWriter, r *http.Request, u *sto
 
 	}
 	var teamName string
-	if !uuidRE.MatchString(in.TeamID) || s.Store.DB.QueryRow(ctx, `SELECT name FROM teams WHERE id = $1`, in.TeamID).Scan(&teamName) != nil {
+	if !uuidRE.MatchString(in.TeamID) || s.Store.SQL(ctx).QueryRow(ctx, `SELECT name FROM teams WHERE id = $1`, in.TeamID).Scan(&teamName) != nil {
 		f["teamId"] = "Choose a team."
 	}
 	in.Name = strings.TrimSpace(in.Name)
@@ -601,7 +625,7 @@ func (s *Server) serviceAction(w http.ResponseWriter, r *http.Request, u *store.
 		}
 		// The new size applies on the next deployment, which starts right away.
 		if resource != "" {
-			if _, err := s.Store.DB.Exec(ctx, `UPDATE resources SET memory_mb = $2, cpus = $3, updated_at = now() WHERE id = $1`, resource, plan.MemoryMB, plan.CPUs); err != nil {
+			if _, err := s.Store.SQL(ctx).Exec(ctx, `UPDATE resources SET memory_mb = $2, cpus = $3, updated_at = now() WHERE id = $1`, resource, plan.MemoryMB, plan.CPUs); err != nil {
 				return err
 			}
 			if _, err := s.callAsTeam(r, u, v.TeamID, resource, "deployments.create", []byte(`{}`), s.createDeployment); err != nil {

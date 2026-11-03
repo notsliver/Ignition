@@ -55,6 +55,7 @@ export const adminSections = [
     { title: 'Teams', icon: UserGroupIcon },
     { title: 'Authentication & Security', icon: ShieldCheckIcon },
     { title: 'Integrations', icon: PuzzlePieceIcon },
+    { title: 'Admin tokens', icon: KeyIcon },
   ] },
   { label: 'Records', items: [
     { title: 'Audit Log', icon: ClipboardDocumentListIcon },

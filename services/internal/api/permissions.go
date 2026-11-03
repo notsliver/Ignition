@@ -28,6 +28,21 @@ func perm(group, key, label, desc, role string) permission {
 }
 
 var permissionCatalog = []permission{
+	perm("Public administration", "users.create", "Create customers", "Create non-administrative accounts following instance defaults", "admin"),
+	perm("Public administration", "users.setup", "Account setup links", "Issue single-use customer setup and reset links", "admin"),
+	perm("Public administration", "teams.view", "View all teams", "Read customer teams and memberships", "admin"),
+	perm("Public administration", "teams.create", "Create customer teams", "Create teams for existing users", "admin"),
+	perm("Public administration", "teams.update", "Update customer teams", "Change customer team metadata", "admin"),
+	perm("Public administration", "teams.members", "Manage customer memberships", "Manage non-owner memberships and invitations", "admin"),
+	perm("Public administration", "products.view", "Read products", "Read products, plans and availability", "admin"),
+	perm("Public administration", "products.manage", "Manage products", "Create and edit products and plans", "admin"),
+	perm("Public administration", "products.delete", "Delete products", "Delete unused products and plans", "admin"),
+	perm("Public administration", "resources.provision", "Provision products", "Assign a product plan and create its resource", "admin"),
+	perm("Public administration", "resources.suspend", "Suspend assigned resources", "Suspend and resume product-managed resources", "admin"),
+	perm("Public administration", "resources.change-plan", "Change assigned plans", "Resize product-managed resources", "admin"),
+	perm("Public administration", "usage.view", "Read instance usage", "Read resource and team quota usage", "admin"),
+	perm("Public administration", "webhooks.view", "Read admin webhooks", "Read lifecycle subscriptions and deliveries", "admin"),
+	perm("Public administration", "webhooks.manage", "Manage admin webhooks", "Configure signed lifecycle deliveries", "admin"),
 	perm("Projects", "projects.view", "View projects", "See projects, their environments and the dashboard", "viewer"),
 	perm("Projects", "projects.create", "Create projects", "Create, import and duplicate projects", "admin"),
 	perm("Projects", "projects.update", "Update projects", "Rename projects and change their settings", "admin"),
@@ -194,6 +209,10 @@ var accountRoutes = map[string]bool{
 
 // routePerms names the permission each route needs. TestEveryRouteHasAPermission keeps it complete.
 var routePerms = map[string]string{
+	"GET /api/settings/admin-tokens":                           "security.manage",
+	"POST /api/settings/admin-tokens":                          "security.manage",
+	"POST /api/settings/admin-tokens/{id}/rotate":              "security.manage",
+	"DELETE /api/settings/admin-tokens/{id}":                   "security.manage",
 	"GET /api/settings/integrations":                           "security.manage",
 	"PUT /api/settings/integrations/{provider}":                "security.manage",
 	"POST /api/teams/{teamId}/integrations/{provider}/connect": "sources.use",

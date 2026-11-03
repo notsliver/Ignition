@@ -178,7 +178,7 @@ func (s *Server) unlinkIntegration(w http.ResponseWriter, r *http.Request, u *st
 	return nil
 }
 
-var integrationReturnRE = regexp.MustCompile(`^(/teams/[a-zA-Z0-9-]+/(settings/(profile|security|team-sources)|projects|resources|dashboard)(/[a-zA-Z0-9-]+)*|/admin/integrations)$`)
+var integrationReturnRE = regexp.MustCompile(`^(/teams/[a-zA-Z0-9-]+/(settings/(profile|security|team-sources)|projects|resources|dashboard)(/[a-zA-Z0-9-]+)*|/admin/(integrations|admin-tokens))$`)
 
 func (s *Server) integrationConnect(w http.ResponseWriter, r *http.Request, u *store.User) error {
 	if _, err := accountSession(r, u); err != nil {

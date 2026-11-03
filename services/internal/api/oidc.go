@@ -7,6 +7,7 @@ import (
 	"encoding/base64"
 	"errors"
 	"net/http"
+	"net/http/httptest"
 	"net/mail"
 	"net/url"
 	"slices"
@@ -83,6 +84,7 @@ type ssoPending struct {
 	startedAt                         time.Time
 	userID, purpose, returnTo, issuer string
 	sessionHash                       []byte
+	onboardingHash                    []byte
 	verifier, nonce                   string
 	expires                           time.Time
 }
@@ -165,7 +167,8 @@ func (s *Server) beginSSO(w http.ResponseWriter, r *http.Request, userID, purpos
 			delete(s.sso.pending, k)
 		}
 	}
-	s.sso.pending[state] = ssoPending{startedAt: time.Now(), verifier: verifier, nonce: nonce, expires: time.Now().Add(10 * time.Minute), userID: userID, purpose: purpose, returnTo: returnTo, issuer: o.Issuer, sessionHash: sessionHash}
+	onboardingHash, _ := r.Context().Value(adminOnboardingKey{}).([]byte)
+	s.sso.pending[state] = ssoPending{onboardingHash: onboardingHash, startedAt: time.Now(), verifier: verifier, nonce: nonce, expires: time.Now().Add(10 * time.Minute), userID: userID, purpose: purpose, returnTo: returnTo, issuer: o.Issuer, sessionHash: sessionHash}
 	s.sso.mu.Unlock()
 	// The cookie binds the callback to this browser, so a link can't be replayed elsewhere.
 	http.SetCookie(w, &http.Cookie{Name: ssoCookie, Value: state, Path: "/api/auth/oidc", HttpOnly: true, Secure: s.SecureCookies, SameSite: http.SameSiteLaxMode, MaxAge: 600})
@@ -238,6 +241,24 @@ func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) error {
 	claims, err := p.Verify(r.Context(), idToken, o.ClientID, pend.nonce, time.Now())
 	if err != nil {
 		return fail(err.Error())
+	}
+	if pend.purpose == "onboarding" {
+		if pend.issuer != o.Issuer {
+			return fail("The SSO provider changed. Start again.")
+		}
+		user, e := s.completeAdminSSO(r, pend, o, claims)
+		if e != nil {
+			return fail(e.Error())
+		}
+		rec := httptest.NewRecorder()
+		if err = s.secondFactor(rec, r, user, "sso"); err != nil {
+			return err
+		}
+		for k, v := range rec.Header() {
+			w.Header()[k] = v
+		}
+		http.Redirect(w, r, "/", 302)
+		return nil
 	}
 	if pend.userID != "" {
 		fail = func(msg string) error {

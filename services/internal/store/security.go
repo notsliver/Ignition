@@ -82,7 +82,7 @@ func (s *Store) LinkOIDC(ctx context.Context, userID, issuer, subject string) er
 // CreateSSOUser provisions an account on first SSO sign-in. It has no password, so it can only
 // sign in through the identity provider until someone sends it a reset link.
 func (s *Store) CreateSSOUser(ctx context.Context, email, name, role, issuer, subject string) (*User, error) {
-	tx, err := s.DB.Begin(ctx)
+	tx, err := s.TrustedSQL(ctx).Begin(ctx)
 	if err != nil {
 		return nil, err
 	}
