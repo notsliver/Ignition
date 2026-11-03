@@ -3,7 +3,7 @@ import {
   CodeBracketIcon, LockClosedIcon, ServerStackIcon, VariableIcon, CommandLineIcon, CubeIcon, GlobeAltIcon, RocketLaunchIcon, ArchiveBoxIcon, ArrowPathIcon, BellIcon, ChartBarIcon, ClipboardDocumentListIcon, Cog6ToothIcon,
   KeyIcon, RectangleStackIcon, ShieldCheckIcon, Squares2X2Icon, UserCircleIcon, UsersIcon, WrenchScrewdriverIcon,
   BeakerIcon, BoltIcon, ClockIcon, PresentationChartLineIcon, ShareIcon, Square3Stack3DIcon,
-  AdjustmentsVerticalIcon, FolderIcon, MapIcon, PuzzlePieceIcon, UserGroupIcon,
+  AdjustmentsVerticalIcon, FolderIcon, MapIcon, PuzzlePieceIcon, RectangleGroupIcon, ShoppingBagIcon, UserGroupIcon,
 } from '@heroicons/react/20/solid';
 
 export const topItems = [
@@ -45,6 +45,10 @@ export const adminSections = [
     { title: 'Backups', icon: ArchiveBoxIcon },
     { title: 'Notifications', icon: BellIcon },
     { title: 'Advanced', icon: WrenchScrewdriverIcon },
+  ] },
+  { label: 'Hosting', items: [
+    { title: 'Products', icon: ShoppingBagIcon },
+    { title: 'Assigned services', icon: RectangleGroupIcon },
   ] },
   { label: 'People & access', items: [
     { title: 'Users', icon: UsersIcon },

@@ -61,6 +61,8 @@ func (s *Server) system(w http.ResponseWriter, r *http.Request, _ *store.User) e
 		// Where the Infrastructure pages live: every team's sidebar, or Instance administration only.
 		"infrastructureAdminOnly": s.instance(r.Context()).InfrastructureAdminOnly,
 		"projects":                *s.instance(r.Context()).Projects,
+		"resourceCreation":        s.instance(r.Context()).ResourceCreation,
+		"resourceLayout":          s.instance(r.Context()).ResourceLayout,
 		"sourceMode":              s.Store.SourceMode(r.Context()),
 		"version":                 version.Version,
 		"maintenance":             s.instance(r.Context()).Maintenance,
@@ -240,6 +242,7 @@ func (s *Server) listResources(w http.ResponseWriter, r *http.Request, u *store.
 	if err != nil {
 		return err
 	}
+	s.Store.AttachServices(r.Context(), list)
 	httpx.JSON(w, 200, map[string]any{"resources": list})
 	return nil
 }
@@ -259,6 +262,7 @@ func (s *Server) listAllResources(w http.ResponseWriter, r *http.Request, _ *sto
 		}
 		list = filtered
 	}
+	s.Store.AttachServices(r.Context(), list)
 	httpx.JSON(w, 200, map[string]any{"resources": list})
 	return nil
 }
@@ -274,6 +278,9 @@ func (s *Server) getResource(w http.ResponseWriter, r *http.Request, u *store.Us
 	}
 	res.Permissions = effectivePermissions(u)
 	res.EffectiveRole = u.Role
+	one := []store.Resource{*res}
+	s.Store.AttachServices(r.Context(), one)
+	res.Service, res.Location, res.Edition = one[0].Service, one[0].Location, one[0].Edition
 	httpx.JSON(w, 200, map[string]any{"resource": res})
 	return nil
 }
@@ -511,6 +518,17 @@ func (s *Server) updateResource(w http.ResponseWriter, r *http.Request, u *store
 	if p.Port != nil {
 		merged.Port = p.Port
 	}
+	changed := func(p *string, cur string) bool { return p != nil && strings.TrimSpace(*p) != cur }
+	if changed(p.Image, current.Image) || changed(p.RepoURL, current.RepoURL) || changed(p.Branch, current.Branch) || changed(p.Dockerfile, current.Dockerfile) {
+		if err := s.productAllows(r.Context(), u, id, "source"); err != nil {
+			return err
+		}
+	}
+	if changed(p.Command, current.Command) {
+		if err := s.productAllows(r.Context(), u, id, "command"); err != nil {
+			return err
+		}
+	}
 	if p.MemoryMB != nil {
 		merged.MemoryMB = *p.MemoryMB
 	}
@@ -566,6 +584,11 @@ func (s *Server) resourceAction(w http.ResponseWriter, r *http.Request, u *store
 	case "start", "stop", "restart", "pause", "resume", "refresh":
 	default:
 		return httpx.BadRequest("Action must be start, stop, restart, pause, resume or refresh.")
+	}
+	if in.Action == "start" || in.Action == "restart" || in.Action == "resume" {
+		if err := s.suspended(r.Context(), u, id); err != nil {
+			return err
+		}
 	}
 	res, err := s.Store.GetResource(r.Context(), id)
 	if err != nil {
@@ -661,6 +684,9 @@ func (s *Server) putEnv(w http.ResponseWriter, r *http.Request, u *store.User) e
 		Variables []envInput `json:"variables"`
 	}
 	if err := httpx.Decode(r, &in); err != nil {
+		return err
+	}
+	if err := s.productAllows(r.Context(), u, id, "env"); err != nil {
 		return err
 	}
 	existing, err := s.Store.ListEnv(r.Context(), id)
@@ -770,6 +796,9 @@ func (s *Server) getDeployment(w http.ResponseWriter, r *http.Request, _ *store.
 func (s *Server) createDeployment(w http.ResponseWriter, r *http.Request, u *store.User) error {
 	id, err := pathID(r, "Resource")
 	if err != nil {
+		return err
+	}
+	if err := s.suspended(r.Context(), u, id); err != nil {
 		return err
 	}
 	var in struct {

@@ -23,6 +23,10 @@ type provisionExtras struct {
 
 // provision creates one resource (and its first deployment) inside tx. Callers validate in first.
 func (s *Server) provision(ctx context.Context, tx pgx.Tx, u *store.User, projectID, envID string, in resourceInput, x provisionExtras) (string, string, error) {
+	// Experiences › Resources: teams may only have what administrators assign them.
+	if s.instance(ctx).ResourceCreation == "assigned" && roleRank[u.InstanceRole] < roleRank["admin"] {
+		return "", "", &httpx.Error{Status: 403, Code: "resource_creation_disabled", Message: "On this instance, resources are assigned by its administrators. Ask them for what you need."}
+	}
 	if _, scoped := store.ScopeFrom(ctx); scoped {
 		var capacity bool
 		if err := tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM servers WHERE is_local AND NOT removing)`).Scan(&capacity); err != nil {

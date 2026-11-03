@@ -22,6 +22,12 @@ func interval(d time.Duration) string { return fmt.Sprintf("%d seconds", int(d.S
 
 type Store struct{ DB *pgxpool.Pool }
 
+// IsForeignKey reports a foreign key violation: something still refers to the row.
+func IsForeignKey(err error) bool {
+	var pg *pgconn.PgError
+	return errors.As(err, &pg) && pg.Code == "23503"
+}
+
 // IsUnique reports a unique-constraint violation, for friendly "already exists" errors.
 func IsUnique(err error) bool {
 	var pg *pgconn.PgError
@@ -355,41 +361,45 @@ func (s *Store) DeleteProject(ctx context.Context, id string) error {
 /* -------------------------------- Resources -------------------------------- */
 
 type Resource struct {
-	Permissions         []string   `json:"permissions,omitempty"`
-	EffectiveRole       string     `json:"effectiveRole,omitempty"`
-	TeamID              string     `json:"teamId"`
-	ID                  string     `json:"id"`
-	ProjectID           string     `json:"projectId"`
-	EnvironmentID       string     `json:"environmentId"`
-	Environment         string     `json:"environment"`
-	Name                string     `json:"name"`
-	Type                string     `json:"type"`
-	SourceType          string     `json:"sourceType"`
-	Image               string     `json:"image"`
-	RepoURL             string     `json:"repoUrl"`
-	Branch              string     `json:"branch"`
-	Dockerfile          string     `json:"dockerfile"`
-	Port                *int       `json:"port"`
-	Command             string     `json:"command"`
-	DataPath            string     `json:"dataPath"`
-	MemoryMB            int        `json:"memoryMb"`
-	CPUs                float64    `json:"cpus"`
-	DesiredState        string     `json:"desiredState"`
-	Status              string     `json:"status"`
-	ContainerID         string     `json:"-"`
-	HostPort            *int       `json:"hostPort"`
-	CurrentDeploymentID *string    `json:"currentDeploymentId"`
-	RunningSince        *time.Time `json:"runningSince"`
-	SourceID            *string    `json:"sourceId"`
-	Domain              string     `json:"domain"`  // primary working domain as a URL, "" when none
-	Volumes             []string   `json:"volumes"` // mount paths of its volumes
-	ProjectName         string     `json:"projectName,omitempty"`
-	Usage               *Usage     `json:"usage,omitempty"`
-	LastDeployAt        *time.Time `json:"lastDeployAt"`
-	ServerID            string     `json:"serverId"`
-	Engine              string     `json:"engine"` // database engine or function runtime
-	CreatedAt           time.Time  `json:"createdAt"`
-	UpdatedAt           time.Time  `json:"updatedAt"`
+	Permissions   []string `json:"permissions,omitempty"`
+	EffectiveRole string   `json:"effectiveRole,omitempty"`
+	TeamID        string   `json:"teamId"`
+	// Set by the API for lists and pages: the plan a resource came from (Products) and where it runs.
+	Service             *ResourceService `json:"service,omitempty"`
+	Location            string           `json:"location,omitempty"`
+	Edition             string           `json:"edition,omitempty"` // a game server's edition (paper, fabric...), for its logo
+	ID                  string           `json:"id"`
+	ProjectID           string           `json:"projectId"`
+	EnvironmentID       string           `json:"environmentId"`
+	Environment         string           `json:"environment"`
+	Name                string           `json:"name"`
+	Type                string           `json:"type"`
+	SourceType          string           `json:"sourceType"`
+	Image               string           `json:"image"`
+	RepoURL             string           `json:"repoUrl"`
+	Branch              string           `json:"branch"`
+	Dockerfile          string           `json:"dockerfile"`
+	Port                *int             `json:"port"`
+	Command             string           `json:"command"`
+	DataPath            string           `json:"dataPath"`
+	MemoryMB            int              `json:"memoryMb"`
+	CPUs                float64          `json:"cpus"`
+	DesiredState        string           `json:"desiredState"`
+	Status              string           `json:"status"`
+	ContainerID         string           `json:"-"`
+	HostPort            *int             `json:"hostPort"`
+	CurrentDeploymentID *string          `json:"currentDeploymentId"`
+	RunningSince        *time.Time       `json:"runningSince"`
+	SourceID            *string          `json:"sourceId"`
+	Domain              string           `json:"domain"`  // primary working domain as a URL, "" when none
+	Volumes             []string         `json:"volumes"` // mount paths of its volumes
+	ProjectName         string           `json:"projectName,omitempty"`
+	Usage               *Usage           `json:"usage,omitempty"`
+	LastDeployAt        *time.Time       `json:"lastDeployAt"`
+	ServerID            string           `json:"serverId"`
+	Engine              string           `json:"engine"` // database engine or function runtime
+	CreatedAt           time.Time        `json:"createdAt"`
+	UpdatedAt           time.Time        `json:"updatedAt"`
 }
 
 // ProxyHTTPPort and ProxyHTTPSPort are the host ports of the domain proxy, for building domain URLs.

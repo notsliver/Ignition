@@ -8,6 +8,8 @@ import { api } from '../../../api/client';
 import { timeAgo, useQuery } from '../../../api/hooks';
 import { databaseOptions, deployOptions } from '../../../app/createMenus';
 import { Unsupported } from '../../../app/Unsupported';
+import { useCanCreateResources, useResourceLayout } from '../../../app/instance';
+import { PanelList } from './PanelList';
 import { flows, unsupported } from './flows';
 import { AddResourceDialog } from './AddResourceDialog';
 import { ExternalDatabaseDialog, ImportDataDialog } from './DatabaseDialogs';
@@ -68,7 +70,9 @@ export function Resources({ project, environment, environmentId, listEnvironment
 
   const creation = useResourceCreation({ project, environment, environmentId, resources: all, onOpen, onCreateGame,
     onCreated: resource => { setFilter('all'); setQuery(''); setHighlight(resource.id); refetch(); }, onRefresh: refetch });
-  const add = <Menu className="button primary" label="Add resource" items={creation.items}><PlusIcon />Add resource</Menu>;
+  const canCreate = useCanCreateResources();
+  const layout = useResourceLayout();
+  const add = canCreate ? <Menu className="button primary" label="Add resource" items={creation.items}><PlusIcon />Add resource</Menu> : null;
 
   async function run(fn) {
     setActionError('');
@@ -102,7 +106,7 @@ export function Resources({ project, environment, environmentId, listEnvironment
     <div className="resources-empty">
       <CubeIcon />
       <strong>No resources{project.id ? ` in ${environment}` : ''} yet</strong>
-      <p>Deploy an application from Git or an image, or add a database.</p>
+      <p>{canCreate ? 'Deploy an application from Git or an image, or add a database.' : "Resources here are assigned by this instance's administrators. Ask them for what you need; it shows up here."}</p>
       {add}
     </div>
     {shared}
@@ -116,7 +120,8 @@ export function Resources({ project, environment, environmentId, listEnvironment
     </div>
     {actionError && <Notice tone="danger" title="That didn't work">{actionError}</Notice>}
 
-    {groups.map(group => {
+    {layout === 'panel' && visible.length > 0 && <PanelList resources={visible} onOpen={onOpen} sourceLabel={sourceLabel} />}
+    {layout !== 'panel' && groups.map(group => {
       const rows = visible.filter(r => r.type === group.type);
       if (!rows.length) return null;
       const Icon = group.icon;
@@ -132,7 +137,7 @@ export function Resources({ project, environment, environmentId, listEnvironment
                 <strong>{r.name}</strong>
                 <span className="resource-source">{sourceLabel(r)}{r.branch && <><span className="sep">·</span><code>{r.branch}</code></>}</span>
               </span>
-              <Status tone={status.tone}>{status.label}</Status>
+              {r.service?.status === 'suspended' ? <Status tone="warning">Suspended</Status> : <Status tone={status.tone}>{status.label}</Status>}
               <span className="resource-endpoint">
                 {url ? <a href={url} target="_blank" rel="noreferrer" onClick={event => event.stopPropagation()}>{url.replace('http://', '')}</a>
                   : r.port ? <code>{r.name}:{r.port}</code> : '—'}

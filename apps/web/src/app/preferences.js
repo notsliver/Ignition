@@ -9,7 +9,7 @@ import { useSyncExternalStore } from 'react';
 export const DEFAULTS = {
   theme: 'system', preset: 'ignition', accent: '', contrast: 'normal', size: '100', motion: 'system',
   timeStyle: 'relative', clock: 'auto', dateFormat: 'auto', timezone: 'browser',
-  startPage: 'dashboard', sidebar: 'expanded', refresh: 'normal', shortcuts: 'on', tableDensity: 'compact',
+  startPage: 'dashboard', sidebar: 'expanded', refresh: 'normal', shortcuts: 'on', tableDensity: 'compact', resourceLayout: 'instance',
 };
 
 // Each preset is a whole palette, tuned separately for light and dark: page background, surfaces,

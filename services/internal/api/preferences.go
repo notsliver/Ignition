@@ -21,19 +21,20 @@ import (
  */
 
 var prefEnums = map[string][]string{
-	"theme":        {"system", "light", "dark"},
-	"preset":       {"ignition", "graphite", "midnight", "ocean", "forest", "sand", "sunset", "rose", "violet"},
-	"contrast":     {"normal", "high"},
-	"size":         {"90", "100", "110", "125"},
-	"motion":       {"system", "reduce", "full"},
-	"timeStyle":    {"relative", "absolute"},
-	"clock":        {"auto", "12h", "24h"},
-	"dateFormat":   {"auto", "iso", "dmy", "mdy"},
-	"startPage":    {"dashboard", "projects", "servers", "monitor", "domains", "last"},
-	"sidebar":      {"expanded", "collapsed"},
-	"refresh":      {"live", "normal", "relaxed"},
-	"shortcuts":    {"on", "off"},
-	"tableDensity": {"compact", "comfortable"},
+	"theme":          {"system", "light", "dark"},
+	"preset":         {"ignition", "graphite", "midnight", "ocean", "forest", "sand", "sunset", "rose", "violet"},
+	"contrast":       {"normal", "high"},
+	"size":           {"90", "100", "110", "125"},
+	"motion":         {"system", "reduce", "full"},
+	"timeStyle":      {"relative", "absolute"},
+	"clock":          {"auto", "12h", "24h"},
+	"dateFormat":     {"auto", "iso", "dmy", "mdy"},
+	"startPage":      {"dashboard", "projects", "servers", "monitor", "domains", "last"},
+	"sidebar":        {"expanded", "collapsed"},
+	"refresh":        {"live", "normal", "relaxed"},
+	"shortcuts":      {"on", "off"},
+	"tableDensity":   {"compact", "comfortable"},
+	"resourceLayout": {"instance", "standard", "panel"},
 }
 
 var hexColorRE = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)

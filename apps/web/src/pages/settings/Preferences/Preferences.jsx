@@ -72,6 +72,9 @@ export function Preferences() {
       <SettingsField label="Table rows" hint="Compact fits more rows; comfortable is easier to scan.">
         <SegmentedControl label="Table rows" className="auto-width" value={p.tableDensity} onChange={set('tableDensity')} options={[{ value: 'compact', label: 'Compact' }, { value: 'comfortable', label: 'Comfortable' }]} />
       </SettingsField>
+      <SettingsField label="Resources" hint="How the Resources page lists them. Overview shows one line each with location, status and live CPU and memory. Instance default follows what your administrators chose.">
+        <SegmentedControl label="Resources layout" className="auto-width" value={p.resourceLayout} onChange={set('resourceLayout')} options={[{ value: 'instance', label: 'Instance default' }, { value: 'standard', label: 'Standard' }, { value: 'panel', label: 'Overview' }]} />
+      </SettingsField>
       <SettingsField label="Motion" htmlFor="motion">
         <Select id="motion" label="Motion" value={p.motion} onChange={set('motion')} options={motions} />
       </SettingsField>

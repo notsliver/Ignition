@@ -25,7 +25,7 @@ const BUILDERS = [
 const fmtDate = iso => iso ? new Date(iso).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : '—';
 const gb = b => b ? `${(b / (1 << 30)).toFixed(1)} GB` : '—';
 
-const toForm = d => ({ name: d.instance.name, maintenance: !!d.instance.maintenance, maintenanceMessage: d.instance.maintenanceMessage ?? '', hosting: d.instance.hosting ? 'on' : 'off', projects: d.instance.projects === false ? 'off' : 'on', infrastructure: d.instance.infrastructureAdminOnly ? 'admin' : 'teams', dashboardUrl: d.about.dashboardUrl === d.about.envDashboardUrl ? '' : d.about.dashboardUrl, memoryMb: String(d.defaults.memoryMb), cpus: String(d.defaults.cpus), healthSeconds: String(d.defaults.healthSeconds), stopGraceSeconds: String(d.defaults.stopGraceSeconds), restartPolicy: d.defaults.restartPolicy, buildMode: d.defaults.buildMode });
+const toForm = d => ({ name: d.instance.name, maintenance: !!d.instance.maintenance, maintenanceMessage: d.instance.maintenanceMessage ?? '', hosting: d.instance.hosting ? 'on' : 'off', projects: d.instance.projects === false ? 'off' : 'on', resourceCreation: d.instance.resourceCreation || 'anyone', resourceLayout: d.instance.resourceLayout || 'standard', infrastructure: d.instance.infrastructureAdminOnly ? 'admin' : 'teams', dashboardUrl: d.about.dashboardUrl === d.about.envDashboardUrl ? '' : d.about.dashboardUrl, memoryMb: String(d.defaults.memoryMb), cpus: String(d.defaults.cpus), healthSeconds: String(d.defaults.healthSeconds), stopGraceSeconds: String(d.defaults.stopGraceSeconds), restartPolicy: d.defaults.restartPolicy, buildMode: d.defaults.buildMode });
 
 export function General() {
   const { data, error, refetch } = useQuery(() => api.general(), []);
@@ -47,7 +47,7 @@ export function General() {
   async function save(e) {
     e.preventDefault();
     try {
-      const out = await api.putGeneral({ name: values.name, dashboardUrl: values.dashboardUrl, infrastructureAdminOnly: values.infrastructure === 'admin', maintenance: values.maintenance, maintenanceMessage: values.maintenanceMessage, hosting: values.hosting === 'on', projects: values.projects === 'on', defaults: { memoryMb: Number(values.memoryMb), cpus: Number(values.cpus), healthSeconds: Number(values.healthSeconds), stopGraceSeconds: Number(values.stopGraceSeconds), restartPolicy: values.restartPolicy, buildMode: values.buildMode } });
+      const out = await api.putGeneral({ name: values.name, dashboardUrl: values.dashboardUrl, infrastructureAdminOnly: values.infrastructure === 'admin', maintenance: values.maintenance, maintenanceMessage: values.maintenanceMessage, hosting: values.hosting === 'on', projects: values.projects === 'on', resourceCreation: values.resourceCreation, resourceLayout: values.resourceLayout, defaults: { memoryMb: Number(values.memoryMb), cpus: Number(values.cpus), healthSeconds: Number(values.healthSeconds), stopGraceSeconds: Number(values.stopGraceSeconds), restartPolicy: values.restartPolicy, buildMode: values.buildMode } });
       const f = toForm({ ...data, ...out, about: { ...a, dashboardUrl: out.dashboardUrl } });
       setSaved(f); setValues(f);
       setFeedback({ tone: 'success', title: 'Saved' });
@@ -63,6 +63,12 @@ export function General() {
     <SettingsGroup title="Instance">
       <SettingsField label="Instance name" hint={hint('name', 'Shown in the sidebar and browser tab.')} htmlFor="name">
         <TextInput {...bind('name')} maxLength={40} />
+      </SettingsField>
+      <SettingsField label="Resources layout" htmlFor="resourceLayout" hint={values.resourceLayout === 'panel'
+        ? 'Overview: one line per resource with its plan, location, status and live CPU and memory. People can still pick their own under Preferences.'
+        : 'Standard: resources grouped by type with their address, size and last deploy. People can still pick their own under Preferences.'}>
+        <Select id="resourceLayout" label="Resources layout" value={values.resourceLayout} onChange={set('resourceLayout')}
+          options={[{ value: 'standard', label: 'Standard' }, { value: 'panel', label: 'Overview' }]} />
       </SettingsField>
       <SettingsField label="Dashboard URL" hint={hint('dashboardUrl', <>The address people open Ignition at, used in invite and reset links. A domain like <span className="mono">https://ignition.example.com</span> is served by Ignition's proxy with automatic HTTPS, like an app's domain. Empty uses {a.envDashboardUrl} from .env.</>)} htmlFor="dashboardUrl">
         <TextInput {...bind('dashboardUrl')} className="mono" type="url" placeholder="https://ignition.example.com" spellCheck={false} />
@@ -85,6 +91,12 @@ export function General() {
     <SettingsGroup title="Experiences" description="What this installation is for. Every team shares them; turning one on never copies anything.">
       <SettingsField label="Infrastructure" hint="Servers, applications, databases, deployments, networking, storage and game servers.">
         <span className="readonly-value">Always on</span>
+      </SettingsField>
+      <SettingsField label="Resources" htmlFor="resourceCreation" hint={values.resourceCreation === 'anyone'
+        ? 'Teams create their own applications, databases, game servers and functions, within their quotas.'
+        : 'Teams only get what administrators assign them under Products, or create for them. They still run and manage what they have.'}>
+        <Select id="resourceCreation" label="Who creates resources" value={values.resourceCreation} onChange={set('resourceCreation')}
+          options={[{ value: 'anyone', label: 'Teams create their own' }, { value: 'assigned', label: 'Only assigned by administrators' }]} />
       </SettingsField>
       <SettingsField label="Projects" htmlFor="projects" hint={values.projects === 'on'
         ? 'Teams can group resources into projects with their own environments.'

@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api } from '../api/client';
+import { useSession } from './AuthGate';
+import { usePreferences } from './preferences';
 
 // The instance name from Settings › General, loaded once and updated live when it's saved.
 let cached = null;
@@ -61,4 +63,43 @@ export function useProjectsEnabled() {
     return () => window.removeEventListener('ignition:instance', onChange);
   }, []);
   return value;
+}
+
+// Whether the signed-in person may create resources themselves (Instance administration › General
+// › Experiences › Resources). "assigned" leaves teams with what administrators assign them;
+// instance administrators can always create.
+let creationCached = null;
+let creationPending = null;
+export function useCanCreateResources() {
+  const { platformUser, user } = useSession();
+  const admin = ['owner', 'admin'].includes((platformUser ?? user)?.role);
+  const [mode, setMode] = useState(creationCached ?? 'anyone');
+  useEffect(() => {
+    if (creationCached === null) {
+      creationPending ??= api.system().then(s => (creationCached = s.resourceCreation || 'anyone')).catch(() => 'anyone');
+      creationPending.then(setMode);
+    }
+    const onChange = e => { if (e.detail?.resourceCreation) { creationCached = e.detail.resourceCreation; setMode(creationCached); } };
+    window.addEventListener('ignition:instance', onChange);
+    return () => window.removeEventListener('ignition:instance', onChange);
+  }, []);
+  return admin || mode !== 'assigned';
+}
+
+// The Resources page layout: the person's own choice, or the instance's default (General).
+let layoutCached = null;
+let layoutPending = null;
+export function useResourceLayout() {
+  const own = usePreferences().resourceLayout;
+  const [instance, setInstance] = useState(layoutCached ?? 'standard');
+  useEffect(() => {
+    if (layoutCached === null) {
+      layoutPending ??= api.system().then(s => (layoutCached = s.resourceLayout || 'standard')).catch(() => 'standard');
+      layoutPending.then(setInstance);
+    }
+    const onChange = e => { if (e.detail?.resourceLayout) { layoutCached = e.detail.resourceLayout; setInstance(layoutCached); } };
+    window.addEventListener('ignition:instance', onChange);
+    return () => window.removeEventListener('ignition:instance', onChange);
+  }, []);
+  return own === 'standard' || own === 'panel' ? own : instance;
 }

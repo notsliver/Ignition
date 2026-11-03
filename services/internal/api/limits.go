@@ -102,6 +102,9 @@ func (s *Server) putLimits(w http.ResponseWriter, r *http.Request, u *store.User
 	if len(f) > 0 {
 		return httpx.Invalid(f)
 	}
+	if err := s.planLimit(ctx, u, id, in.CPUs, in.MemoryMB, 0); err != nil {
+		return domainError(err)
+	}
 	if err := s.checkResourceCap(ctx, res.Type, in.CPUs, in.MemoryMB, 0); err != nil {
 		return domainError(err)
 	}

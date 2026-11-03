@@ -331,7 +331,7 @@ func (s *Server) createGame(w http.ResponseWriter, r *http.Request, u *store.Use
 	}
 	// A server with allocations hands out its own IP:port pairs; the game's main port takes one.
 	if srv, err := s.Store.LocalServer(r.Context()); err == nil && s.Store.ServerHasAllocations(r.Context(), srv.ID) && len(ports) > 0 {
-		alloc, err := s.Store.ClaimAllocation(r.Context(), tx, srv.ID, id)
+		alloc, err := s.Store.ClaimAllocation(r.Context(), tx, srv.ID, id, allocationIPs(r.Context())...)
 		if errors.Is(err, store.ErrNotFound) {
 			return httpx.Conflict("Every allocation on this server is in use. A platform administrator can add more under Servers › Allocations.")
 		}
@@ -532,6 +532,13 @@ func (s *Server) updateGame(w http.ResponseWriter, r *http.Request, u *store.Use
 		return err
 	}
 	spec, before := srv.Spec, srv.Spec
+	changes := (in.Edition != nil && *in.Edition != spec.Edition) || (in.Version != nil && *in.Version != spec.Version) || (in.LoaderVersion != nil && *in.LoaderVersion != spec.LoaderVersion) ||
+		(in.CustomURL != nil && *in.CustomURL != spec.CustomURL) || in.Modpack != nil
+	if changes {
+		if err := s.productAllows(r.Context(), u, res.ID, "version"); err != nil {
+			return err
+		}
+	}
 	oldEdition, _ := games.EditionOf(srv.Adapter, spec.Edition)
 	if in.Edition != nil {
 		next, ok := games.EditionOf(srv.Adapter, *in.Edition)
@@ -596,6 +603,9 @@ func (s *Server) updateGame(w http.ResponseWriter, r *http.Request, u *store.Use
 
 // deployNow queues a deployment of the resource's current settings.
 func (s *Server) deployNow(ctx context.Context, resourceID string, u *store.User, reason string) (string, error) {
+	if err := s.suspended(ctx, u, resourceID); err != nil {
+		return "", err
+	}
 	tx, err := s.Store.SQL(ctx).Begin(ctx)
 	if err != nil {
 		return "", err

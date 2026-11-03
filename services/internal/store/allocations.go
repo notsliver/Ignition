@@ -85,11 +85,15 @@ func (s *Store) ServerHasAllocations(ctx context.Context, server string) bool {
 
 // ClaimAllocation gives a resource the lowest free allocation on the server, inside tx so a failed
 // create releases it. ErrNotFound when every allocation is taken.
-func (s *Store) ClaimAllocation(ctx context.Context, tx pgx.Tx, server, resource string) (*Allocation, error) {
+func (s *Store) ClaimAllocation(ctx context.Context, tx pgx.Tx, server, resource string, ips ...string) (*Allocation, error) {
 	var a Allocation
+	if ips == nil {
+		ips = []string{}
+	}
 	err := tx.QueryRow(ctx, `UPDATE server_allocations SET resource_id = $2 WHERE id = (
-			SELECT id FROM server_allocations WHERE server_id = $1 AND resource_id IS NULL ORDER BY port, ip LIMIT 1 FOR UPDATE SKIP LOCKED)
-		RETURNING id, ip, port, alias`, server, resource).Scan(&a.ID, &a.IP, &a.Port, &a.Alias)
+			SELECT id FROM server_allocations WHERE server_id = $1 AND resource_id IS NULL AND (cardinality($3::text[]) = 0 OR ip = ANY($3::text[]))
+			ORDER BY port, ip LIMIT 1 FOR UPDATE SKIP LOCKED)
+		RETURNING id, ip, port, alias`, server, resource, ips).Scan(&a.ID, &a.IP, &a.Port, &a.Alias)
 	if err != nil {
 		return nil, noRows(err)
 	}

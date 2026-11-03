@@ -4218,6 +4218,52 @@ paths:
     get:
       summary: What the team's resources use together over a range (?range=15m|1h|6h|24h|7d), per resource and step. Team-scoped (/api/teams/{teamId}/usage).
       responses: { '200': { description: '{ range, stepSeconds, buckets, resources }' } }
+  /api/platform/products:
+    get:
+      summary: Every product with its plans and how many services use each.
+      responses: { '200': { description: ok } }
+    post:
+      summary: Create a product - name, description, category, kind (application, database, worker, function, game), template, status and plans.
+      responses: { '200': { description: ok } }
+  /api/platform/products/{id}:
+    get:
+      summary: One product with its plans.
+      responses: { '200': { description: ok } }
+    put:
+      summary: Replace a product and its plans. Plans are matched by id; removing one that services use answers 409.
+      responses: { '200': { description: ok } }
+    delete:
+      summary: Delete a product nobody uses. Products with services answer 409; retire them instead.
+      responses: { '200': { description: ok } }
+  /api/platform/products/{id}/availability:
+    get:
+      summary: Where the next service of a plan would go for a team - stock left, team limit, every server with why it can or can't take it, and the strategy's pick.
+      responses: { '200': { description: '{ available, reason, stockLeft, teamLeft, strategy, chosen, servers }' } }
+  /api/platform/products/{id}/duplicate:
+    post:
+      summary: Copy a product and its plans as a new draft.
+      responses: { '200': { description: ok } }
+  /api/platform/services:
+    get:
+      summary: Every service (a team's provisioned plan). Filters - product, team, status, q.
+      responses: { '200': { description: ok } }
+    post:
+      summary: Assign a plan to a team - productId, planId, teamId, name, note. Creates the resource as the team's owner.
+      responses: { '200': { description: ok } }
+  /api/platform/services/{id}:
+    get:
+      summary: One service.
+      responses: { '200': { description: ok } }
+    patch:
+      summary: Change a service's note.
+      responses: { '200': { description: ok } }
+    delete:
+      summary: Terminate - deletes its resource and data. Needs ?confirm=true; the service stays as history.
+      responses: { '200': { description: ok } }
+  /api/platform/services/{id}/actions:
+    post:
+      summary: suspend (with an optional reason; stops it), unsuspend (starts it) or change-plan (planId; resizes and redeploys).
+      responses: { '200': { description: ok } }
   /api/platform/teams:
     get:
       summary: Every team on the instance with its members, owners, projects, resources and assigned servers (counts only). Platform administrators.

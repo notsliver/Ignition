@@ -440,7 +440,7 @@ func (s *Server) moveResource(w http.ResponseWriter, r *http.Request, u *store.U
 	}
 	s.Store.Audit(r.Context(), u, "resource.move", "resource", id, map[string]any{"from": res.EnvironmentID, "to": in.EnvironmentID, "project": projectName, "environment": envName}, clientIP(r))
 	out := map[string]any{"projectId": projectID, "projectName": projectName, "environmentName": envName}
-	if res.ContainerID != "" {
+	if res.ContainerID != "" && s.suspended(r.Context(), u, id) == nil {
 		// Redeploy the same release so the container moves to the new environment's network.
 		tx, err := s.Store.SQL(r.Context()).Begin(r.Context())
 		if err != nil {

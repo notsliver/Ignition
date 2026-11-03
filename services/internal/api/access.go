@@ -321,6 +321,9 @@ func (s *Server) deployHook(w http.ResponseWriter, r *http.Request) error {
 	if t.CreatorID != nil {
 		creator = *t.CreatorID
 	}
+	if v, err := s.Store.ServiceForResource(r.Context(), res.ID); err == nil && v.Status == "suspended" {
+		return &httpx.Error{Status: 403, Code: "service_suspended", Message: res.Name + " is suspended by its provider."}
+	}
 	depID, err := s.Store.CreateDeployment(r.Context(), tx, res.ID, "hook", "", res.Branch, reason, creator)
 	if err != nil {
 		return err

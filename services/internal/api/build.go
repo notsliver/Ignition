@@ -52,6 +52,18 @@ func (s *Server) putBuild(w http.ResponseWriter, r *http.Request, u *store.User)
 	if err := httpx.Decode(r, &in); err != nil {
 		return err
 	}
+	if cur, err := s.Store.GetBuildSettings(r.Context(), id); err == nil {
+		if strings.TrimSpace(in.Command) != cur.Command {
+			if err := s.productAllows(r.Context(), u, id, "command"); err != nil {
+				return err
+			}
+		}
+		if in.Mode != cur.Mode || strings.TrimSpace(in.Dockerfile) != cur.Dockerfile || strings.Trim(strings.TrimSpace(in.Context), "/") != cur.Context || strings.TrimSpace(in.Target) != cur.Target {
+			if err := s.productAllows(r.Context(), u, id, "source"); err != nil {
+				return err
+			}
+		}
+	}
 	f := map[string]string{}
 	in.Dockerfile, in.Context, in.Target = strings.TrimSpace(in.Dockerfile), strings.Trim(strings.TrimSpace(in.Context), "/"), strings.TrimSpace(in.Target)
 	in.Command, in.ReleaseCommand = strings.TrimSpace(in.Command), strings.TrimSpace(in.ReleaseCommand)

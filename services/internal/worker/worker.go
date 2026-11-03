@@ -230,6 +230,9 @@ func (w *Worker) deploy(ctx context.Context, job *jobs.Job) error {
 	if dep.Status == "cancelled" {
 		return errCancelled
 	}
+	if w.suspended(ctx, res.ID, job.ID) {
+		return fmt.Errorf("%w: %s is suspended by your provider, so it can't be deployed", jobs.ErrPermanent, res.Name)
+	}
 	if res.SourceType == "external" {
 		return fmt.Errorf("%w: %s is an external database; there's nothing to deploy", jobs.ErrPermanent, res.Name)
 	}
@@ -610,6 +613,9 @@ func (w *Worker) action(ctx context.Context, job *jobs.Job) error {
 	if res.ContainerID == "" {
 		return fmt.Errorf("%w: %s has never been deployed. Deploy it first.", jobs.ErrPermanent, res.Name)
 	}
+	if (p.Action == "start" || p.Action == "restart" || p.Action == "resume") && w.suspended(ctx, res.ID, job.ID) {
+		return fmt.Errorf("%w: %s is suspended by your provider, so it can't be started", jobs.ErrPermanent, res.Name)
+	}
 	w.Queue.Log(ctx, job.ID, "info", p.Action, fmt.Sprintf("%s %s", strings.Title(p.Action), res.Name))
 	if p.Action == "refresh" {
 		w.refreshStatus(ctx, job.ResourceID)
@@ -934,4 +940,13 @@ func SplitArgs(s string) ([]string, error) {
 		out = append(out, cur.String())
 	}
 	return out, nil
+}
+
+// suspended reports a resource whose service an administrator suspended (Products), unless an
+// instance administrator queued this job: automations, hooks and schedules can't bring it back.
+func (w *Worker) suspended(ctx context.Context, resourceID, jobID string) bool {
+	var yes bool
+	w.Store.DB.QueryRow(ctx, `SELECT EXISTS (SELECT 1 FROM services WHERE resource_id = $1 AND status = 'suspended')
+		AND NOT EXISTS (SELECT 1 FROM jobs j JOIN users u ON u.id = j.created_by WHERE j.id = $2 AND u.role IN ('owner', 'admin'))`, resourceID, jobID).Scan(&yes)
+	return yes
 }

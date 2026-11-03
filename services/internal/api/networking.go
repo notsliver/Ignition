@@ -433,6 +433,9 @@ func (s *Server) putNetworking(w http.ResponseWriter, r *http.Request, u *store.
 		}
 		return n
 	}
+	if err := s.planLimit(r.Context(), u, id, 0, 0, published(cfg.Ports)); err != nil {
+		return domainError(err)
+	}
 	if err := s.checkResourceCap(r.Context(), res.Type, 0, 0, published(cfg.Ports)); err != nil {
 		return domainError(err)
 	}

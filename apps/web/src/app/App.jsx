@@ -37,6 +37,8 @@ import { AdminTeams } from '../pages/admin/AdminTeams';
 import { Integrations } from '../pages/admin/Integrations';
 import { useSourceMode } from './instance';
 import { Limits } from '../pages/admin/Limits';
+import { Products } from '../pages/admin/products/Products';
+import { Services as AssignedServices } from '../pages/admin/products/Services';
 import { useSession } from './AuthGate';
 import { adminPages, infrastructurePages } from './navigation';
 import { useInfrastructureAdminOnly } from './instance';
@@ -63,8 +65,8 @@ const preview = node => <><PreviewBanner />{node}</>;
 const LIVE_RESOURCE_VIEWS = ['Overview', 'Deployments', 'Logs', 'Metrics', 'Environment Variables', 'Source', 'Domains', 'Networking', 'Build & Deploy', 'Resource Limits', 'Storage', 'Terminal',
   'Health Checks', 'Rollback History', 'Scheduled Tasks', 'Access & Secrets', 'Advanced Settings', 'Automations', 'Code', 'Files', 'Backups'];
 // Settings pages backed by the API (the rest are still previews).
-const LIVE_PAGES = ['Team', 'Team Members', 'Team Sources', 'General', 'Authentication & Security', 'Updates', 'Users', 'Teams', 'Limits', 'Preferences', 'Profile', 'Security', 'Integrations'];
-const pages = { Integrations: <Integrations />, Profile: <Profile />, Security: <AccountSecurity />, Team: <TeamSettings />, 'Team Members': <TeamMembers />, Dashboard: <Dashboard />, General: <General />, 'Authentication & Security': <Security />, Updates: <Updates />, Users: <Users />, Teams: <AdminTeams />, Limits: <Limits />, Preferences: <Preferences /> };
+const LIVE_PAGES = ['Team', 'Team Members', 'Team Sources', 'General', 'Authentication & Security', 'Updates', 'Users', 'Teams', 'Limits', 'Preferences', 'Profile', 'Security', 'Integrations', 'Products', 'Assigned services'];
+const pages = { Integrations: <Integrations />, Profile: <Profile />, Security: <AccountSecurity />, Team: <TeamSettings />, 'Team Members': <TeamMembers />, Dashboard: <Dashboard />, General: <General />, 'Authentication & Security': <Security />, Updates: <Updates />, Users: <Users />, Teams: <AdminTeams />, Limits: <Limits />, Products: <Products />, 'Assigned services': <AssignedServices />, Preferences: <Preferences /> };
 
 export function App() {
   const { team } = useTeam();
@@ -175,7 +177,14 @@ export function App() {
     Monitoring: <ProjectMonitoring key={`${project.id}:${environment}`} project={project} environment={environment} onOpenResource={openResourceFromAnywhere} />,
     Logs: <ProjectLogs key={`${project.id}:${environment}`} project={project} environment={environment} onOpenResource={openResourceFromAnywhere} />,
     'Project Settings': <ResourceAccess resource={project}><ProjectSettings key={project.id} project={project} onProjectChange={setProject} onDeleted={() => { setProject(null); setActive('Projects'); }} /></ResourceAccess> };
-  function renderResourcePage(){return <ResourceAccess resource={resource}>{renderResourceContent()}</ResourceAccess>;}
+  function renderResourcePage(){
+    const suspended = resource?.service?.status === 'suspended';
+    return <ResourceAccess resource={resource}>
+      {suspended && <div className="suspended-banner"><Notice tone="warning" title={`${resource.name} is suspended by your provider`}>
+        {resource.service.suspendedReason ? `Reason: ${resource.service.suspendedReason}. ` : ''}It stays stopped until they unsuspend it; your files and data are kept.</Notice></div>}
+      {renderResourceContent()}
+    </ResourceAccess>;
+  }
   function renderResourceContent() {
     const props = { key: `${resource.id ?? resource.name}:${resourceView}`, project: project ?? {id:null,name:'No project',environments:[]}, environment, resource, onNavigate: showResourceView, onResourceChange: setResourceState, onDeleted: () => setResourceState(null) };
     if (resource.type === 'game') {

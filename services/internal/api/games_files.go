@@ -315,7 +315,7 @@ func (s *Server) gameWorldUpload(w http.ResponseWriter, r *http.Request, u *stor
 	if !validWorldName(name) {
 		return httpx.Invalid(map[string]string{"name": "Name the world: letters, numbers, spaces, dashes."})
 	}
-	if err := s.checkResourceStorage(r.Context(), res, u.ID, false); err != nil {
+	if err := s.storageAllowed(r.Context(), res, u, false); err != nil {
 		return domainError(err)
 	}
 	body, size, cleanup, err := spoolUpload(r, 8<<30)

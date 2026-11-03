@@ -34,6 +34,12 @@ type instanceSettings struct {
 	// Projects lets teams group resources into projects. Off: teams work with standalone resources
 	// only; existing projects keep working, but no new ones can be made. Unset means on.
 	Projects *bool `json:"projects,omitempty"`
+	// ResourceCreation: "anyone" (default) lets teams create their own resources; "assigned" leaves
+	// only what instance administrators assign them (Products) or create for them.
+	ResourceCreation string `json:"resourceCreation,omitempty"`
+	// ResourceLayout is how the Resources page lists resources for everyone who hasn't picked their
+	// own layout: "standard" (default) or "panel" (Overview: one line each with live usage).
+	ResourceLayout string `json:"resourceLayout,omitempty"`
 	// Maintenance closes the dashboard and API to everyone but platform administrators, who see
 	// MaintenanceMessage's banner instead. Running workloads aren't touched.
 	Maintenance        bool   `json:"maintenance"`
@@ -57,6 +63,12 @@ func (s *Server) instance(ctx context.Context) instanceSettings {
 	s.Store.GetSetting(ctx, "instance", &inst)
 	if inst.Name == "" {
 		inst.Name = "Ignition"
+	}
+	if inst.ResourceLayout == "" {
+		inst.ResourceLayout = "standard"
+	}
+	if inst.ResourceCreation == "" {
+		inst.ResourceCreation = "anyone"
 	}
 	if inst.Projects == nil {
 		on := true
@@ -103,6 +115,8 @@ func (s *Server) putGeneral(w http.ResponseWriter, r *http.Request, u *store.Use
 		InfrastructureAdminOnly *bool   `json:"infrastructureAdminOnly"`
 		Hosting                 *bool   `json:"hosting"`
 		Projects                *bool   `json:"projects"`
+		ResourceCreation        string  `json:"resourceCreation"`
+		ResourceLayout          string  `json:"resourceLayout"`
 		Maintenance             *bool   `json:"maintenance"`
 		MaintenanceMessage      *string `json:"maintenanceMessage"`
 	}
@@ -160,6 +174,19 @@ func (s *Server) putGeneral(w http.ResponseWriter, r *http.Request, u *store.Use
 	if in.InfrastructureAdminOnly != nil && *in.InfrastructureAdminOnly != inst.InfrastructureAdminOnly {
 		inst.InfrastructureAdminOnly = *in.InfrastructureAdminOnly
 		s.Store.Audit(r.Context(), u, "instance.infrastructure_visibility", "instance", "", map[string]any{"adminOnly": inst.InfrastructureAdminOnly}, clientIP(r))
+	}
+	if in.ResourceLayout != "" {
+		if in.ResourceLayout != "standard" && in.ResourceLayout != "panel" {
+			return httpx.Invalid(map[string]string{"resourceLayout": "standard or panel."})
+		}
+		inst.ResourceLayout = in.ResourceLayout
+	}
+	if in.ResourceCreation != "" && in.ResourceCreation != inst.ResourceCreation {
+		if in.ResourceCreation != "anyone" && in.ResourceCreation != "assigned" {
+			return httpx.Invalid(map[string]string{"resourceCreation": "anyone or assigned."})
+		}
+		inst.ResourceCreation = in.ResourceCreation
+		s.Store.Audit(r.Context(), u, "instance.experiences", "instance", "", map[string]any{"resourceCreation": in.ResourceCreation}, clientIP(r))
 	}
 	if in.Projects != nil && *in.Projects != *inst.Projects {
 		inst.Projects = in.Projects

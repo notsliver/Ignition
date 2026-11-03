@@ -100,7 +100,7 @@ func (s *Server) createBackup(w http.ResponseWriter, r *http.Request, u *store.U
 	if len(in.Label) > 60 {
 		return httpx.Invalid(map[string]string{"label": "Up to 60 characters."})
 	}
-	if err := s.checkResourceStorage(r.Context(), res, u.ID, true); err != nil {
+	if err := s.storageAllowed(r.Context(), res, u, true); err != nil {
 		return domainError(err)
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), 2*time.Hour)

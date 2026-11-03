@@ -6,7 +6,7 @@ import { api } from '../../api/client';
 import { duration, timeAgo, useQuery } from '../../api/hooks';
 import { databaseOptions, deployOptions, serverOptions } from '../../app/createMenus';
 import { useProjectCreation } from '../Projects/Projects';
-import { useProjectsEnabled } from '../../app/instance';
+import { useCanCreateResources, useProjectsEnabled } from '../../app/instance';
 import { ResourceQuickCreate } from './ResourceQuickCreate';
 import '../project/Deployments/Deployments.css';
 import './Dashboard.css';
@@ -35,6 +35,7 @@ export function Dashboard({ onOpenResource, onOpenProject, onOpenServer, onNavig
   const [resourceAction, setResourceAction] = useState(null);
   const { data, error, refetch } = useQuery(() => api.dashboard(), [], { pollMs: 5000 });
   const projectsOn = useProjectsEnabled();
+  const canCreate = useCanCreateResources();
   const projectsQuery = useQuery(() => api.projects(), []);
   const projectCreation = useProjectCreation({ projects: projectsQuery.data?.projects ?? [],
     onCreated: p => { projectsQuery.refetch(); refetch(); onOpenProject?.(p); } });
@@ -62,9 +63,9 @@ export function Dashboard({ onOpenResource, onOpenProject, onOpenServer, onNavig
 
   return <div className="dashboard">
     <div className="quick-actions">
-      <Menu className="button primary" label="Deploy application" items={resourceMenu(deployOptions, 'Application/')} align="start"><CloudArrowUpIcon />Deploy application</Menu>
+      {canCreate && <Menu className="button primary" label="Deploy application" items={resourceMenu(deployOptions, 'Application/')} align="start"><CloudArrowUpIcon />Deploy application</Menu>}
       {projectsOn && <Menu className="button" label="New project" items={projectCreation.items} align="start"><FolderPlusIcon />New project</Menu>}
-      <Menu className="button" label="New database" items={resourceMenu(databaseOptions, 'Database/')} align="start"><CircleStackIcon />New database</Menu>
+      {canCreate && <Menu className="button" label="New database" items={resourceMenu(databaseOptions, 'Database/')} align="start"><CircleStackIcon />New database</Menu>}
       {serversHere && <Menu className="button" label="Add server" items={serverOptions} align="start"><ServerIcon />Add server</Menu>}
     </div>
 
